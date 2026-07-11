@@ -47,3 +47,4 @@ Desktop.ini
 # Node (local test servers)
 node_modules/
 .cache/
+package-lock.json

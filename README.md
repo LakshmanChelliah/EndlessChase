@@ -5,7 +5,7 @@
 
 ## Play
 
-**Live:** *(set after GitHub Pages deploy)*  
+**Live:** https://lakshmanchelliah.github.io/EndlessChase/
 
 Local preview:
 

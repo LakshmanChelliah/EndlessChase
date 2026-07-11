@@ -1,0 +1,13 @@
+{
+  "name": "endless-chase",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "npx --yes serve docs -p 4173",
+    "smoke": "node scripts/smoke.mjs http://localhost:4173",
+    "smoke:live": "node scripts/smoke.mjs https://lakshmanchelliah.github.io/EndlessChase/"
+  },
+  "devDependencies": {
+    "playwright": "1.49.0"
+  }
+}
