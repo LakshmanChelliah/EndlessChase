@@ -133,16 +133,20 @@ function save(img, name) {
   save(img, "house.png");
 }
 
-// --- Sky gradient dithered 8x64 ---
+// --- Sky gradient dithered 8x64 (soft dusk — no solid orange horizon wall) ---
 {
   const img = png(8, 64);
+  const peach = [0xc4, 0xa5, 0x74, 255];
+  const dusk = [0x6b, 0x8c, 0xae, 255];
   for (let y = 0; y < 64; y++) {
     const t = y / 63;
-    const col = t < 0.55 ? C.navy : t < 0.75 ? C.sky : C.orange;
+    let col = C.navy;
+    if (t >= 0.92) col = dusk;
+    else if (t >= 0.85) col = peach;
+    else if (t >= 0.7) col = C.sky;
     fill(img, 0, y, 8, y + 1, col);
-    if (y % 3 === 0) set(img, y % 8, y, C.dark);
+    if (y % 3 === 0 && t < 0.55) set(img, y % 8, y, C.dark);
   }
-  // stars
   for (const [x, y] of [[1, 4], [5, 8], [3, 12], [6, 3], [2, 18]]) set(img, x, y, C.white);
   save(img, "sky.png");
 }
