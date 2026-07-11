@@ -84,9 +84,36 @@ scene.add(camera);
 const tex = createTextures();
 addSky(camera);
 
+// ---------- Menu / intro camera ----------
+/** City curb sits at ±8.2; park fully on the left sidewalk just outside it. */
+const MENU_PARK = { x: -10.25, z: 2.8, yaw: 0.06 };
+const INTRO_DURATION = 1.35;
+
+const _menuCamPos = new THREE.Vector3(-4.6, 2.55, -2.4);
+const _menuCamLook = new THREE.Vector3(-9.8, 0.5, 6.2);
+const _camLook = new THREE.Vector3().copy(_menuCamLook);
+const _tmpV = new THREE.Vector3();
+const _tmpV2 = new THREE.Vector3();
+
+function gameplayCamPos(lx, pz, out = _tmpV) {
+  return out.set(lx * 0.08, 8.4, pz - 14);
+}
+function gameplayCamLook(lx, pz, out = _tmpV2) {
+  return out.set(lx * 0.05, 1.0, pz + 14);
+}
+function setCameraLook(x, y, z) {
+  _camLook.set(x, y, z);
+  camera.lookAt(_camLook);
+}
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
 // ---------- State ----------
 let running = false;
 let alive = false;
+/** @type {null | { t:number, duration:number, fromCam:THREE.Vector3, fromLook:THREE.Vector3, toCam:THREE.Vector3, toLook:THREE.Vector3, fromPos:THREE.Vector3, toPos:THREE.Vector3, fromYaw:number, toYaw:number }} */
+let intro = null;
 let activeBiome = "city";
 let lane = 2;
 let laneX = 0;
@@ -120,6 +147,7 @@ let transitionQueue = [];
 let transitionFrom = null;
 let transitionTo = null;
 let transitioning = false;
+let menuTime = 0;
 
 const activeSegments = [];
 const activeTraffic = [];
@@ -399,6 +427,7 @@ function endRun(reason) {
   if (!alive) return;
   alive = false;
   running = false;
+  intro = null;
   if (goTitle) goTitle.textContent = reason === "bust" ? "Busted!" : "Wrecked!";
   goScore.textContent = `${Math.floor(distance)} m`;
   goCoins.textContent = `+$${runCoins}`;
@@ -410,10 +439,69 @@ function endRun(reason) {
 function crash() { endRun("wreck"); }
 function bust() { endRun("bust"); }
 
-function startRun() {
+function parkPlayerCurbside() {
+  player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
+  player.rotation.set(0, MENU_PARK.yaw, 0);
+}
+
+function applyMenuCamera() {
+  camera.position.copy(_menuCamPos);
+  setCameraLook(_menuCamLook.x, _menuCamLook.y, _menuCamLook.z);
+}
+
+/** Attract / title street: city blocks + player parked on the left curb. */
+function setupMenuScene() {
   clearWorld();
-  running = true;
-  alive = true;
+  running = false;
+  alive = false;
+  intro = null;
+  activeBiome = "city";
+  nextSpawnZ = -SEG_LEN;
+  spawnIndex = 0;
+  worldSeed = 0xc0ffee;
+  playerZ = 0;
+  distance = 0;
+  speed = 0;
+  turnYaw = 0;
+  turnYawVel = 0;
+  turnActive = null;
+  heat = 0;
+  braking = false;
+
+  // Plain city blocks only — no intersections / turn offers on the title street
+  for (let i = 0; i < 7; i++) {
+    const seg = segmentPool.city.rent();
+    seg.userData.resolved = false;
+    seg.userData.lightState = "green";
+    seg.userData.lightTimer = 2;
+    if (seg.userData.lightGroup) updateLightVisual(seg);
+    seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
+    configureGantry(seg);
+    activeSegments.push(seg);
+    nextSpawnZ += SEG_LEN;
+    spawnIndex++;
+  }
+
+  // Quiet parked deco cars further along the same curb
+  const decoZs = [15, 27];
+  for (let i = 0; i < decoZs.length; i++) {
+    const deco = carPool.rent();
+    deco.position.set(MENU_PARK.x - 0.15 * i, 0, decoZs[i]);
+    deco.rotation.y = (i === 0 ? 0.04 : -0.03);
+    deco.userData.police = false;
+    deco.userData.pursuit = false;
+    deco.userData.dir = 1;
+    deco.userData.speed = 0;
+    deco.userData.lane = -1;
+    activeTraffic.push(deco);
+  }
+
+  parkPlayerCurbside();
+  applyMenuCamera();
+  menuTime = 0;
+}
+
+function resetRunState() {
   activeBiome = "city";
   const layout = layoutFor(activeBiome);
   lane = layout.defaultLane;
@@ -443,15 +531,103 @@ function startRun() {
   transitioning = false;
   transitionFrom = null;
   transitionTo = null;
-  player.position.set(laneX, 0, 0);
-  player.rotation.set(0, 0, 0);
+}
+
+/**
+ * Build the run world, keep the car at the curb, then lerp camera + pull-out into lane.
+ * @param {{instant?: boolean}} [opts]
+ */
+function startRun(opts = {}) {
+  if (intro) return;
+  const instant = !!opts.instant;
+
+  clearWorld();
+  resetRunState();
   for (let i = 0; i < 10; i++) spawnSegment();
+
   showPanel("hud");
   hudCoins.textContent = `$${save.coins}`;
   if (hudTurn) hudTurn.classList.add("hidden");
   if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
   updateHeatUI();
   trafficTimer = 0.8;
+
+  const toPos = new THREE.Vector3(laneX, 0, 0);
+  const toCam = gameplayCamPos(laneX, 0).clone();
+  const toLook = gameplayCamLook(laneX, 0).clone();
+
+  if (instant) {
+    intro = null;
+    running = true;
+    alive = true;
+    player.position.copy(toPos);
+    player.rotation.set(0, 0, 0);
+    camera.position.copy(toCam);
+    setCameraLook(toLook.x, toLook.y, toLook.z);
+    return;
+  }
+
+  // Seamless: stay parked, then pull into the default forward lane
+  parkPlayerCurbside();
+  applyMenuCamera();
+  running = false;
+  alive = true;
+  intro = {
+    t: 0,
+    duration: INTRO_DURATION,
+    fromCam: camera.position.clone(),
+    fromLook: _camLook.clone(),
+    toCam,
+    toLook,
+    fromPos: new THREE.Vector3(MENU_PARK.x, 0, MENU_PARK.z),
+    toPos,
+    fromYaw: MENU_PARK.yaw,
+    toYaw: 0,
+  };
+}
+
+function finishIntro() {
+  if (!intro) return;
+  const pz = playerZ;
+  player.position.set(laneX, 0, pz);
+  player.rotation.set(0, 0, 0);
+  camera.position.copy(gameplayCamPos(laneX, pz));
+  const look = gameplayCamLook(laneX, pz);
+  setCameraLook(look.x, look.y, look.z);
+  distance = pz;
+  intro = null;
+  running = true;
+  alive = true;
+}
+
+function updateIntro(dt) {
+  if (!intro) return;
+  intro.t += dt;
+  const u = Math.min(1, intro.t / intro.duration);
+  const e = easeInOutCubic(u);
+  const pull = easeInOutCubic(Math.min(1, u * 1.15));
+
+  // Soft roll-out late in the blend so gameplay already has forward motion
+  if (u > 0.55) {
+    const ramp = (u - 0.55) / 0.45;
+    playerZ = speed * 0.4 * ramp * ramp;
+  } else {
+    playerZ = 0;
+  }
+  distance = playerZ;
+
+  player.position.x = THREE.MathUtils.lerp(intro.fromPos.x, intro.toPos.x, pull);
+  player.position.y = 0;
+  player.position.z = THREE.MathUtils.lerp(intro.fromPos.z, playerZ, e);
+  player.rotation.y = THREE.MathUtils.lerp(intro.fromYaw, intro.toYaw, e);
+
+  gameplayCamPos(laneX, playerZ, intro.toCam);
+  gameplayCamLook(laneX, playerZ, intro.toLook);
+  camera.position.lerpVectors(intro.fromCam, intro.toCam, e);
+  _camLook.lerpVectors(intro.fromLook, intro.toLook, e);
+  camera.lookAt(_camLook);
+
+  if (u >= 1) finishIntro();
 }
 
 function onSwipe(dir) {
@@ -514,15 +690,25 @@ document.body.addEventListener("touchmove", (e) => {
 }, { passive: false });
 
 document.getElementById("btn-play").onclick = () => startRun();
-document.getElementById("btn-retry").onclick = () => startRun();
-document.getElementById("btn-menu").onclick = () => { fromGameOver = false; showPanel("menu"); };
+document.getElementById("btn-retry").onclick = () => startRun({ instant: true });
+document.getElementById("btn-menu").onclick = () => {
+  fromGameOver = false;
+  setupMenuScene();
+  showPanel("menu");
+};
 document.getElementById("btn-upgrades-menu").onclick = () => {
   fromGameOver = false; refreshUpgradesUI(); showPanel("upgrades");
 };
 document.getElementById("btn-upgrades-go").onclick = () => {
   fromGameOver = true; refreshUpgradesUI(); showPanel("upgrades");
 };
-document.getElementById("btn-up-back").onclick = () => showPanel(fromGameOver ? "gameover" : "menu");
+document.getElementById("btn-up-back").onclick = () => {
+  if (fromGameOver) showPanel("gameover");
+  else {
+    setupMenuScene();
+    showPanel("menu");
+  }
+};
 btnUpSpeed.onclick = () => { if (tryUpgrade(save, "topSpeedLevel")) refreshUpgradesUI(); };
 btnUpAccel.onclick = () => { if (tryUpgrade(save, "accelerationLevel")) refreshUpgradesUI(); };
 btnUpHandling.onclick = () => { if (tryUpgrade(save, "handlingLevel")) refreshUpgradesUI(); };
@@ -615,8 +801,9 @@ function tick(now) {
     }
 
     // Portrait chase cam: stay near road center so left/rightmost lanes stay visible
-    camera.position.set(laneX * 0.08, 8.4, playerZ - 14);
-    camera.lookAt(laneX * 0.05, 1.0, playerZ + 14);
+    camera.position.copy(gameplayCamPos(laneX, playerZ));
+    const look = gameplayCamLook(laneX, playerZ);
+    setCameraLook(look.x, look.y, look.z);
 
     while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
 
@@ -768,24 +955,29 @@ function tick(now) {
       hudBoost.textContent = "BOOST";
       hudBoost.classList.toggle("hidden", boostTimer <= 0);
     }
+  } else if (intro) {
+    updateIntro(dt);
   } else if (!running) {
-    camera.position.set(2, 5, -9);
-    camera.lookAt(0, 1, 3);
-    player.position.set(0, 0, 0);
-    player.rotation.y += dt * 0.5;
+    menuTime += dt;
+    // Idle curb pose — tiny sway, no spin
+    player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
+    player.rotation.y = MENU_PARK.yaw + Math.sin(menuTime * 0.7) * 0.04;
+    applyMenuCamera();
   }
 
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
 
+setupMenuScene();
 showPanel("menu");
 requestAnimationFrame(tick);
 
 window.__endlessChase = {
   startRun,
+  setupMenuScene,
   getSave: () => ({ ...save }),
   getState: () => ({
-    running, alive, distance, lane, biome: activeBiome, heat, braking, coins: save.coins,
+    running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, braking, coins: save.coins,
   }),
 };

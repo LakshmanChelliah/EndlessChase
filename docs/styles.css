@@ -116,6 +116,21 @@ html, body {
   text-align: center;
 }
 
+/* Start screen sits low so the curbside car + street stay visible */
+#panel-menu {
+  top: auto;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(94vw, 360px);
+  padding: 0.85rem 0.85rem 0.95rem;
+  background: rgba(29, 43, 83, 0.78);
+}
+
+#panel-menu .tag {
+  margin-bottom: 0.75rem;
+  font-size: 0.5rem;
+}
+
 .panel.hud {
   top: 0;
   left: 0;
