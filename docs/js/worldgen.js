@@ -61,17 +61,17 @@ export function decideSegment(biome, spawnIndex, turnCooldown, rng) {
 
 /**
  * Build a seamless transition corridor from → to.
- * Does NOT wipe existing road; these are appended by the spawner.
+ * Uses normal pooled tiles (no one-off meshes) so shared textures stay intact.
  *
- * Pattern: taper (from) → mix → mix → merge (to) → settle (to)
+ * Pattern: exit ramp (from) → straight (from) → enter ramp (to) → settle ×2 (to)
  */
 export function buildTransitionPlan(fromBiome, toBiome) {
   return [
-    { biome: fromBiome, kind: "", phase: "taper", t: 0.2 },
-    { biome: fromBiome, kind: "R", phase: "exit", t: 0.4 },
-    { biome: toBiome, kind: "R", phase: "enter", t: 0.65 },
-    { biome: toBiome, kind: "", phase: "settle", t: 0.85 },
-    { biome: toBiome, kind: "", phase: "settle", t: 1.0 },
+    { biome: fromBiome, kind: "R", phase: "exit", adopt: false },
+    { biome: fromBiome, kind: "", phase: "taper", adopt: false },
+    { biome: toBiome, kind: "R", phase: "enter", adopt: true },
+    { biome: toBiome, kind: "", phase: "settle", adopt: true },
+    { biome: toBiome, kind: "", phase: "settle", adopt: true },
   ];
 }
 
