@@ -1,0 +1,1 @@
+Procedural NES-style textures generated for Endless Chase. Palette inspired by classic 8-bit constraints (not Nintendo IP). CC0.

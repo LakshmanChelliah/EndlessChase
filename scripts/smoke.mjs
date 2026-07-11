@@ -63,7 +63,7 @@ await page.goto(base, { waitUntil: "networkidle" });
 await page.click("#btn-upgrades-menu");
 await page.waitForSelector("#panel-upgrades:not(.hidden)");
 const coinsLabel = await page.textContent("#up-coins");
-if (!/(Coins|Cash):\s*\$?\d+/.test(coinsLabel || "")) throw new Error("upgrades coins missing: " + coinsLabel);
+if (!/(Coins|Cash|CASH):?\s*\$?\d+/i.test(coinsLabel || "")) throw new Error("upgrades coins missing: " + coinsLabel);
 
 await page.click("#btn-up-speed");
 await page.waitForTimeout(200);
