@@ -1,116 +1,118 @@
-# Meshy / Luma Genie — Copy-Paste Prompts
+# Meshy / Luma — Fake GTA V Mobile PBR Prompts
 
-Suffix every prompt with: `ultra low poly, mobile game asset, flat colors, no PBR, clean topology, under [BUDGET] triangles, centered origin, +Z forward`
+Suffix every prompt with:
 
-Shared negatives: `photorealistic, ray tracing, subsurface, chrome reflections, dense foliage, high poly, muddy brown, purple neon cyberpunk`
+`game-ready mobile LOD, triangulated under [BUDGET] triangles, clean exterior only no interior, PBR atlas UVs, realistic panel gaps and worn paint, golden-hour Los Santos urban grit, centered origin, +Z forward`
+
+**Shared negatives:** `cartoon, low-poly toy, cel shading, vibrant arcade, pastel, purple neon cyberpunk, ray tracing, dense foliage, interior cockpit, subdivision cage, candy colors`
 
 ---
 
 ## Vehicles
 
-### car_player (≤1500)
+### car_player (≤8000)
 ```
-ultra low poly arcade sports coupe, 3/4 chase-game hero, bright mango yellow body #FFB703, tangerine hard-edge stripes #FB8500, chunky black wheels, short aggressive nose, single cabin glass as dark flat #1B1B2F quad, no logos, hard faceted bevels, toy-like proportions, mobile game asset, under 1500 triangles, clean topology, centered origin, +Z forward, scale ~4.2m length
-```
-
-### car_civ_sedan (≤1200)
-```
-ultra low poly civilian 4-door sedan, muted teal #4A90A4 body, light grey roof, chunky black wheels, bland readable silhouette, arcade endless runner traffic, under 1200 triangles, centered origin, +Z forward
+realistic getaway sports coupe for mobile chase game, dark metallic graphite body #2A2E33, subtle deep red accent #6B1D1D, dirty worn clearcoat, chrome trim, chunky performance wheels, short aggressive nose, black tinted glass as simple dark planes, no logos, Los Santos late afternoon grit, game-ready mobile LOD, triangulated under 8000 triangles, clean exterior only no interior, PBR atlas UVs, centered origin, +Z forward, scale ~4.5m length
 ```
 
-### car_civ_hatch (≤1200)
+### car_civ_sedan (≤6000)
 ```
-ultra low poly compact hatchback, coral #FF6B6B body, dark grey windows as flat planes, chunky wheels, toy arcade style, under 1200 triangles, centered origin, +Z forward
-```
-
-### car_civ_van (≤1200)
-```
-ultra low poly boxy delivery van, cream #F4F1DE body, simple flat panels, chunky black wheels, arcade mobile game, under 1200 triangles, centered origin, +Z forward
+realistic civilian 4-door sedan, faded silver-grey paint with dust and door dings, everyday Los Santos traffic, simple dark windows, game-ready mobile LOD under 6000 triangles, PBR atlas UVs, no interior, centered origin, +Z forward
 ```
 
-### car_police (≤1500)
+### car_civ_hatch (≤6000)
 ```
-ultra low poly police interceptor coupe, deep blue #1D4ED8 body, white door panel blocks #F8FAFC, low-poly light bar as simple red and blue box lamps, black bumper slabs, menacing but toy-like, under 1500 triangles, same scale as sports car, centered origin, +Z forward
+realistic compact hatchback, dusty muted blue-grey body, worn bumpers, mobile game traffic prop, under 6000 triangles, PBR atlas UVs, no interior, centered origin, +Z forward
 ```
 
-### car_cross (≤1000)
+### car_civ_van (≤6000)
 ```
-short ultra low poly delivery truck cab and box, mustard #E9C46A, wider footprint, chunky wheels, arcade hazard vehicle, under 1000 triangles, centered origin, +Z forward
+realistic boxy work van, dirty cream-white panels, commercial Los Santos look, under 6000 triangles, PBR atlas UVs, no interior, centered origin, +Z forward
+```
+
+### car_police (≤6000)
+```
+realistic police interceptor sedan, black and white door panels #0E0E10 and #E8E6E1, low-poly light bar as simple red blue boxes, black push bumper, gritty modern patrol car, under 6000 triangles, PBR atlas UVs, no interior, centered origin, +Z forward
+```
+
+### car_cross (≤5000)
+```
+realistic short delivery truck cab and box, mustard-tan dirty paint, wider footprint hazard vehicle, under 5000 triangles, PBR atlas UVs, no interior, centered origin, +Z forward
 ```
 
 ---
 
-## Road tiles (shell ≤800)
+## Road tiles (shell ≤2000)
 
-Tile template — replace `[BIOME]`:
+Template — replace `[BIOME]`:
 ```
-modular endless-runner road segment 20m long 12m wide, three lanes, ultra low poly mobile game, vibrant arcade colors [BIOME], flat shaded atlas-ready UVs, no PBR, buildings as simple extrusions outside playable lanes, clean box collision friendly, origin at front centerline, under 800 triangles for road and curb shell
+modular endless-runner road segment 20m long 12m wide, three lanes, cracked dusty asphalt #1C1F24, faded lane paint #C9B896, concrete curb #8A8580, [BIOME], game-ready mobile LOD under 2000 triangles for road and curb shell, PBR atlas UVs, buildings as simple extrusions outside playable lanes, baked AO in textures, golden-hour Los Santos grit, origin at front centerline
 ```
 
 ### tile_city_straight
-`[BIOME]` = asphalt #2B2F3A, yellow lane dashes #F5E6A8, concrete curb #C4C8D0, pink-red city signage slabs #FF4D6D, 2-4 storey box buildings with window color rectangles, simple street lamps
+`[BIOME]` = mid-rise concrete and stucco buildings, dusty storefronts, street lamps, graffiti-free but worn urban blocks, warm late-afternoon haze
 
 ### tile_city_intersection
-Same as city + cross street cut, zebra crosswalk UVs, sockets for traffic lights left and right
+Same as city + cross street cut, worn zebra crosswalk, sockets for traffic lights left and right
 
 ### tile_suburb_straight
-`[BIOME]` = asphalt, lawn strips #3DDC97, ranch house blocks set back, mailbox, low poly cone trees with box trunks, warmer tint
+`[BIOME]` = dry SoCal lawns and low ranch houses set back, dusty sidewalks, sparse low-poly trees (solid meshes not alpha cards), warmer suburban grit
 
 ### tile_suburb_intersection
-Suburb + quieter light pole sockets, crosswalk
+Suburb + quieter light poles, crosswalk
 
 ### tile_highway_straight
-`[BIOME]` = asphalt, brighter dashes, thin guardrail quads #C4C8D0, overhead sign gantry with #4CC9F0 panels, fewer near props
+`[BIOME]` = wider shoulders, metal guardrails, overhead sign gantry, fewer near props for speed readability, open golden-hour sky
 
 ### tile_highway_merge
-Highway + on-ramp wedge, warning chevrons, still 20m module
+Highway + on-ramp wedge, worn chevrons, still 20m module
 
 ---
 
 ## Props
 
-### prop_traffic_light (≤300)
+### prop_traffic_light (≤500)
 ```
-ultra low poly traffic light pole, three stacked box lamps red yellow green, simple armature, mobile game prop, under 300 triangles
-```
-
-### prop_coin (≤80)
-```
-ultra low poly faceted gold coin diamond, #FFE66D, very few triangles under 80, arcade collectible
+realistic traffic light pole, three stacked signal housings, metal pole, mobile game prop under 500 triangles, PBR atlas UVs, Los Santos street furniture
 ```
 
-### prop_cone / prop_barrier (≤100)
+### prop_coin (≤120)
 ```
-ultra low poly traffic cone orange and white bands, under 100 triangles
-```
-
-### prop_building_city_A/B (≤400)
-```
-ultra low poly city building block 2-4 storeys, window rectangles painted, accent #FF4D6D trim, under 400 triangles
+small metallic gold coin collectible, subtle not cartoon, under 120 triangles, PBR metal rough
 ```
 
-### prop_house_suburb_A (≤400)
+### prop_cone / prop_barrier (≤150)
 ```
-ultra low poly suburban ranch house, soft colors, lawn-friendly, under 400 triangles
-```
-
-### prop_gantry_sign (≤200)
-```
-ultra low poly highway overhead gantry with blue #4CC9F0 panels, under 200 triangles
+dirty orange traffic cone with faded white bands, under 150 triangles, PBR
 ```
 
-### fx_boost_streak (≤50)
+### prop_building_city_A/B (≤1500)
 ```
-simple low poly wedge speed streak ribbon, bright yellow orange, under 50 triangles
+mid-rise urban building LOD block, dusty concrete stucco, simple window rectangles with baked warm interior glow in albedo, under 1500 triangles, PBR atlas
 ```
 
-### fx_crash_burst (≤120)
+### prop_house_suburb_A (≤1200)
 ```
-low poly star burst explosion mesh, flat colors, under 120 triangles
+SoCal ranch house LOD, dry lawn colors, under 1200 triangles, PBR atlas
+```
+
+### prop_gantry_sign (≤400)
+```
+highway overhead gantry with faded green directional panels, under 400 triangles, PBR
+```
+
+### fx_boost_streak (≤80)
+```
+subtle heat haze speed streak wedge, desaturated, under 80 triangles
+```
+
+### fx_crash_burst (≤150)
+```
+low poly debris burst, dusty grit colors, under 150 triangles
 ```
 
 ## Export rules
 
-- Freeze transforms; one material slot `M_Atlas`
-- Delete interior faces; wheels 8–12 side cylinders
-- Unity: Y-up import; gameplay forward +Z
+- Freeze transforms; materials `M_Vehicle_PBR` / `M_Env_PBR`
+- Delete interiors; wheels 12–16 sides max
+- Unity import: generate lightmap UVs off if using atlas only; Mesh Compression Medium

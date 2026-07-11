@@ -1,3 +1,4 @@
+// DEPRECATED — arcade cel path. New assets use EndlessChase/MobilePBR (Fake GTA V).
 Shader "EndlessChase/ToonUnlit"
 {
     Properties
