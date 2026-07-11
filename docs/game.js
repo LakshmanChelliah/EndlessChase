@@ -10,17 +10,17 @@ import {
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=4";
+} from "./js/constants.js?v=5";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=4";
-import { Pool } from "./js/pool.js?v=4";
+} from "./js/save.js?v=5";
+import { Pool } from "./js/pool.js?v=5";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js?v=4";
+} from "./js/nes.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane, blendWidth,
-} from "./js/worldgen.js?v=4";
+} from "./js/worldgen.js?v=5";
 
 const save = loadSave();
 
@@ -78,7 +78,7 @@ renderer.setClearColor(NES.navy);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(NES.navy);
 scene.fog = new THREE.Fog(NES.navy, 35, 95);
-const camera = new THREE.PerspectiveCamera(64, 144 / 256, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(72, 160 / 256, 0.1, 200);
 scene.add(camera);
 
 const tex = createTextures();
@@ -250,6 +250,13 @@ function recycleSegment(seg) {
   segmentPool[key].return(seg);
 }
 
+function configureGantry(seg) {
+  const g = seg.userData.gantryGroup;
+  if (!g) return;
+  // ~every 5–6 segments (~100–120m), never back-to-back
+  g.visible = seg.userData.biome === "highway" && spawnIndex > 2 && spawnIndex % 6 === 0;
+}
+
 function spawnEphemeral(plan) {
   const fromL = layoutFor(transitionFrom || activeBiome);
   const toL = layoutFor(transitionTo || plan.biome);
@@ -268,6 +275,7 @@ function spawnEphemeral(plan) {
   seg.userData.transitionPhase = plan.phase;
   seg.userData.resolved = false;
   seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
+  configureGantry(seg);
   activeSegments.push(seg);
 
   // Mid-corridor: adopt destination biome for traffic / lane rules
@@ -317,6 +325,7 @@ function spawnSegment() {
   seg.userData.lightTimer = 1.2 + rng() * 1.5;
   if (seg.userData.lightGroup) updateLightVisual(seg);
   seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
+  configureGantry(seg);
   activeSegments.push(seg);
 
   const layout = layoutFor(biome);
@@ -556,12 +565,12 @@ function layoutCanvas() {
   const rotateHint = document.getElementById("rotate-hint");
   if (rotateHint) rotateHint.classList.toggle("hidden", isPortrait);
 
-  // Fixed NES portrait buffer
-  const iw = 144;
+  // Fixed NES portrait buffer — wider FOV so outer lanes stay on-screen
+  const iw = 160;
   const ih = 256;
   renderer.setSize(iw, ih, false);
   camera.aspect = iw / ih;
-  camera.fov = 64;
+  camera.fov = 72;
   camera.updateProjectionMatrix();
 
   // Size the canvas as a portrait stage that covers the short side
@@ -639,9 +648,9 @@ function tick(now) {
       if (boostTimer <= 0) { boostTimer = 0; boostMul = 1; }
     }
 
-    // Portrait chase cam — higher + closer so the road fills the phone
-    camera.position.set(Math.round(laneX * 0.25 * 4) / 4, 7.2, playerZ - 9.5);
-    camera.lookAt(laneX * 0.15, 1.2, playerZ + 12);
+    // Portrait chase cam: stay near road center so left/rightmost lanes stay visible
+    camera.position.set(laneX * 0.08, 8.4, playerZ - 14);
+    camera.lookAt(laneX * 0.05, 1.0, playerZ + 14);
 
     while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
 

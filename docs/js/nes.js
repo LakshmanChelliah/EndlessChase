@@ -227,15 +227,25 @@ export function makeSegment(tex, biome, opts = {}) {
   addLaneMarkings(root, markLayout, biome);
 
   const propBiome = mixBiome || biome;
+  let gantryGroup = null;
+
   if (propBiome === "rural") {
+    // Wide berm so houses sit fully on grass, not half in the void
+    const bermW = 12;
+    const bermCenter = half + 1.2 + bermW / 2;
     for (const side of [-1, 1]) {
-      const grass = new THREE.Mesh(new THREE.PlaneGeometry(4, SEG_LEN), basicColor(NES.forest));
+      const grass = new THREE.Mesh(new THREE.PlaneGeometry(bermW, SEG_LEN), basicColor(NES.forest));
       grass.rotation.x = -Math.PI / 2;
-      grass.position.set(side * (half + 2.5), 0.02, 0);
+      grass.position.set(side * bermCenter, 0.02, 0);
       root.add(grass);
-      if (rnd() > 0.25) {
-        const house = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2.8, 4), basic(tex.house));
-        house.position.set(side * (half + 4.5), 1.4, (rnd() - 0.5) * 6);
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, 5.5), basicColor(0x4a5a38));
+      pad.rotation.x = -Math.PI / 2;
+      const houseX = side * (bermCenter + 0.5);
+      pad.position.set(houseX, 0.03, (rnd() - 0.5) * 4);
+      root.add(pad);
+      if (rnd() > 0.2) {
+        const house = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.6, 4), basic(tex.house));
+        house.position.set(houseX, 1.3, pad.position.z);
         root.add(house);
       }
     }
@@ -245,40 +255,59 @@ export function makeSegment(tex, biome, opts = {}) {
       rail.position.set(side * (half + 0.5), 0.4, 0);
       root.add(rail);
     }
-    if (rnd() > 0.35) {
-      const gantry = new THREE.Mesh(new THREE.BoxGeometry(width + 4, 0.4, 0.4), basicColor(NES.forest));
-      gantry.position.set(0, 4, 0);
-      root.add(gantry);
-      const postL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4, 0.3), basicColor(NES.curb));
-      postL.position.set(-(half + 0.5), 2, 0);
-      const postR = postL.clone();
-      postR.position.x = half + 0.5;
-      root.add(postL, postR);
-    }
+    // Larger rectangular overhead sign — shown sparsely via spawnIndex
+    gantryGroup = new THREE.Group();
+    gantryGroup.name = "gantry";
+    const postH = 5.2;
+    const boardW = width + 3;
+    const boardH = 1.35;
+    const boardD = 0.28;
+    const postL = new THREE.Mesh(new THREE.BoxGeometry(0.35, postH, 0.35), basicColor(NES.curb));
+    postL.position.set(-(half + 0.3), postH / 2, 0);
+    const postR = postL.clone();
+    postR.position.x = half + 0.3;
+    const board = new THREE.Mesh(new THREE.BoxGeometry(boardW, boardH, boardD), basicColor(NES.forest));
+    board.position.set(0, postH - 0.15, 0);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(boardW - 0.6, boardH - 0.35, 0.06), basicColor(0xc2c3c7));
+    face.position.set(0, postH - 0.15, boardD * 0.55);
+    gantryGroup.add(postL, postR, board, face);
+    gantryGroup.visible = false;
+    root.add(gantryGroup);
   } else {
+    // City sidewalk under buildings so they don't hang in the void
+    const walkW = 10;
+    const walkCenter = half + 0.8 + walkW / 2;
     for (const side of [-1, 1]) {
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(walkW, SEG_LEN), basicColor(0x3a3d48));
+      walk.rotation.x = -Math.PI / 2;
+      walk.position.set(side * walkCenter, 0.015, 0);
+      root.add(walk);
       const h1 = 5 + (rnd() * 4) | 0;
-      const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.8, h1, 6), basic(tex.building));
-      b1.position.set(side * (half + 4.2), h1 / 2, -2 + (rnd() - 0.5) * 2);
+      const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, h1, 5.5), basic(tex.building));
+      b1.position.set(side * (walkCenter - 0.5), h1 / 2, -2 + (rnd() - 0.5) * 2);
       root.add(b1);
       if (rnd() > 0.3) {
         const h2 = 4 + (rnd() * 3) | 0;
-        const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.2, h2, 5), basic(tex.building));
-        b2.position.set(side * (half + 4.8), h2 / 2, 5);
+        const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.0, h2, 4.5), basic(tex.building));
+        b2.position.set(side * (walkCenter + 1.5), h2 / 2, 5);
         root.add(b2);
       }
     }
   }
 
-  // Mixed scenery during mid-transition: sprinkle the other biome on one side
+  // Mixed scenery during mid-transition
   if (mixBiome && mixBiome !== biome) {
     const side = rnd() > 0.5 ? 1 : -1;
     if (mixBiome === "rural") {
-      const grass = new THREE.Mesh(new THREE.PlaneGeometry(3, SEG_LEN * 0.7), basicColor(NES.forest));
+      const grass = new THREE.Mesh(new THREE.PlaneGeometry(8, SEG_LEN * 0.7), basicColor(NES.forest));
       grass.rotation.x = -Math.PI / 2;
-      grass.position.set(side * (half + 2.2), 0.025, 0);
+      grass.position.set(side * (half + 5), 0.025, 0);
       root.add(grass);
     } else if (mixBiome === "city") {
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0x3a3d48));
+      walk.rotation.x = -Math.PI / 2;
+      walk.position.set(side * (half + 4), 0.02, 0);
+      root.add(walk);
       const h = 4 + (rnd() * 3) | 0;
       const b = new THREE.Mesh(new THREE.BoxGeometry(3, h, 4), basic(tex.building));
       b.position.set(side * (half + 4), h / 2, 0);
@@ -338,6 +367,7 @@ export function makeSegment(tex, biome, opts = {}) {
     onRamp,
     transition,
     lightGroup,
+    gantryGroup,
     lightState: "green",
     lightTimer: 1.5 + rnd(),
     resolved: false,
