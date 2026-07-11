@@ -29,11 +29,13 @@
 
 | Biome | Road width | Lane centers X | Directions |
 |-------|------------|----------------|------------|
-| **City** | **16 m** | −6.0, −2.0, 2.0, 6.0 | 0–1 oncoming (−Z), 2–3 same (+Z); double yellow at x=0 |
-| **Rural** | **10 m** | −2.0, 2.0 | 0 oncoming, 1 same; double yellow at x=0 |
+| **City** | **16 m** | −6.0, −2.0, 2.0, 6.0 | **0–1 forward (+Z)**, 2–3 oncoming (−Z); double yellow at x=0 |
+| **Rural** | **10 m** | −2.0, 2.0 | **0 forward**, 1 oncoming; double yellow at x=0 |
 | **Highway** | **10 m** | −2.0, 2.0 | both same (+Z); dashed white between lanes |
 
-Turn-offer tiles add left/right stubs + gore; on-ramp tiles add a merge strip before the new biome stretch.
+Biome changes append a **transition corridor** (taper → exit ramp → enter ramp → settle) instead of wiping the road. Segment kinds are picked with a seeded PRNG hashed by tile index for seemingly-random but structured variety.
+
+Turn-offer tiles add left/right stubs + gore; on-ramp / transition tiles add a merge strip.
 
 ## Assets
 

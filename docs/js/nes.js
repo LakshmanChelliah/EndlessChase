@@ -2,7 +2,8 @@
  * NES pixel meshes + road segment factory.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, layoutFor, pickTurnBiomes } from "./constants.js";
+import { ASSET, SEG_LEN, NES, layoutFor } from "./constants.js";
+import { pickTurnBiomes } from "./worldgen.js";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -136,12 +137,14 @@ function addLaneMarkings(root, layout, biome) {
       root.add(dash);
     }
   } else {
+    // Double yellow center divider
     for (const ox of [-0.18, 0.18]) {
       const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, SEG_LEN - 1), basicColor(NES.yellow));
       line.position.set(ox, 0.04, 0);
       root.add(line);
     }
     if (biome === "city") {
+      // White dashes within each direction half (left = forward, right = oncoming)
       for (const x of [-4.0, 4.0]) {
         for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += 4) {
           const dash = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1.4), basicColor(NES.white));
@@ -179,80 +182,127 @@ function addTurnOfferVisuals(root, layout) {
 /**
  * @param {object} tex texture atlas
  * @param {string} biome
- * @param {{intersection?:boolean,turnOffer?:boolean,onRamp?:boolean,distance?:number}} opts
+ * @param {{intersection?:boolean,turnOffer?:boolean,onRamp?:boolean,distance?:number,widthOverride?:number,mixBiome?:string|null,seed?:number,transition?:boolean}} opts
  */
 export function makeSegment(tex, biome, opts = {}) {
-  const { intersection = false, turnOffer = false, onRamp = false, distance = 0 } = opts;
+  const {
+    intersection = false,
+    turnOffer = false,
+    onRamp = false,
+    distance = 0,
+    widthOverride = null,
+    mixBiome = null,
+    seed = 1,
+    transition = false,
+  } = opts;
   const layout = layoutFor(biome);
+  const width = widthOverride != null ? widthOverride : layout.width;
   const root = new THREE.Group();
-  const half = layout.width / 2;
+  const half = width / 2;
+  // Tiny seeded variance for prop placement (same seed → same look)
+  let s = seed >>> 0;
+  const rnd = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let r = Math.imul(s ^ (s >>> 15), 1 | s);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
 
   const roadMat = basic(tex.road);
   roadMat.map = tex.road.clone();
   roadMat.map.needsUpdate = true;
   roadMat.map.wrapS = roadMat.map.wrapT = THREE.RepeatWrapping;
-  roadMat.map.repeat.set(layout.width / 12, 2);
+  roadMat.map.repeat.set(width / 12, 2);
   roadMat.map.magFilter = THREE.NearestFilter;
   roadMat.map.minFilter = THREE.NearestFilter;
-  const road = new THREE.Mesh(new THREE.PlaneGeometry(layout.width, SEG_LEN), roadMat);
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(width, SEG_LEN), roadMat);
   road.rotation.x = -Math.PI / 2;
   road.position.y = 0.01;
   root.add(road);
 
-  addLaneMarkings(root, layout, biome);
+  // Markings use layout xs when width matches; otherwise scale X
+  const markLayout = widthOverride != null
+    ? { ...layout, width, xs: layout.xs.map((x) => x * (width / layout.width)) }
+    : layout;
+  addLaneMarkings(root, markLayout, biome);
 
-  if (biome === "rural") {
+  const propBiome = mixBiome || biome;
+  if (propBiome === "rural") {
     for (const side of [-1, 1]) {
       const grass = new THREE.Mesh(new THREE.PlaneGeometry(4, SEG_LEN), basicColor(NES.forest));
       grass.rotation.x = -Math.PI / 2;
       grass.position.set(side * (half + 2.5), 0.02, 0);
       root.add(grass);
-      const house = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2.8, 4), basic(tex.house));
-      house.position.set(side * (half + 4.5), 1.4, 0);
-      root.add(house);
+      if (rnd() > 0.25) {
+        const house = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2.8, 4), basic(tex.house));
+        house.position.set(side * (half + 4.5), 1.4, (rnd() - 0.5) * 6);
+        root.add(house);
+      }
     }
-  } else if (biome === "highway") {
+  } else if (propBiome === "highway") {
     for (const side of [-1, 1]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, SEG_LEN), basicColor(0xc2c3c7));
       rail.position.set(side * (half + 0.5), 0.4, 0);
       root.add(rail);
     }
-    const gantry = new THREE.Mesh(new THREE.BoxGeometry(layout.width + 4, 0.4, 0.4), basicColor(NES.forest));
-    gantry.position.set(0, 4, 0);
-    root.add(gantry);
-    const postL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4, 0.3), basicColor(NES.curb));
-    postL.position.set(-(half + 0.5), 2, 0);
-    const postR = postL.clone();
-    postR.position.x = half + 0.5;
-    root.add(postL, postR);
+    if (rnd() > 0.35) {
+      const gantry = new THREE.Mesh(new THREE.BoxGeometry(width + 4, 0.4, 0.4), basicColor(NES.forest));
+      gantry.position.set(0, 4, 0);
+      root.add(gantry);
+      const postL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4, 0.3), basicColor(NES.curb));
+      postL.position.set(-(half + 0.5), 2, 0);
+      const postR = postL.clone();
+      postR.position.x = half + 0.5;
+      root.add(postL, postR);
+    }
   } else {
     for (const side of [-1, 1]) {
-      const h1 = 5 + (Math.random() * 4) | 0;
+      const h1 = 5 + (rnd() * 4) | 0;
       const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.8, h1, 6), basic(tex.building));
-      b1.position.set(side * (half + 4.2), h1 / 2, -2);
-      const h2 = 4 + (Math.random() * 3) | 0;
-      const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.2, h2, 5), basic(tex.building));
-      b2.position.set(side * (half + 4.8), h2 / 2, 5);
-      root.add(b1, b2);
+      b1.position.set(side * (half + 4.2), h1 / 2, -2 + (rnd() - 0.5) * 2);
+      root.add(b1);
+      if (rnd() > 0.3) {
+        const h2 = 4 + (rnd() * 3) | 0;
+        const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.2, h2, 5), basic(tex.building));
+        b2.position.set(side * (half + 4.8), h2 / 2, 5);
+        root.add(b2);
+      }
     }
   }
 
-  if (onRamp) {
-    const ramp = new THREE.Mesh(new THREE.PlaneGeometry(4, 12), basicColor(NES.asphalt));
+  // Mixed scenery during mid-transition: sprinkle the other biome on one side
+  if (mixBiome && mixBiome !== biome) {
+    const side = rnd() > 0.5 ? 1 : -1;
+    if (mixBiome === "rural") {
+      const grass = new THREE.Mesh(new THREE.PlaneGeometry(3, SEG_LEN * 0.7), basicColor(NES.forest));
+      grass.rotation.x = -Math.PI / 2;
+      grass.position.set(side * (half + 2.2), 0.025, 0);
+      root.add(grass);
+    } else if (mixBiome === "city") {
+      const h = 4 + (rnd() * 3) | 0;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(3, h, 4), basic(tex.building));
+      b.position.set(side * (half + 4), h / 2, 0);
+      root.add(b);
+    }
+  }
+
+  if (onRamp || transition) {
+    const rampSide = -0.45; // left / forward side merge
+    const ramp = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 12), basicColor(NES.asphalt));
     ramp.rotation.x = -Math.PI / 2;
-    ramp.position.set(half * 0.55, 0.015, -2);
-    ramp.rotation.z = -0.25;
+    ramp.position.set(half * rampSide, 0.015, -2);
+    ramp.rotation.z = 0.2;
     root.add(ramp);
     for (let i = 0; i < 4; i++) {
       const arrow = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.04, 1.0), basicColor(NES.white));
-      arrow.position.set(half * 0.4 - i * 0.15, 0.05, -4 + i * 2);
+      arrow.position.set(half * rampSide - i * 0.1, 0.05, -4 + i * 2);
       root.add(arrow);
     }
   }
 
   let lightGroup = null;
   if (intersection) {
-    const zebra = new THREE.Mesh(new THREE.PlaneGeometry(layout.width - 2, 2.2), basicColor(NES.white));
+    const zebra = new THREE.Mesh(new THREE.PlaneGeometry(width - 2, 2.2), basicColor(NES.white));
     zebra.rotation.x = -Math.PI / 2;
     zebra.position.y = 0.03;
     root.add(zebra);
@@ -278,7 +328,7 @@ export function makeSegment(tex, biome, opts = {}) {
     const pair = pickTurnBiomes(biome, distance);
     turnLeftBiome = pair.left;
     turnRightBiome = pair.right;
-    addTurnOfferVisuals(root, layout);
+    addTurnOfferVisuals(root, { ...layout, width });
   }
 
   root.userData = {
@@ -286,13 +336,15 @@ export function makeSegment(tex, biome, opts = {}) {
     intersection,
     turnOffer,
     onRamp,
+    transition,
     lightGroup,
     lightState: "green",
-    lightTimer: 1.5 + Math.random(),
+    lightTimer: 1.5 + rnd(),
     resolved: false,
     turnResolved: false,
     turnLeftBiome,
     turnRightBiome,
+    layoutWidth: width,
   };
   return root;
 }
