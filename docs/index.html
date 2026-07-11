@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Endless Chase</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="game-root">
+    <canvas id="c"></canvas>
+
+    <div id="ui">
+      <section id="panel-menu" class="panel">
+        <h1 class="brand">Endless Chase</h1>
+        <p class="tag">Swipe to switch lanes. Run reds for boost — or crash.</p>
+        <button type="button" id="btn-play" class="btn primary">Play</button>
+        <button type="button" id="btn-upgrades-menu" class="btn">Upgrades</button>
+      </section>
+
+      <section id="panel-hud" class="panel hud hidden">
+        <div class="hud-row">
+          <span id="hud-distance">0 m</span>
+          <span id="hud-coins">0</span>
+        </div>
+        <div id="hud-boost" class="boost hidden">BOOST</div>
+        <div id="hud-light" class="light-hint hidden"></div>
+      </section>
+
+      <section id="panel-gameover" class="panel hidden">
+        <h2>Busted</h2>
+        <p id="go-score">0 m</p>
+        <p id="go-coins">+0 coins</p>
+        <button type="button" id="btn-retry" class="btn primary">Retry</button>
+        <button type="button" id="btn-upgrades-go" class="btn">Upgrades</button>
+        <button type="button" id="btn-menu" class="btn ghost">Menu</button>
+      </section>
+
+      <section id="panel-upgrades" class="panel hidden">
+        <h2>Upgrades</h2>
+        <p id="up-coins">Coins: 0</p>
+        <div class="upgrade-row">
+          <span id="up-speed-label">Top Speed</span>
+          <button type="button" id="btn-up-speed" class="btn small">Buy</button>
+        </div>
+        <div class="upgrade-row">
+          <span id="up-accel-label">Acceleration</span>
+          <button type="button" id="btn-up-accel" class="btn small">Buy</button>
+        </div>
+        <div class="upgrade-row">
+          <span id="up-handling-label">Handling</span>
+          <button type="button" id="btn-up-handling" class="btn small">Buy</button>
+        </div>
+        <button type="button" id="btn-up-back" class="btn ghost">Back</button>
+      </section>
+    </div>
+  </div>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="game.js"></script>
+</body>
+</html>
