@@ -1,0 +1,326 @@
+================================================================================
+ENDLESS CHASE — LLM HANDOFF
+================================================================================
+Copy this entire file into another LLM when brainstorming additions, features,
+balance changes, or refactors. It describes what the game is, how it plays,
+how it is built, and what is intentionally unfinished.
+
+Live playable build: https://lakshmanchelliah.github.io/EndlessChase/
+Local: npx --yes serve docs -p 4173
+
+================================================================================
+1. ONE-SENTENCE PITCH
+================================================================================
+8-bit getaway endless runner: swipe through city / rural / highway roads,
+manage police heat by never slowing down too long, and take prompted turns to
+change biomes — WebGL-first for mobile browsers, with Unity C# scaffolding for
+a later native build.
+
+================================================================================
+2. FANTASY & CORE LOOP
+================================================================================
+You are fleeing. Stay fast. Don’t wreck. Don’t get busted.
+
+Run loop:
+  Menu (car parked curbside) → Start Engine → pull-out intro → endless drive
+  → collect cash → optional Garage upgrades → die (Wrecked / Busted) → Retry
+
+Session goals:
+  - Maximize distance (meters = score)
+  - Collect coins ($) for persistent Garage upgrades
+  - Survive traffic, wrong-way lanes, red-light gambles, and police heat
+
+Death conditions:
+  - Wrecked!  — collide with civilian / police / cross-traffic truck
+  - Busted!   — police heat hits 100 → pursuit car catches you from behind
+
+================================================================================
+3. CONTROLS (IMPORTANT — NONSTANDARD)
+================================================================================
+Mobile: swipe on canvas. Desktop: A/D/W/S (or arrows) + Space.
+
+  Swipe LEFT  / A  → move RIGHT one lane   (INVERTED on purpose)
+  Swipe RIGHT / D  → move LEFT one lane    (INVERTED on purpose)
+  Swipe DOWN  / S  → BRAKE (sticky — stays braked until you resume)
+  Swipe UP    / W / Space → resume throttle / cancel brake
+
+During a turn cue (HUD shows ← BIOME · BIOME →):
+  Swipe L/R chooses the exit and starts a biome transition corridor.
+
+Why inverted: game fantasy is “steering like you’re looking ahead / drifting”
+feel; do not “fix” inversion without intentional redesign.
+
+================================================================================
+4. BIOMES & ROAD LAYOUT
+================================================================================
+Three biomes. Segments are 20 m long along +Z. Player drives +Z.
+
+CITY (default start)
+  - 4 lanes, road width 16 m
+  - Lane X: -6, -2, +2, +6
+  - dirs: [+1, +1, -1, -1]  → left two forward, right two oncoming
+  - Double yellow at x=0; white dashes within each half
+  - Sidewalks + building boxes
+  - Default forward lane index: 1 (x=-2)
+  - Dense intersections (~22%)
+
+RURAL
+  - 2 lanes, width 10 m
+  - Lane X: -2, +2
+  - dirs: [+1, -1]  → left forward, right oncoming
+  - Grass berms + houses
+  - Medium intersections (~14%)
+
+HIGHWAY
+  - 2 lanes, width 10 m
+  - Lane X: -2, +2
+  - dirs: [+1, +1]  → both same direction (one-way)
+  - Guardrails + sparse overhead gantries (~every 6 segments)
+  - Rare intersections (~6%)
+  - Later distance biases turn offers toward highway
+
+WRONG WAY: if player is on a lane with dir=-1, HUD shows "WRONG WAY".
+Oncoming traffic still collides — intentional risk/reward for daring lane use.
+
+================================================================================
+5. SIGNATURE SYSTEMS (WHAT MAKES IT THIS GAME)
+================================================================================
+
+A) POLICE HEAT
+  - Heat 0–100 bar on HUD
+  - Rising when speed < ~10 OR while braking, after a short grace (~0.6s)
+  - Decaying while you stay fast
+  - At 100: spawns pursuit police behind you; if they reach you → Busted!
+  - Running a red light FAST also dumps +22 heat (and grants boost)
+
+B) STICKY BRAKE
+  - Brake is not a momentary tap; it holds until swipe-up / W / Space
+  - Brake multiplies target speed by 0.4
+  - Used for: surviving reds safely, dodging, or deliberately managing pace
+  - Tradeoff: braking builds heat → bust risk
+
+C) TRAFFIC LIGHT RISK / REWARD (intersection segments)
+  Lights cycle green → yellow → red.
+  When you cross the intersection (~|dz|<4):
+    RED + going fast (speed>12, not braking):
+      → BOOST 1.35× for 2.5s
+      → +22 heat
+      → spawn cross-traffic truck sweeping across the road
+      → HUD "RED! BOOST"
+    RED + braking / slow:
+      → safe "RED SLOW" (no boost, no truck)
+    YELLOW + fast:
+      → +8 heat, "YELLOW!"
+    GREEN:
+      → "GREEN OK"
+
+D) TURN OFFERS → BIOME TRANSITIONS
+  Periodically a turn-offer segment appears (side stubs + chevrons).
+  HUD: ← RURAL · HWY → (example)
+  Window ~1.25s while near the tile; miss it = continue straight.
+  Accepting a turn builds a pooled transition corridor:
+      exit ramp (from) → taper (from) → enter ramp (to) → settle ×2 (to)
+  Soft lane remap into nearest forward lane of the new biome.
+  Cooldown ~10 segments between offers.
+  After ~1200 m, highway is weighted more often as a turn option.
+
+E) TRAFFIC
+  - Civilians ahead (same direction) and oncoming where biome allows
+  - ~12% chance same-direction spawn is police (non-pursuit, still wrecks)
+  - Spawn interval tightens with distance
+  - Collision AABB-ish: |dz|<2.2 and |dx|<1.35 → wreck
+
+F) COINS + GARAGE
+  - Coins spawn on forward lanes (~55% of non-turn segments)
+  - Persist in localStorage key: EndlessChase.Save.v1
+  - Upgrades (max 5 each), costs 50 / 100 / 200 / 400 / 800:
+      SPEED  → +8% top speed per level
+      ACCEL  → +10% accel damp rate per level
+      HANDL  → snappier lateral spring (smooth time 0.18 → 0.08)
+
+================================================================================
+6. ART / PRESENTATION LOCK
+================================================================================
+Style: Retro NES-like chase — NOT photoreal, NOT GTA, NOT PBR.
+
+  - Limited palette (navy #1D2B53, white #FFF1E8, red #FF004D, orange #FFA300,
+    yellow #FFEC27, green #00E436, forest #008751, asphalt #292A32, gray #83769C)
+  - Pixel textures, NearestFilter, no mipmaps
+  - MeshBasicMaterial / unlit only
+  - CRT scanlines + Press Start 2P UI font
+  - Internal render historically 320×180 nearest upscale; current portrait buffer
+    is 160×256 with FOV 72 so outer city lanes stay on-screen
+  - Sky is camera-parented (not a world dome — player would drive through it)
+  - Fog navy, short draw distance for mobile
+
+Textures: docs/assets/nes/*.png (CC0 procedural; regenerate via
+  node scripts/gen-nes-textures.mjs after npm i pngjs)
+
+Cars: box body + sprite billboards (top + sides), not high-poly meshes.
+
+================================================================================
+7. ARCHITECTURE — WHAT IS “THE GAME” TODAY
+================================================================================
+TWO stacks exist. The SHIPPED / PLAYABLE product is the Three.js WebGL client
+under docs/. Unity C# under Assets/Scripts/ is scaffolding for a later iOS /
+native port and is NOT what GitHub Pages runs.
+
+── A) PLAYABLE CLIENT (source of truth for gameplay feel) ──
+  docs/index.html          UI shells: Menu / HUD / Game Over / Garage
+  docs/styles.css          CRT overlay, panels, heat bar, portrait stage
+  docs/game.js             Main loop, input, heat, turns, traffic, collisions
+  docs/js/constants.js     Tunables, biome layouts, colors, upgrade costs
+  docs/js/save.js          localStorage save + upgrade helpers
+  docs/js/pool.js          Simple object pool
+  docs/js/worldgen.js      Seeded PRNG, segment decisions, transition plans
+  docs/js/nes.js           Textures, cars, coins, segment mesh factory
+  docs/assets/nes/         Pixel PNGs
+  Three.js 0.160 via CDN import map
+
+  Runtime debug hook: window.__endlessChase
+    { startRun, setupMenuScene, getSave, getState }
+
+── B) UNITY SCAFFOLD (parallel, not feature-parity) ──
+  Assets/Scripts/
+    Core/GameBootstrap.cs
+    Input/WebSafeTouchInput.cs, WebGlBrowserGuard.cs
+    Level/LevelManager.cs, RoadSegment.cs, BiomeDefinition.cs
+    Player/LanePlayerController.cs   ← still 3-lane + jump/slide (older model)
+    Traffic/TrafficSpawner.cs, TrafficVehicle.cs
+    RiskReward/TrafficLightController.cs, IntersectionSegment.cs
+    Meta/SaveService.cs, UpgradeManager.cs
+    Pooling/ObjectPool.cs, PooledObject.cs
+    UI/GameUIController.cs, HUDView.cs, UpgradePanel.cs
+  Assets/Shaders/          ToonUnlit + MobilePBR (prefer Unlit for NES look)
+  Assets/Plugins/WebGL/    touch-action / preventDefault jslib
+  Assets/WebGLTemplates/EndlessChase/
+
+IMPORTANT DIVERGENCE (do not assume Unity matches Web):
+  - Web client: 4-lane city bidirectional, sticky brake, heat/bust, turn biomes
+  - Unity player: classic 3-lane runner with jump/slide; biome by distance gates
+  - When adding features for players, prefer docs/js + docs/game.js first
+
+── C) TOOLING ──
+  package.json scripts: serve, smoke, smoke:live (Playwright)
+  scripts/smoke.mjs, scripts/gen-nes-textures.mjs
+  docs/ArtBible.md, ArtPrompts_*, UITestChecklist.md, WebGLBuildSettings.md
+
+================================================================================
+8. KEY TUNABLES (docs/js/constants.js)
+================================================================================
+  SEG_LEN = 20
+  BRAKE_DURATION = 0.85      (legacy; brake is sticky in game.js)
+  BRAKE_SPEED_MUL = 0.4
+  HEAT_SLOW_THRESHOLD = 10
+  HEAT_GRACE = 0.6
+  HEAT_RISE = 25 / sec
+  HEAT_DECAY = 12 / sec
+  TURN_COOLDOWN_SEGS = 10
+  TURN_WINDOW = 1.25
+  TURN_YAW = 25° visual kick
+  MIN_SWIPE = 40 px
+  Base target speed ≈ 18 * topSpeedFactor (* boostMul if boosting)
+  Red boost: 1.35× for 2.5s, +22 heat, cross truck vx=22
+
+Worldgen (worldgen.js):
+  decideSegment — intro quiet stretch, turn chance waves, intersection density
+  pickTurnBiomes — avoids current biome; highway bias after 1200 m
+  buildTransitionPlan — 5-step corridor using pooled R / straight tiles
+
+================================================================================
+9. UI SURFACES
+================================================================================
+  Menu: brand "Endless Chase", Start Engine, Garage
+  HUD: distance m, cash $, heat bar, BOOST/BRAKE flag, light hint, turn cue,
+       WRONG WAY warning
+  Game Over: Busted! / Wrecked!, score, +coins, Retry, Garage, Menu
+  Garage: SPEED / ACCEL / HANDL buy rows
+  Rotate hint when device is landscape (portrait-preferred stage)
+
+================================================================================
+10. WHAT EXISTS VS WHAT DOES NOT (IDEATION GUARDRAILS)
+================================================================================
+EXISTS
+  - Endless procedural road with pooled segments
+  - 3 biomes + seamless turn transitions
+  - Heat / pursuit bust
+  - Sticky brake
+  - Red-light NOS gamble + cross traffic
+  - Oncoming lanes + wrong-way warning
+  - Coins + 3 persistent upgrades
+  - Mobile swipe + keyboard
+  - NES art pipeline + CRT presentation
+  - Attract-mode menu street with parked car + curb pull-out intro
+
+DOES NOT EXIST YET (fertile ground for additions — not commitments)
+  - Story / characters / dialogue
+  - Multiple player cars or unlockable vehicles
+  - Weapon / shooting / combat beyond crash/bust
+  - Jump / slide in the Web client (Unity scaffold has stubs only)
+  - Multiplayer / leaderboards / accounts
+  - Audio / music / SFX (essentially silent)
+  - Mission objectives beyond “go far”
+  - Power-ups besides red-light boost
+  - Day/night cycle, weather, time of day (night palette only)
+  - Cops as AI chasers with tactics (only heat→spawn catch-up car)
+  - Tutorial beyond tagline
+  - Unity/Web feature parity
+  - Native iOS store build shipping from this repo today
+
+CONSTRAINTS FOR ADDITIONS
+  - Keep mobile WebGL cheap: unlit, pooled, short draw distance, no PBR
+  - Preserve NES palette / nearest-neighbor look
+  - Prefer extending docs/game.js + docs/js/* for playable changes
+  - Portrait-first; don’t assume landscape HUD space
+  - Input already inverted for lanes — new gestures must not fight that
+  - Heat + brake + red lights are the identity triad; don’t dilute them
+    into a generic Subway Surfers clone without reason
+
+================================================================================
+11. SUGGESTED ADDITION ANGLES (STARTERS FOR BRAINSTORM)
+================================================================================
+Use these as prompts, not a roadmap:
+
+  Meta: more Garage stats (brake cooling, heat decay, coin magnet, armor),
+        car skins, biome unlock gates, daily seed runs, best-distance save
+
+  Risk toys: speed cameras, school zones, tunnels, bridges, fog banks,
+             convoy trucks, roadblocks after high heat
+
+  Biome toys: city alleys / one-ways, rural gravel / animals, highway
+              construction merge, night club district neon NES tiles
+
+  Chase fantasy: wanted stars tiers, radio chatter text, escape ramps that
+                 dump heat, decoy turns, PIT-maneuver near-miss scoring
+
+  Juice: SFX/music chiptune, screen shake on wreck, CRT glitch on bust,
+         speed lines, coin pop numbers
+
+  Clarity: optional first-run tutorial overlay, remapable swipe (invert toggle),
+           accessibility (colorblind light states)
+
+  Tech: compress game.js further into modules, audio bus, Unity parity pass
+        for 4-lane + heat + turns
+
+================================================================================
+12. HOW TO THINK ABOUT CHANGES
+================================================================================
+When proposing an addition, answer:
+  1) Does it reinforce “getaway under heat” or just add clutter?
+  2) Can it ship in the Three.js client without new heavy assets?
+  3) Does it need a new segment kind (pool key), HUD affordance, or save field?
+  4) How does it interact with brake / heat / red / turns?
+  5) Mobile one-thumb: is the gesture free or does it conflict with L/R/U/D?
+
+Primary files to touch for most gameplay ideas:
+  docs/js/constants.js   (numbers, layouts)
+  docs/js/worldgen.js    (spawn rules, biomes)
+  docs/js/nes.js         (visuals / segment kinds)
+  docs/game.js           (loop, input, systems, UI hooks)
+  docs/index.html + styles.css (panels / HUD)
+
+Art bible: docs/ArtBible.md
+
+================================================================================
+END OF HANDOFF
+================================================================================
