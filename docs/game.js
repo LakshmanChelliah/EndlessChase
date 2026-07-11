@@ -10,17 +10,17 @@ import {
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=5";
+} from "./js/constants.js?v=6";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=5";
-import { Pool } from "./js/pool.js?v=5";
+} from "./js/save.js?v=6";
+import { Pool } from "./js/pool.js?v=6";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js?v=5";
+} from "./js/nes.js?v=6";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane, blendWidth,
-} from "./js/worldgen.js?v=5";
+} from "./js/worldgen.js?v=6";
 
 const save = loadSave();
 
@@ -369,7 +369,12 @@ function updateHeatUI() {
 
 function startBrake() {
   braking = true;
-  brakeTimer = BRAKE_DURATION;
+}
+
+function resumeThrottle() {
+  braking = false;
+  keysBrake = false;
+  brakeTimer = 0;
 }
 
 function spawnPursuit() {
@@ -496,9 +501,11 @@ function onSwipe(dir) {
     return;
   }
   const layout = currentLayout();
-  if (dir === "left") lane = Math.max(0, lane - 1);
-  if (dir === "right") lane = Math.min(layout.count - 1, lane + 1);
+  // Inverted side-to-side: swipe left → move right lane, swipe right → move left
+  if (dir === "left") lane = Math.min(layout.count - 1, lane + 1);
+  if (dir === "right") lane = Math.max(0, lane - 1);
   if (dir === "down") startBrake();
+  if (dir === "up") resumeThrottle();
 }
 
 function pointerDown(x, y) { touchStart = { x, y, t: performance.now() }; }
@@ -528,13 +535,12 @@ canvas.addEventListener("mouseup", (e) => pointerUp(e.clientX, e.clientY));
 window.addEventListener("keydown", (e) => {
   if (e.key === "a" || e.key === "ArrowLeft") onSwipe("left");
   if (e.key === "d" || e.key === "ArrowRight") onSwipe("right");
-  if (e.key === "s" || e.key === "ArrowDown") { keysBrake = true; startBrake(); }
+  if (e.key === "s" || e.key === "ArrowDown") startBrake();
+  if (e.key === "w" || e.key === "ArrowUp" || e.key === " ") resumeThrottle();
 });
 window.addEventListener("keyup", (e) => {
-  if (e.key === "s" || e.key === "ArrowDown") {
-    keysBrake = false;
-    if (brakeTimer <= 0) braking = false;
-  }
+  // Sticky brake: release of S does not resume — only swipe up / W / Space
+  if (e.key === "s" || e.key === "ArrowDown") keysBrake = false;
 });
 document.body.addEventListener("touchmove", (e) => {
   if (e.target === canvas || canvas.contains(e.target)) {
@@ -599,12 +605,7 @@ function tick(now) {
   last = now;
 
   if (running && alive) {
-    if (brakeTimer > 0) {
-      brakeTimer -= dt;
-      if (brakeTimer <= 0 && !keysBrake) { brakeTimer = 0; braking = false; }
-    }
-    braking = braking || keysBrake;
-
+    // Sticky brake: stays on until swipe up / W. No timed auto-release.
     let targetSpeed = 18 * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
     if (braking) targetSpeed *= BRAKE_SPEED_MUL;
     speed = THREE.MathUtils.damp(speed, targetSpeed, (braking ? 6 : 3) * accelFactor(save), dt);
