@@ -226,7 +226,7 @@ export function makeSegment(tex, biome, opts = {}) {
     : layout;
   addLaneMarkings(root, markLayout, biome);
 
-  const propBiome = mixBiome || biome;
+  const propBiome = biome;
   let gantryGroup = null;
 
   if (propBiome === "rural") {
