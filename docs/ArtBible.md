@@ -22,6 +22,19 @@
 | Asphalt | `#292A32` |
 | Gray | `#83769C` |
 
+## Tile contract (biome lane layouts)
+
+- Length **20 m** (+Z); origin at tile start centerline; road Y = 0  
+- NES textures: nearest filter, no mipmaps
+
+| Biome | Road width | Lane centers X | Directions |
+|-------|------------|----------------|------------|
+| **City** | **16 m** | −6.0, −2.0, 2.0, 6.0 | 0–1 oncoming (−Z), 2–3 same (+Z); double yellow at x=0 |
+| **Rural** | **10 m** | −2.0, 2.0 | 0 oncoming, 1 same; double yellow at x=0 |
+| **Highway** | **10 m** | −2.0, 2.0 | both same (+Z); dashed white between lanes |
+
+Turn-offer tiles add left/right stubs + gore; on-ramp tiles add a merge strip before the new biome stretch.
+
 ## Assets
 
 | File | Use |

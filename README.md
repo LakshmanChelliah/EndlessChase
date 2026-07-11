@@ -1,9 +1,10 @@
 # Endless Chase
 
-8-bit getaway endless runner — swipe lanes, outrun cops, blow red lights for boost.  
+8-bit getaway endless runner — **City / Rural / Highway** biomes.  
+City is **4 lanes** (2 opposing); rural is **2-way**; highway is **2 one-way**.  
 **WebGL-first** for mobile browsers; Unity C# systems included for later iOS.
 
-**Art direction:** Retro **NES-like** — limited palette, pixel textures, CRT scanlines, 320×180 nearest-neighbor upscale. (Not Fake GTA / photoreal.)
+**Art direction:** Retro **NES-like** — limited palette, pixel textures, CRT scanlines, 320×180 nearest-neighbor upscale.
 
 ## Play
 
@@ -13,7 +14,7 @@
 npx --yes serve docs -p 4173
 ```
 
-Swipe or A/D to change lanes.
+Swipe / A·D for lanes; swipe down / S to brake.
 
 ## Repo layout
 
@@ -21,14 +22,17 @@ Swipe or A/D to change lanes.
 |------|---------|
 | `Assets/Scripts/` | Unity C# gameplay systems |
 | `docs/` | Playable NES WebGL client + art docs (GitHub Pages) |
+| `docs/js/` | Modular client (constants, save, pool, NES meshes) |
 | `docs/assets/nes/` | Procedural CC0 pixel textures |
 | `scripts/gen-nes-textures.mjs` | Regenerate NES PNG atlas set |
 
 ## Controls
 
-- Swipe / A·D — lanes  
+- **Swipe** left/right / **A·D** — lanes (including opposing traffic)  
+- **Swipe down** / **S** — brake (slow too long → heat → cops bust you)  
+- Turn cues — swipe L/R onto an on-ramp to switch biomes  
+- Red light fast — NOS + heat + cross traffic; brake through red to stay cooler  
 - Play / Retry / Garage — UI  
-- Red light — boost (cross-traffic risk)
 
 ## Art
 
