@@ -2,14 +2,17 @@
 
 ## Local (`npx serve docs`)
 
-- [ ] Page loads; canvas visible; no blank hang
-- [ ] **Play** starts run; HUD shows distance/coins
-- [ ] A/D or swipe changes lanes; page does not scroll / pull-to-refresh
-- [ ] Collision shows Game Over; **Retry** works
-- [ ] Collect coins; open Upgrades; buy a tier; refresh page — coins/levels persist
-- [ ] Red light shows BOOST hint and may spawn cross traffic; green shows clear
-- [ ] No hard console errors stopping the loop
+- [ ] Page loads; NES CRT look; no blank hang
+- [ ] **Play** starts run; HUD shows distance/coins/heat
+- [ ] A/D or swipe across **4 city lanes**; page does not scroll
+- [ ] Oncoming lanes show **WRONG WAY**; collision wrecks
+- [ ] Swipe down / S brakes; heat rises → pursuit → **Busted!**
+- [ ] Collision shows **Wrecked!**; **Retry** works
+- [ ] Turn cue; swipe L/R switches biome via on-ramp
+- [ ] Coins + Garage upgrades persist across reload
+- [ ] Red fast → BOOST + heat; red while braking → RED SLOW
+- [ ] Modules load (`docs/js/*.js`) with no console errors
 
 ## Live GitHub Pages
 
-Re-run the same checklist against the Pages URL after each deploy.
+Re-run the same checklist against https://lakshmanchelliah.github.io/EndlessChase/

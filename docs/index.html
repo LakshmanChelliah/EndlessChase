@@ -17,7 +17,7 @@
     <div id="ui">
       <section id="panel-menu" class="panel">
         <h1 class="brand">Endless <span>Chase</span></h1>
-        <p class="tag">8-BIT GETAWAY. SWIPE LANES. BLOW RED LIGHTS FOR BOOST.</p>
+        <p class="tag">4 LANES. OPPOSING TRAFFIC. SWIPE DOWN TO BRAKE — COPS BUST SLOWPOKES. TAKE TURNS TO RURAL / HWY.</p>
         <button type="button" id="btn-play" class="btn primary">Play</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
       </section>
@@ -27,12 +27,17 @@
           <span id="hud-distance">0 m</span>
           <span id="hud-coins">$0</span>
         </div>
+        <div id="hud-heat" class="heat-bar" aria-label="Police heat">
+          <div id="hud-heat-fill" class="heat-fill"></div>
+        </div>
         <div id="hud-boost" class="boost hidden">BOOST</div>
         <div id="hud-light" class="light-hint hidden"></div>
+        <div id="hud-turn" class="turn-cue hidden"></div>
+        <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
       </section>
 
       <section id="panel-gameover" class="panel hidden">
-        <h2>Busted!</h2>
+        <h2 id="go-title">Busted!</h2>
         <p id="go-score">0 m</p>
         <p id="go-coins">+$0</p>
         <button type="button" id="btn-retry" class="btn primary">Retry</button>
