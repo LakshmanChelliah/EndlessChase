@@ -10,14 +10,14 @@ import {
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   layoutFor, biomeLabel, pickTurnBiomes, poolKey,
-} from "./js/constants.js";
+} from "./js/constants.js?v=3";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js";
-import { Pool } from "./js/pool.js";
+} from "./js/save.js?v=3";
+import { Pool } from "./js/pool.js?v=3";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js";
+} from "./js/nes.js?v=3";
 
 const save = loadSave();
 
@@ -74,11 +74,12 @@ renderer.setClearColor(NES.navy);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(NES.navy);
-scene.fog = new THREE.Fog(NES.navy, 40, 140);
-const camera = new THREE.PerspectiveCamera(55, NES_W / NES_H, 0.1, 250);
+scene.fog = new THREE.Fog(NES.navy, 35, 95);
+const camera = new THREE.PerspectiveCamera(64, 144 / 256, 0.1, 200);
+scene.add(camera);
 
 const tex = createTextures();
-addSky(scene);
+addSky(camera);
 
 // ---------- State ----------
 let running = false;
@@ -471,27 +472,36 @@ btnUpAccel.onclick = () => { if (tryUpgrade(save, "accelerationLevel")) refreshU
 btnUpHandling.onclick = () => { if (tryUpgrade(save, "handlingLevel")) refreshUpgradesUI(); };
 
 function layoutCanvas() {
-  // Match phone aspect so CSS can fill the screen (no letterbox bars).
-  // Keep a low internal res for the NES nearest-neighbor look.
+  // Always render as portrait (9:16). If the phone is landscape, letterbox
+  // the portrait stage inside the landscape window and show a rotate hint.
   const vw = Math.max(1, window.innerWidth);
   const vh = Math.max(1, window.innerHeight);
-  const aspect = vw / vh;
-  let ih;
-  let iw;
-  if (aspect < 1) {
-    // Portrait: taller buffer so the road fills the phone
-    ih = 260;
-    iw = Math.max(120, Math.round((ih * aspect) / 2) * 2);
-  } else {
-    ih = NES_H;
-    iw = Math.max(NES_W, Math.round((NES_H * aspect) / 2) * 2);
-  }
-  iw = Math.min(480, iw);
-  ih = Math.min(360, ih);
+  const isPortrait = vh >= vw;
+  const rotateHint = document.getElementById("rotate-hint");
+  if (rotateHint) rotateHint.classList.toggle("hidden", isPortrait);
+
+  // Fixed NES portrait buffer
+  const iw = 144;
+  const ih = 256;
   renderer.setSize(iw, ih, false);
   camera.aspect = iw / ih;
-  camera.fov = aspect < 1 ? 62 : 55;
+  camera.fov = 64;
   camera.updateProjectionMatrix();
+
+  // Size the canvas as a portrait stage that covers the short side
+  const stage = document.getElementById("game-stage") || canvas;
+  if (isPortrait) {
+    stage.style.width = "100%";
+    stage.style.height = "100%";
+    stage.style.maxWidth = "none";
+    stage.style.maxHeight = "none";
+  } else {
+    // Fit portrait 9:16 into landscape viewport
+    const fitH = vh;
+    const fitW = Math.round(fitH * (9 / 16));
+    stage.style.width = `${fitW}px`;
+    stage.style.height = `${fitH}px`;
+  }
   canvas.style.width = "100%";
   canvas.style.height = "100%";
 }
@@ -553,8 +563,9 @@ function tick(now) {
       if (boostTimer <= 0) { boostTimer = 0; boostMul = 1; }
     }
 
-    camera.position.set(Math.round(laneX * 0.3 * 4) / 4 + Math.sin(turnYaw) * 2, 5.8, playerZ - 11);
-    camera.lookAt(laneX, 1.0, playerZ + 8);
+    // Portrait chase cam — higher + closer so the road fills the phone
+    camera.position.set(Math.round(laneX * 0.25 * 4) / 4, 7.2, playerZ - 9.5);
+    camera.lookAt(laneX * 0.15, 1.2, playerZ + 12);
 
     while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
 

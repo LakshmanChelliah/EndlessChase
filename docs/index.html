@@ -15,7 +15,10 @@
 </head>
 <body>
   <div id="game-root">
-    <canvas id="c" width="320" height="180"></canvas>
+    <div id="game-stage">
+      <canvas id="c" width="144" height="256"></canvas>
+    </div>
+    <div id="rotate-hint" class="rotate-hint hidden">ROTATE PHONE</div>
 
     <div id="ui">
       <section id="panel-menu" class="panel">
@@ -74,6 +77,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js"></script>
+  <script type="module" src="game.js?v=3"></script>
 </body>
 </html>
