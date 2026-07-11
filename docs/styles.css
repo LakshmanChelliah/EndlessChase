@@ -1,15 +1,11 @@
 :root {
-  --asphalt: #2b2f3a;
-  --lane: #f5e6a8;
-  --player: #ffb703;
-  --accent: #fb8500;
-  --police: #1d4ed8;
-  --sky-a: #7bdff2;
-  --sky-b: #ffcad4;
-  --green: #06d6a0;
-  --red: #ef233c;
-  --panel: rgba(43, 47, 58, 0.92);
-  --text: #f8fafc;
+  --asphalt: #1c1f24;
+  --panel: rgba(14, 14, 16, 0.92);
+  --text: #e8e6e1;
+  --accent: #d4af37;
+  --accent-dim: #a89070;
+  --danger: #c62828;
+  --border: #3a3d42;
 }
 
 * { box-sizing: border-box; }
@@ -22,7 +18,7 @@ html, body {
   overscroll-behavior: none;
   touch-action: none;
   background: var(--asphalt);
-  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   color: var(--text);
   user-select: none;
   -webkit-user-select: none;
@@ -51,12 +47,13 @@ html, body {
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(92vw, 360px);
-  padding: 1.4rem 1.2rem;
+  padding: 1.35rem 1.15rem;
   background: var(--panel);
-  border: 2px solid var(--player);
-  border-radius: 18px;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: 4px;
   text-align: center;
-  backdrop-filter: blur(6px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
 .panel.hud {
@@ -68,8 +65,9 @@ html, body {
   transform: none;
   border: none;
   border-radius: 0;
-  background: linear-gradient(to bottom, rgba(26, 29, 39, 0.75), transparent);
-  padding: 0.75rem 1rem;
+  box-shadow: none;
+  background: linear-gradient(to bottom, rgba(8, 8, 10, 0.78), transparent);
+  padding: 0.7rem 1rem;
   pointer-events: none;
 }
 
@@ -77,77 +75,91 @@ html, body {
 
 .brand {
   margin: 0 0 0.35rem;
-  font-size: clamp(2rem, 8vw, 2.6rem);
-  letter-spacing: 0.02em;
-  color: var(--player);
-  text-shadow: 0 2px 0 var(--accent);
+  font-size: clamp(1.85rem, 7vw, 2.35rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.brand span {
+  color: var(--accent);
 }
 
 .tag {
   margin: 0 0 1.1rem;
-  opacity: 0.9;
-  font-size: 0.95rem;
-  line-height: 1.35;
+  opacity: 0.82;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--accent-dim);
 }
 
 .btn {
   display: block;
   width: 100%;
-  margin: 0.45rem 0;
-  padding: 0.85rem 1rem;
-  border: 2px solid #c4c8d0;
-  border-radius: 12px;
-  background: #3a4054;
+  margin: 0.4rem 0;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #25282e;
   color: var(--text);
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   cursor: pointer;
 }
 
 .btn.primary {
-  background: var(--player);
+  background: #2a2e33;
   border-color: var(--accent);
-  color: #1a1d27;
+  color: var(--accent);
 }
 
 .btn.ghost {
   background: transparent;
+  border-color: transparent;
+  color: var(--accent-dim);
 }
 
 .btn.small {
   width: auto;
   margin: 0;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.9rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
 }
 
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .hud-row {
   display: flex;
   justify-content: space-between;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 700;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
 }
 
 .boost {
   margin-top: 0.35rem;
   display: inline-block;
-  padding: 0.2rem 0.55rem;
-  background: var(--accent);
-  color: #1a1d27;
-  border-radius: 8px;
+  padding: 0.15rem 0.5rem;
+  background: var(--danger);
+  color: #fff;
+  border-radius: 2px;
   font-weight: 800;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
 }
 
 .light-hint {
   margin-top: 0.35rem;
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
 }
 
 .upgrade-row {
@@ -155,9 +167,15 @@ html, body {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin: 0.65rem 0;
+  margin: 0.6rem 0;
   text-align: left;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
 }
 
-h2 { margin: 0 0 0.5rem; color: var(--player); }
+h2 {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 1.15rem;
+}

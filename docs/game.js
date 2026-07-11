@@ -1,7 +1,7 @@
 /**
  * Endless Chase — playable WebGL client (Three.js)
- * Mirrors Unity systems: 3-lane lerp, pooled tiles/traffic, red-light risk/reward,
- * upgrades + localStorage save. Mobile-safe touch (no page scroll / pull-to-refresh).
+ * Fake GTA V visual tier: Mobile PBR-ish MeshStandard, golden-hour grit.
+ * Gameplay mirrors Unity: 3-lane lerp, pools, biomes, red-light risk/reward, upgrades/save.
  */
 import * as THREE from "three";
 
@@ -12,24 +12,29 @@ const MAX_UPGRADE = 5;
 const COSTS = [50, 100, 200, 400, 800];
 
 const PALETTE = {
-  asphalt: 0x2b2f3a,
-  lane: 0xf5e6a8,
-  curb: 0xc4c8d0,
-  city: 0xff4d6d,
-  suburb: 0x3ddc97,
-  highway: 0x4cc9f0,
-  player: 0xffb703,
-  playerStripe: 0xfb8500,
-  police: 0x1d4ed8,
-  policeWhite: 0xf8fafc,
-  civTeal: 0x4a90a4,
-  civCoral: 0xff6b6b,
-  civCream: 0xf4f1de,
-  cross: 0xe9c46a,
-  coin: 0xffe66d,
-  red: 0xef233c,
-  yellow: 0xffd60a,
-  green: 0x06d6a0,
+  asphalt: 0x1c1f24,
+  lane: 0xc9b896,
+  curb: 0x8a8580,
+  city: 0x6a655e,
+  suburb: 0x5c6b45,
+  highway: 0x5a6570,
+  player: 0x2a2e33,
+  playerAccent: 0x6b1d1d,
+  police: 0x0e0e10,
+  policeWhite: 0xe8e6e1,
+  civA: 0x7a7e84,
+  civB: 0x4a5560,
+  civC: 0xc8c2b4,
+  cross: 0x9a7b4f,
+  coin: 0xd4af37,
+  chrome: 0xb8bcc2,
+  glass: 0x1a1e24,
+  red: 0xc62828,
+  yellow: 0xd4a017,
+  green: 0x2e7d32,
+  skyHaze: 0xc4a574,
+  skyUpper: 0x6b8cae,
+  sun: 0xffc98a,
 };
 
 // ---------- Save / Upgrades ----------
@@ -71,7 +76,6 @@ function tryUpgrade(key) {
   return true;
 }
 
-// ---------- Object pool ----------
 class Pool {
   constructor(factory, prewarm = 0) {
     this.factory = factory;
@@ -120,11 +124,11 @@ function showPanel(name) {
 }
 
 function refreshUpgradesUI() {
-  upCoins.textContent = `Coins: ${save.coins}`;
+  upCoins.textContent = `Cash: $${save.coins}`;
   const bind = (labelEl, btn, title, key) => {
     const level = save[key];
     const cost = costFor(level);
-    labelEl.textContent = `${title} Lv ${level}/${MAX_UPGRADE}` + (cost < 0 ? " (MAX)" : ` — ${cost}`);
+    labelEl.textContent = `${title} Lv ${level}/${MAX_UPGRADE}` + (cost < 0 ? " (MAX)" : ` — $${cost}`);
     btn.disabled = cost < 0 || save.coins < cost;
   };
   bind(upSpeedLabel, btnUpSpeed, "Top Speed", "topSpeedLevel");
@@ -132,78 +136,133 @@ function refreshUpgradesUI() {
   bind(upHandlingLabel, btnUpHandling, "Handling", "handlingLevel");
 }
 
-// ---------- Three.js scene ----------
+// ---------- Three.js scene (Fake GTA / golden-hour) ----------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x7bdff2);
+renderer.setClearColor(PALETTE.skyUpper);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xffcad4, 40, 120);
+scene.fog = new THREE.Fog(PALETTE.skyHaze, 35, 110);
+scene.background = new THREE.Color(PALETTE.skyUpper);
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
-const hemi = new THREE.HemisphereLight(0xffcad4, 0x2b2f3a, 0.85);
-scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffffff, 0.55);
-sun.position.set(4, 10, -2);
-scene.add(sun);
 
-function boxMesh(w, h, d, color) {
-  const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color })
-  );
-  return m;
+const hemi = new THREE.HemisphereLight(PALETTE.skyHaze, 0x1c1f24, 0.55);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(PALETTE.sun, 1.35);
+sun.position.set(-8, 14, 4);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(PALETTE.skyUpper, 0.25);
+fill.position.set(6, 4, -8);
+scene.add(fill);
+
+function stdMat(color, { metal = 0.05, rough = 0.85, emissive = 0x000000, emissiveIntensity = 0 } = {}) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    metalness: metal,
+    roughness: rough,
+    emissive,
+    emissiveIntensity,
+  });
 }
 
-function makeCar(bodyColor, stripeColor = null, police = false) {
+function boxMesh(w, h, d, color, opts) {
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), stdMat(color, opts));
+}
+
+function makeCar(bodyColor, opts = {}) {
+  const { accent = null, police = false } = opts;
   const root = new THREE.Group();
-  const body = boxMesh(1.6, 0.55, 3.2, bodyColor);
-  body.position.y = 0.45;
+
+  const body = boxMesh(1.75, 0.5, 3.4, bodyColor, { metal: 0.65, rough: 0.35 });
+  body.position.y = 0.48;
   root.add(body);
-  if (stripeColor != null) {
-    const stripe = boxMesh(1.65, 0.12, 1.2, stripeColor);
-    stripe.position.set(0, 0.7, 0.2);
+
+  const hood = boxMesh(1.7, 0.18, 0.9, bodyColor, { metal: 0.7, rough: 0.3 });
+  hood.position.set(0, 0.72, 1.0);
+  root.add(hood);
+
+  const trunk = boxMesh(1.7, 0.2, 0.7, bodyColor, { metal: 0.65, rough: 0.38 });
+  trunk.position.set(0, 0.7, -1.15);
+  root.add(trunk);
+
+  if (accent != null) {
+    const stripe = boxMesh(0.35, 0.08, 2.8, accent, { metal: 0.4, rough: 0.45 });
+    stripe.position.set(0, 0.76, 0.1);
     root.add(stripe);
   }
-  const cabin = boxMesh(1.2, 0.4, 1.4, 0x1b1b2f);
-  cabin.position.set(0, 0.95, -0.15);
-  root.add(cabin);
+
   if (police) {
-    const bar = boxMesh(1.0, 0.18, 0.35, 0xf8fafc);
-    bar.position.set(0, 1.2, 0.1);
-    root.add(bar);
-    const r = boxMesh(0.25, 0.12, 0.2, PALETTE.red);
-    r.position.set(-0.25, 1.32, 0.1);
-    const b = boxMesh(0.25, 0.12, 0.2, PALETTE.police);
-    b.position.set(0.25, 1.32, 0.1);
-    root.add(r, b);
+    const doorL = boxMesh(0.08, 0.45, 1.4, PALETTE.policeWhite, { metal: 0.15, rough: 0.55 });
+    doorL.position.set(-0.9, 0.5, 0.05);
+    const doorR = boxMesh(0.08, 0.45, 1.4, PALETTE.policeWhite, { metal: 0.15, rough: 0.55 });
+    doorR.position.set(0.9, 0.5, 0.05);
+    root.add(doorL, doorR);
   }
-  for (const [x, z] of [[-0.7, 1.0], [0.7, 1.0], [-0.7, -1.0], [0.7, -1.0]]) {
-    const w = boxMesh(0.35, 0.35, 0.55, 0x111111);
-    w.position.set(x, 0.2, z);
-    root.add(w);
+
+  const cabin = boxMesh(1.35, 0.42, 1.5, PALETTE.glass, { metal: 0.1, rough: 0.15 });
+  cabin.position.set(0, 0.98, -0.1);
+  root.add(cabin);
+
+  const bumperF = boxMesh(1.8, 0.22, 0.25, PALETTE.chrome, { metal: 0.9, rough: 0.25 });
+  bumperF.position.set(0, 0.28, 1.7);
+  const bumperR = boxMesh(1.8, 0.22, 0.25, PALETTE.chrome, { metal: 0.9, rough: 0.25 });
+  bumperR.position.set(0, 0.28, -1.7);
+  root.add(bumperF, bumperR);
+
+  if (police) {
+    const bar = boxMesh(1.05, 0.16, 0.4, PALETTE.policeWhite, { metal: 0.3, rough: 0.4 });
+    bar.position.set(0, 1.28, 0.15);
+    const r = boxMesh(0.28, 0.12, 0.22, PALETTE.red, { metal: 0.2, rough: 0.4, emissive: PALETTE.red, emissiveIntensity: 0.35 });
+    r.position.set(-0.28, 1.38, 0.15);
+    const b = boxMesh(0.28, 0.12, 0.22, 0x1565c0, { metal: 0.2, rough: 0.4, emissive: 0x1565c0, emissiveIntensity: 0.35 });
+    b.position.set(0.28, 1.38, 0.15);
+    root.add(bar, r, b);
   }
+
+  for (const [x, z] of [[-0.78, 1.05], [0.78, 1.05], [-0.78, -1.05], [0.78, -1.05]]) {
+    const tire = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.28, 0.28, 10),
+      stdMat(0x111111, { metal: 0.05, rough: 0.95 })
+    );
+    tire.rotation.z = Math.PI / 2;
+    tire.position.set(x, 0.28, z);
+    const rim = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.14, 0.14, 0.3, 8),
+      stdMat(PALETTE.chrome, { metal: 0.85, rough: 0.3 })
+    );
+    rim.rotation.z = Math.PI / 2;
+    rim.position.set(x, 0.28, z);
+    root.add(tire, rim);
+  }
+
   root.userData.kind = "car";
   return root;
 }
 
 function makeTruck() {
   const root = new THREE.Group();
-  const cab = boxMesh(2.0, 1.0, 1.4, PALETTE.cross);
-  cab.position.set(0, 0.7, 0.9);
-  const box = boxMesh(2.1, 1.3, 2.4, 0xd4a84b);
-  box.position.set(0, 0.9, -0.7);
-  root.add(cab, box);
+  const cab = boxMesh(2.05, 1.05, 1.5, PALETTE.cross, { metal: 0.35, rough: 0.55 });
+  cab.position.set(0, 0.75, 1.0);
+  const box = boxMesh(2.15, 1.35, 2.5, 0x8a7348, { metal: 0.15, rough: 0.7 });
+  box.position.set(0, 0.95, -0.75);
+  const bumper = boxMesh(2.2, 0.25, 0.3, PALETTE.chrome, { metal: 0.85, rough: 0.3 });
+  bumper.position.set(0, 0.3, 1.75);
+  root.add(cab, box, bumper);
   root.userData.kind = "cross";
   return root;
 }
 
 function makeCoin() {
   const mesh = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.35, 0),
-    new THREE.MeshLambertMaterial({ color: PALETTE.coin, emissive: 0x665500 })
+    new THREE.CylinderGeometry(0.32, 0.32, 0.08, 12),
+    stdMat(PALETTE.coin, { metal: 0.9, rough: 0.25, emissive: 0x443300, emissiveIntensity: 0.15 })
   );
+  mesh.rotation.x = Math.PI / 2;
   mesh.userData.kind = "coin";
   return mesh;
 }
@@ -216,82 +275,96 @@ function biomeAccent(biome) {
 
 function makeSegment(biome, intersection) {
   const root = new THREE.Group();
-  const road = boxMesh(12, 0.15, SEG_LEN, PALETTE.asphalt);
+  const road = boxMesh(12, 0.15, SEG_LEN, PALETTE.asphalt, { metal: 0.02, rough: 0.92 });
   road.position.y = -0.05;
   root.add(road);
 
   for (const x of [-1.6, 1.6]) {
     for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += 4) {
-      const dash = boxMesh(0.15, 0.02, 1.5, PALETTE.lane);
+      const dash = boxMesh(0.14, 0.02, 1.4, PALETTE.lane, { metal: 0.05, rough: 0.8 });
       dash.position.set(x, 0.03, z);
       root.add(dash);
     }
   }
 
-  const curbL = boxMesh(0.4, 0.25, SEG_LEN, PALETTE.curb);
+  const curbL = boxMesh(0.4, 0.25, SEG_LEN, PALETTE.curb, { metal: 0.05, rough: 0.88 });
   curbL.position.set(-6.1, 0.1, 0);
-  const curbR = boxMesh(0.4, 0.25, SEG_LEN, PALETTE.curb);
+  const curbR = boxMesh(0.4, 0.25, SEG_LEN, PALETTE.curb, { metal: 0.05, rough: 0.88 });
   curbR.position.set(6.1, 0.1, 0);
   root.add(curbL, curbR);
 
   const accent = biomeAccent(biome);
   if (biome === "suburb") {
-    const lawnL = boxMesh(3, 0.05, SEG_LEN, PALETTE.suburb);
+    const lawnL = boxMesh(3, 0.05, SEG_LEN, 0x4a5a38, { metal: 0, rough: 0.95 });
     lawnL.position.set(-8.5, 0, 0);
-    const lawnR = boxMesh(3, 0.05, SEG_LEN, PALETTE.suburb);
+    const lawnR = boxMesh(3, 0.05, SEG_LEN, 0x4a5a38, { metal: 0, rough: 0.95 });
     lawnR.position.set(8.5, 0, 0);
     root.add(lawnL, lawnR);
     for (const side of [-1, 1]) {
-      const trunk = boxMesh(0.3, 1.2, 0.3, 0x6b4f2a);
-      trunk.position.set(side * 9, 0.6, -4);
-      const leaf = new THREE.Mesh(
-        new THREE.ConeGeometry(1.1, 2.2, 5),
-        new THREE.MeshLambertMaterial({ color: PALETTE.suburb })
-      );
-      leaf.position.set(side * 9, 2.0, -4);
-      root.add(trunk, leaf);
+      const house = boxMesh(3.2, 2.4, 4.5, 0xb8a990, { metal: 0.05, rough: 0.85 });
+      house.position.set(side * 10, 1.2, 0);
+      const roof = boxMesh(3.4, 0.35, 4.7, 0x5c4033, { metal: 0.1, rough: 0.8 });
+      roof.position.set(side * 10, 2.5, 0);
+      root.add(house, roof);
     }
   } else if (biome === "highway") {
     for (const side of [-1, 1]) {
-      const rail = boxMesh(0.15, 0.5, SEG_LEN, PALETTE.curb);
+      const rail = boxMesh(0.12, 0.55, SEG_LEN, PALETTE.chrome, { metal: 0.7, rough: 0.45 });
       rail.position.set(side * 6.4, 0.4, 0);
       root.add(rail);
     }
-    const gantry = boxMesh(14, 0.3, 0.4, accent);
-    gantry.position.set(0, 4.2, 0);
-    const postL = boxMesh(0.3, 4, 0.3, PALETTE.curb);
-    postL.position.set(-6.5, 2, 0);
-    const postR = boxMesh(0.3, 4, 0.3, PALETTE.curb);
-    postR.position.set(6.5, 2, 0);
+    const gantry = boxMesh(14, 0.35, 0.45, 0x3d4a3a, { metal: 0.4, rough: 0.55 });
+    gantry.position.set(0, 4.3, 0);
+    const postL = boxMesh(0.28, 4.2, 0.28, PALETTE.curb, { metal: 0.5, rough: 0.5 });
+    postL.position.set(-6.5, 2.1, 0);
+    const postR = boxMesh(0.28, 4.2, 0.28, PALETTE.curb, { metal: 0.5, rough: 0.5 });
+    postR.position.set(6.5, 2.1, 0);
     root.add(gantry, postL, postR);
   } else {
     for (const side of [-1, 1]) {
-      const b1 = boxMesh(3.5, 6 + Math.random() * 4, 6, accent);
-      b1.position.set(side * 10, 3.5, -2);
-      const b2 = boxMesh(3, 4 + Math.random() * 3, 5, 0x4a5068);
-      b2.position.set(side * 10.5, 2.5, 5);
+      const b1 = boxMesh(3.6, 7 + Math.random() * 3, 6.5, accent, {
+        metal: 0.08,
+        rough: 0.82,
+        emissive: 0x332211,
+        emissiveIntensity: 0.08,
+      });
+      b1.position.set(side * 10.2, 3.8, -2);
+      const b2 = boxMesh(3.2, 5 + Math.random() * 2, 5, 0x4a4844, { metal: 0.06, rough: 0.88 });
+      b2.position.set(side * 10.8, 2.8, 5);
       root.add(b1, b2);
     }
   }
 
   let lightGroup = null;
   if (intersection) {
-    const zebra = boxMesh(10, 0.03, 2.5, 0xe8e8e8);
+    const zebra = boxMesh(10, 0.03, 2.5, 0xd0cbc0, { metal: 0.05, rough: 0.75 });
     zebra.position.set(0, 0.04, 0);
     root.add(zebra);
     lightGroup = new THREE.Group();
-    const pole = boxMesh(0.2, 3.2, 0.2, 0x333333);
-    pole.position.set(-5.5, 1.6, 2);
-    const lamp = boxMesh(0.5, 1.2, 0.35, 0x222222);
-    lamp.position.set(-5.5, 3.2, 2);
-    const bulb = boxMesh(0.35, 0.35, 0.2, PALETTE.green);
-    bulb.position.set(-5.5, 3.4, 2.2);
+    const pole = boxMesh(0.18, 3.4, 0.18, 0x333333, { metal: 0.6, rough: 0.4 });
+    pole.position.set(-5.5, 1.7, 2);
+    const lamp = boxMesh(0.5, 1.15, 0.35, 0x222222, { metal: 0.5, rough: 0.45 });
+    lamp.position.set(-5.5, 3.3, 2);
+    const bulb = boxMesh(0.35, 0.35, 0.2, PALETTE.green, {
+      metal: 0.2,
+      rough: 0.35,
+      emissive: PALETTE.green,
+      emissiveIntensity: 0.5,
+    });
+    bulb.position.set(-5.5, 3.5, 2.2);
     bulb.name = "bulb";
     lightGroup.add(pole, lamp, bulb);
     root.add(lightGroup);
   }
 
-  root.userData = { biome, intersection, lightGroup, lightState: "green", lightTimer: 1.5 + Math.random(), resolved: false };
+  root.userData = {
+    biome,
+    intersection,
+    lightGroup,
+    lightState: "green",
+    lightTimer: 1.5 + Math.random(),
+    resolved: false,
+  };
   return root;
 }
 
@@ -316,7 +389,7 @@ const activeTraffic = [];
 const activeCoins = [];
 const activeCross = [];
 
-const player = makeCar(PALETTE.player, PALETTE.playerStripe);
+const player = makeCar(PALETTE.player, { accent: PALETTE.playerAccent });
 scene.add(player);
 
 const segmentPool = {
@@ -329,12 +402,16 @@ const segmentPool = {
 };
 
 const carPool = new Pool(() => {
-  const colors = [PALETTE.civTeal, PALETTE.civCoral, PALETTE.civCream];
+  const colors = [PALETTE.civA, PALETTE.civB, PALETTE.civC];
   const c = makeCar(colors[(Math.random() * colors.length) | 0]);
   scene.add(c);
   return c;
 }, 8);
-const policePool = new Pool(() => { const c = makeCar(PALETTE.police, null, true); scene.add(c); return c; }, 2);
+const policePool = new Pool(() => {
+  const c = makeCar(PALETTE.police, { police: true });
+  scene.add(c);
+  return c;
+}, 2);
 const crossPool = new Pool(() => { const c = makeTruck(); scene.add(c); return c; }, 3);
 const coinPool = new Pool(() => { const c = makeCoin(); scene.add(c); return c; }, 10);
 
@@ -361,7 +438,6 @@ function spawnSegment() {
   else if (biome === "suburb") seg = (wantI ? segmentPool.suburbI : segmentPool.suburb).rent();
   else seg = (wantI ? segmentPool.highwayI : segmentPool.highway).rent();
 
-  // Reset runtime fields (pool may reuse intersection meshes)
   seg.userData.resolved = false;
   seg.userData.lightState = "green";
   seg.userData.lightTimer = 1.2 + Math.random() * 1.5;
@@ -408,7 +484,7 @@ function startRun() {
   player.rotation.set(0, 0, 0);
   for (let i = 0; i < 10; i++) spawnSegment();
   showPanel("hud");
-  hudCoins.textContent = String(save.coins);
+  hudCoins.textContent = `$${save.coins}`;
   trafficTimer = 0.8;
 }
 
@@ -417,13 +493,12 @@ function crash() {
   alive = false;
   running = false;
   goScore.textContent = `${Math.floor(distance)} m`;
-  goCoins.textContent = `+${runCoins} coins`;
+  goCoins.textContent = `+$${runCoins}`;
   writeSave(save);
   fromGameOver = true;
   showPanel("gameover");
 }
 
-// ---------- Input (web-safe swipe) ----------
 let touchStart = null;
 const MIN_SWIPE = 40;
 
@@ -474,7 +549,6 @@ document.body.addEventListener("touchmove", (e) => {
   }
 }, { passive: false });
 
-// ---------- UI buttons ----------
 document.getElementById("btn-play").onclick = () => startRun();
 document.getElementById("btn-retry").onclick = () => startRun();
 document.getElementById("btn-menu").onclick = () => { fromGameOver = false; showPanel("menu"); };
@@ -501,7 +575,6 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ---------- Loop ----------
 let trafficTimer = 0;
 let last = performance.now();
 
@@ -509,7 +582,10 @@ function updateLightVisual(seg) {
   const bulb = seg.userData.lightGroup?.getObjectByName("bulb");
   if (!bulb) return;
   const s = seg.userData.lightState;
-  bulb.material.color.setHex(s === "red" ? PALETTE.red : s === "yellow" ? PALETTE.yellow : PALETTE.green);
+  const hex = s === "red" ? PALETTE.red : s === "yellow" ? PALETTE.yellow : PALETTE.green;
+  bulb.material.color.setHex(hex);
+  bulb.material.emissive.setHex(hex);
+  bulb.material.emissiveIntensity = 0.55;
 }
 
 function tick(now) {
@@ -525,7 +601,6 @@ function tick(now) {
 
     const smooth = THREE.MathUtils.lerp(0.18, 0.08, Math.min(1, (handlingFactor() - 1) / 0.5));
     const targetX = LANE_X[lane];
-    // SmoothDamp-ish
     const omega = 2 / Math.max(0.05, smooth);
     const x = omega * dt;
     const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
@@ -541,8 +616,8 @@ function tick(now) {
       if (boostTimer <= 0) { boostTimer = 0; boostMul = 1; }
     }
 
-    camera.position.set(laneX * 0.35, 6.5, playerZ - 12);
-    camera.lookAt(laneX, 1.2, playerZ + 8);
+    camera.position.set(laneX * 0.35, 6.2, playerZ - 11.5);
+    camera.lookAt(laneX, 1.1, playerZ + 9);
 
     while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
 
@@ -574,12 +649,12 @@ function tick(now) {
             truck.position.set(-12, 0, seg.position.z);
             truck.userData.vx = 22;
             activeCross.push(truck);
-            hudLight.textContent = "RED — BOOST!";
-            hudLight.style.color = "#ef233c";
+            hudLight.textContent = "RED LIGHT — NOS";
+            hudLight.style.color = "#e57373";
             hudLight.classList.remove("hidden");
           } else {
             hudLight.textContent = "GREEN — clear";
-            hudLight.style.color = "#06d6a0";
+            hudLight.style.color = "#81c784";
             hudLight.classList.remove("hidden");
           }
           setTimeout(() => hudLight.classList.add("hidden"), 1200);
@@ -629,7 +704,7 @@ function tick(now) {
 
     for (let i = activeCoins.length - 1; i >= 0; i--) {
       const c = activeCoins[i];
-      c.rotation.y += dt * 3;
+      c.rotation.z += dt * 3;
       if (c.position.z < playerZ - 10) {
         activeCoins.splice(i, 1);
         coinPool.return(c);
@@ -645,13 +720,13 @@ function tick(now) {
     }
 
     hudDistance.textContent = `${Math.floor(distance)} m`;
-    hudCoins.textContent = String(save.coins);
+    hudCoins.textContent = `$${save.coins}`;
     hudBoost.classList.toggle("hidden", boostTimer <= 0);
   } else if (!running) {
-    camera.position.set(0, 7, -14);
-    camera.lookAt(0, 1, 6);
+    camera.position.set(2.5, 5.5, -10);
+    camera.lookAt(-0.5, 1.2, 4);
     player.position.set(0, 0, 0);
-    player.rotation.y += dt * 0.6;
+    player.rotation.y += dt * 0.35;
   }
 
   renderer.render(scene, camera);
@@ -661,7 +736,6 @@ function tick(now) {
 showPanel("menu");
 requestAnimationFrame(tick);
 
-// Expose for smoke tests
 window.__endlessChase = {
   startRun,
   getSave: () => ({ ...save }),

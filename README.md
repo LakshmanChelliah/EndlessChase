@@ -1,7 +1,9 @@
 # Endless Chase
 
-3D endless runner (Subway Surfers–style lane switching + Temple Run–style procedural biomes).  
+3D endless runner — getaway car vs police through procedural City / Suburb / Highway biomes.  
 **WebGL-first** for mobile browsers; Unity C# systems included for later iOS port.
+
+**Art direction:** Fake GTA V — gritty Los Santos golden-hour look via **Mobile PBR**, baked AO in atlases, and one directional sun (no heavy realtime shadows).
 
 ## Play
 
@@ -20,26 +22,27 @@ Open `http://localhost:4173` — swipe / A·D to change lanes.
 | Path | Purpose |
 |------|---------|
 | `Assets/Scripts/` | Production Unity C# (input, player, pool, level, traffic, risk/reward, save, UI) |
-| `Assets/Shaders/EndlessChaseToonUnlit.shader` | Mobile Unlit cel shader |
+| `Assets/Shaders/EndlessChaseMobilePBR.shader` | Mobile PBR (Fake GTA) |
+| `Assets/Shaders/EndlessChaseToonUnlit.shader` | Deprecated arcade cel path |
 | `Assets/WebGLTemplates/EndlessChase/` | Browser-safe touch template |
-| `docs/` | Playable Three.js WebGL client **and** art bible / build docs (GitHub Pages `/docs`) |
+| `docs/` | Playable Three.js client + art bible / build docs (GitHub Pages `/docs`) |
 
-> Unity 2022.3 LTS + URP is the target for a native Unity WebGL binary. Until you build in Hub/GameCI, `docs/` is the shippable Pages build and mirrors the same gameplay systems.
+> Unity 2022.3 LTS + URP for a native Unity WebGL binary. Until Hub/GameCI builds it, `docs/` is the shippable Pages client.
 
 ## Controls
 
 - **Swipe** left/right (touch) or **A/D** / arrows — lanes  
-- **Play / Retry / Upgrades** — UI  
-- Run a **red light** for a speed boost (cross-traffic risk)
+- **Play / Retry / Garage** — UI  
+- Run a **red light** for NOS boost (cross-traffic risk)
 
 ## Save data
 
-Versioned JSON in `localStorage` / Unity `PlayerPrefs` key `EndlessChase.Save.v1` (WebGL → IndexedDB). Same schema for iOS later.
+Versioned JSON in `localStorage` / Unity `PlayerPrefs` key `EndlessChase.Save.v1` (WebGL → IndexedDB).
 
 ## Art
 
-See [docs/ArtBible.md](docs/ArtBible.md), [docs/ArtPrompts_Meshy.md](docs/ArtPrompts_Meshy.md), [docs/ArtPrompts_ImageGen.md](docs/ArtPrompts_ImageGen.md).
+Fake GTA V pipeline: [docs/ArtBible.md](docs/ArtBible.md), [docs/ArtPrompts_Meshy.md](docs/ArtPrompts_Meshy.md), [docs/ArtPrompts_ImageGen.md](docs/ArtPrompts_ImageGen.md).
 
 ## Unity WebGL settings
 
-See [docs/WebGLBuildSettings.md](docs/WebGLBuildSettings.md) (Gzip + Decompression Fallback for Pages).
+See [docs/WebGLBuildSettings.md](docs/WebGLBuildSettings.md) — **Linear** color space, Gzip + Decompression Fallback, shadows off.

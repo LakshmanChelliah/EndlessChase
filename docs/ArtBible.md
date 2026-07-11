@@ -1,85 +1,97 @@
-# Endless Chase — Art Bible
+# Endless Chase — Art Bible (Fake GTA V / Mobile PBR)
 
-**Style lock:** Vibrant low-poly arcade. Hard-edge faceting, saturated controlled palette, **no PBR**, painted lighting in atlas. Readable from chase cam ~15–25 m on mobile WebGL.
+**Style lock:** Los Santos–inspired **late-afternoon golden-hour grit**. Weathered paint, chrome trim, cracked asphalt, concrete dust, warm sun haze. Reads like GTA V from a chase cam — **not** cartoon, **not** full AAA deferred photoreal.
 
-## Master palette
+True GTA V uses deferred rendering, dense LODs, and realtime shadows. Mobile WebGL cannot. We fake the *read* with **Mobile PBR**, **baked AO / contact shadows in maps**, **texture atlases**, and **one directional sun** (realtime shadows OFF).
+
+## Mood & palette (gritty SoCal)
 
 | Token | Hex | Use |
 |-------|-----|-----|
-| Asphalt | `#2B2F3A` | Road surface |
-| Lane | `#F5E6A8` | Lane dashes / markings |
-| Curb | `#C4C8D0` | Curbs, rails |
-| CityAccent | `#FF4D6D` | City signage / trim |
-| SuburbGreen | `#3DDC97` | Lawns, trees |
-| HighwayBlue | `#4CC9F0` | Gantries / signs |
-| Police | `#1D4ED8` + `#F8FAFC` | Cruiser |
-| Player | `#FFB703` + `#FB8500` | Hero car |
-| Coin | `#FFE66D` | Collectibles |
-| RedLight | `#EF233C` | Signal red |
-| GreenLight | `#06D6A0` | Signal green |
-| SkyBandA | `#7BDFF2` | Sky top |
-| SkyBandB | `#FFCAD4` | Sky horizon |
+| Asphalt | `#1C1F24` | Road surface (charcoal, dusty) |
+| LanePaint | `#C9B896` | Faded lane dashes |
+| Concrete | `#8A8580` | Curbs, sidewalks, barriers |
+| Dust | `#A89070` | Dirt overlays / haze tint |
+| HeroBody | `#2A2E33` | Getaway car — dark metallic graphite |
+| HeroAccent | `#6B1D1D` | Optional deep red stripe / calipers |
+| PoliceBlack | `#0E0E10` | Cruiser body |
+| PoliceWhite | `#E8E6E1` | Door panels |
+| Chrome | `#B8BCC2` | Trim, bumpers (metallic high) |
+| SkyHazeA | `#C4A574` | Horizon warm haze |
+| SkyHazeB | `#6B8CAE` | Upper sky cool |
+| Sun | `#FFC98A` | Golden-hour key |
+| RedLight | `#C62828` | Signal |
+| GreenLight | `#2E7D32` | Signal |
+| Coin | `#D4AF37` | Collectible (subtle, not arcade candy) |
 
-## Poly budgets
+## Poly budgets (WebGL-safe)
 
-| Asset class | Max tris |
-|-------------|----------|
-| Vehicles | ≤1,500 each |
-| Road tile shell | ≤800 |
-| Roadside prop | 200–400 |
-| Traffic light | ≤300 |
-| Coin / VFX | ≤120 |
+| Asset | Max tris | Notes |
+|-------|----------|--------|
+| Hero sports / muscle | ≤8,000 | Clean exterior only, no interior |
+| Police / civilian cars | ≤6,000 | Same wheel style for atlas reuse |
+| Cross-traffic truck | ≤5,000 | Wider silhouette |
+| Road tile shell | ≤2,000 | 20 m × 12 m module |
+| Buildings / props | 800–1,500 | Box LODs OK if silhouette reads |
+| Traffic light | ≤500 | |
 
-## UV / atlas
+## Maps (Mobile PBR, atlas-first)
 
-- Single 0–1 unwrap per mesh; 4–8 px padding
-- One shared **1024²** atlas `Atlas_EndlessChase.png` (fallback 512²)
-- Base color only (optional 1-bit opacity). No normal/metal/rough/AO
+| Map | Space | Notes |
+|-----|-------|--------|
+| Albedo | sRGB | Dirt, wear, fake contact shadows painted in |
+| Normal | linear | Optional; one shared vehicle normal preferred |
+| ORM mask | linear | **R**=AO (or packed unused), **G**=Roughness, **B**=Metallic |
+| Emission | sRGB | Rare — window strips / lightbar only, very dim |
 
-### Packing
+**Do not use:** height/displacement, realtime reflection probes, SSR, SSAO, volumetric fog.
 
-```
-[0–512, 512–1024]   vehicles
-[512–1024, 512–1024] road / lane / curb / crosswalk
-[0–512, 0–512]      biome props + lights + coins
-[512–1024, 0–512]   UI icons + fx colors
-```
+**Car paint gloss:** roughness + tiny env cubemap (64–128) or matcap-lite — not planar reflections.
 
-Import: Bilinear or Point, sRGB, max 1024, ASTC 6×6 / ETC2.
+### Atlas layout
 
-## Tile contract
+**Vehicles** — `Atlas_Vehicles_Albedo.png` + `Atlas_Vehicles_ORM.png` (+ optional shared normal), **2048²** (fallback 1024²).
 
-- Length **20 m** (+Z), width **12 m**
-- Lane centers X = **−3.2, 0, 3.2**
-- Origin at tile start centerline; road Y = 0
-- One material: `M_Atlas` / `EndlessChase/ToonUnlit`
+**Environment** — `Atlas_Env_Albedo.png` + `Atlas_Env_ORM.png`, **2048²**.
+
+Import: mipmaps ON, anisotropic 2–4, ASTC 6×6 / ETC2, max 2048.
+
+## Fake lighting rules
+
+1. Bake soft ground contact and panel AO into albedo / ORM.R  
+2. One URP directional light (golden-hour sun); **shadows Off** on WebGL quality  
+3. Hemisphere / ambient ≈ sky haze colors; keep exposure conservative in Linear  
+4. Building windows: emission strips baked into albedo (cheap “lit interior” read)  
+5. No additional realtime lights on mobile WebGL tier  
+
+## Tile contract (unchanged gameplay)
+
+- Length **20 m** (+Z), width **12 m**  
+- Lane centers X = **−3.2, 0, 3.2**  
+- Origin at tile start centerline; road Y = 0  
+- Materials: `M_Env_PBR` / `EndlessChase/MobilePBR`
 
 ## Shader
 
-Use `Assets/Shaders/EndlessChaseToonUnlit.shader`:
+Primary: [`Assets/Shaders/EndlessChaseMobilePBR.shader`](../Assets/Shaders/EndlessChaseMobilePBR.shader)
 
-- Atlas `_BaseMap` + `_BaseColor`
-- Constant fake light dir → 2–3 cel bands (`floor(N·L * bands) / bands`)
-- Vertex color multiply
-- GPU Instancing on
-- Materials: `M_Atlas_Master`, `M_Atlas_Player`, `M_Atlas_Police`
+- Albedo + ORM (+ optional normal)  
+- Single main light; no extra lights; no realtime shadows  
+- Fog-compatible; GPU instancing ON  
 
-### Shader Graph mirror (URP Unlit)
+**Deprecated:** `EndlessChase/ToonUnlit` — arcade cel path; do not use for new assets.
 
-1. Sample Texture 2D → Multiply Color → Multiply Vertex Color  
-2. Normalize Normal WS · Normalize LightDir → Saturate  
-3. Multiply by Bands → Floor → Divide by Bands → Lerp(0.55, 1)  
-4. Multiply into albedo → Fragment Base Color  
+Materials: `M_Vehicle_PBR`, `M_Env_PBR`, tint instances for hero/police if needed.
 
-## Negative prompts (all tools)
+## Negative prompts (all AI tools)
 
-photorealistic, ray tracing, subsurface, chrome reflections, dense foliage cards, high-poly Bezier curves, muddy brown, purple neon cyberpunk default, Inter/Roboto UI look
+cartoon, low-poly toy, cel shading, vibrant arcade, pastel sky, candy colors, purple neon cyberpunk, ray tracing showcase, 8K photoreal skin pores, dense foliage cards, interior cockpit, high-poly subdivision cage, muddy brown sludge, Inter/Roboto UI chrome
 
 ## Pipeline checklist
 
-1. Generate mesh → decimate to budget → validate lane clearance  
-2. Unwrap → pack into atlas slot → paint flat colors  
-3. Assign `EndlessChase/ToonUnlit` → prefab → register in `ObjectPool`  
-4. Screenshot at mobile resolution → adjust silhouette if unreadable  
+1. Generate / sculpt → decimate to budget → delete interiors  
+2. Unwrap for atlas → paint albedo wear + fake AO → author ORM  
+3. Assign `EndlessChase/MobilePBR` → prefab → pool register  
+4. Screenshot at mobile resolution under golden-hour sun → adjust roughness/metal  
 
-See also: [ArtPrompts_Meshy.md](ArtPrompts_Meshy.md), [ArtPrompts_ImageGen.md](ArtPrompts_ImageGen.md).
+See: [ArtPrompts_Meshy.md](ArtPrompts_Meshy.md), [ArtPrompts_ImageGen.md](ArtPrompts_ImageGen.md), [WebGLBuildSettings.md](WebGLBuildSettings.md).
