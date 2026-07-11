@@ -73,11 +73,12 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setClearColor(NES.navy);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(NES.navy, 28, 85);
-const camera = new THREE.PerspectiveCamera(50, NES_W / NES_H, 0.1, 200);
+scene.background = new THREE.Color(NES.navy);
+scene.fog = new THREE.Fog(NES.navy, 40, 140);
+const camera = new THREE.PerspectiveCamera(55, NES_W / NES_H, 0.1, 250);
 
 const tex = createTextures();
-addSky(scene, tex);
+addSky(scene);
 
 // ---------- State ----------
 let running = false;
@@ -470,11 +471,32 @@ btnUpAccel.onclick = () => { if (tryUpgrade(save, "accelerationLevel")) refreshU
 btnUpHandling.onclick = () => { if (tryUpgrade(save, "handlingLevel")) refreshUpgradesUI(); };
 
 function layoutCanvas() {
-  renderer.setSize(NES_W, NES_H, false);
-  camera.aspect = NES_W / NES_H;
+  // Match phone aspect so CSS can fill the screen (no letterbox bars).
+  // Keep a low internal res for the NES nearest-neighbor look.
+  const vw = Math.max(1, window.innerWidth);
+  const vh = Math.max(1, window.innerHeight);
+  const aspect = vw / vh;
+  let ih;
+  let iw;
+  if (aspect < 1) {
+    // Portrait: taller buffer so the road fills the phone
+    ih = 260;
+    iw = Math.max(120, Math.round((ih * aspect) / 2) * 2);
+  } else {
+    ih = NES_H;
+    iw = Math.max(NES_W, Math.round((NES_H * aspect) / 2) * 2);
+  }
+  iw = Math.min(480, iw);
+  ih = Math.min(360, ih);
+  renderer.setSize(iw, ih, false);
+  camera.aspect = iw / ih;
+  camera.fov = aspect < 1 ? 62 : 55;
   camera.updateProjectionMatrix();
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
 }
 window.addEventListener("resize", layoutCanvas);
+window.addEventListener("orientationchange", () => setTimeout(layoutCanvas, 150));
 layoutCanvas();
 
 function tick(now) {

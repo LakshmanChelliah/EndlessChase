@@ -40,11 +40,46 @@ export function basicColor(color) {
   return new THREE.MeshBasicMaterial({ color });
 }
 
-export function addSky(scene, tex) {
-  const skyGeo = new THREE.SphereGeometry(90, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
-  const skyMat = new THREE.MeshBasicMaterial({ map: tex.sky, side: THREE.BackSide });
+export function addSky(scene) {
+  // Procedural NES dusk: navy → purple-gray → thin soft peach.
+  // Avoids the old sky.png solid orange band that read as a flat "yellow wall".
+  const w = 8;
+  const h = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, "#1d2b53");
+  g.addColorStop(0.55, "#1d2b53");
+  g.addColorStop(0.78, "#83769c");
+  g.addColorStop(0.92, "#c4a574");
+  g.addColorStop(1, "#6b8cae");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  // sparse stars (top half only)
+  ctx.fillStyle = "#fff1e8";
+  for (const [x, y] of [[1, 4], [5, 8], [3, 12], [6, 3], [2, 18]]) {
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  const map = new THREE.CanvasTexture(canvas);
+  map.magFilter = THREE.NearestFilter;
+  map.minFilter = THREE.NearestFilter;
+  map.generateMipmaps = false;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.needsUpdate = true;
+
+  // Full dome (not half-sphere) so the horizon blends instead of clipping into a band
+  const skyGeo = new THREE.SphereGeometry(120, 24, 12);
+  const skyMat = new THREE.MeshBasicMaterial({
+    map,
+    side: THREE.BackSide,
+    fog: false,
+    depthWrite: false,
+  });
   const sky = new THREE.Mesh(skyGeo, skyMat);
-  sky.position.y = -2;
+  sky.renderOrder = -1;
   scene.add(sky);
   return sky;
 }
