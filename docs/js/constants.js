@@ -41,8 +41,9 @@ export function layoutFor(biome) {
       count: 4,
       width: 16,
       xs: [-6.0, -2.0, 2.0, 6.0],
-      dirs: [-1, -1, 1, 1],
-      defaultLane: 2,
+      // Left lanes forward (+Z); right lanes oncoming (−Z)
+      dirs: [1, 1, -1, -1],
+      defaultLane: 1,
     };
   }
   if (biome === "rural") {
@@ -50,8 +51,9 @@ export function layoutFor(biome) {
       count: 2,
       width: 10,
       xs: [-2.0, 2.0],
-      dirs: [-1, 1],
-      defaultLane: 1,
+      // Left forward, right oncoming
+      dirs: [1, -1],
+      defaultLane: 0,
     };
   }
   return {
@@ -67,15 +69,6 @@ export function biomeLabel(b) {
   if (b === "rural") return "RURAL";
   if (b === "highway") return "HWY";
   return "CITY";
-}
-
-export function pickTurnBiomes(from, distance = 0) {
-  const others = ["city", "rural", "highway"].filter((b) => b !== from);
-  if (distance > 900 && Math.random() < 0.55) {
-    return { left: others[0], right: "highway" };
-  }
-  if (Math.random() < 0.5) return { left: others[0], right: others[1] };
-  return { left: others[1], right: others[0] };
 }
 
 export function poolKey(biome, kind) {

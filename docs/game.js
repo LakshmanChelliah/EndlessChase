@@ -9,15 +9,18 @@ import {
   BRAKE_DURATION, BRAKE_SPEED_MUL,
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
-  layoutFor, biomeLabel, pickTurnBiomes, poolKey,
-} from "./js/constants.js?v=3";
+  layoutFor, biomeLabel, poolKey,
+} from "./js/constants.js?v=4";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=3";
-import { Pool } from "./js/pool.js?v=3";
+} from "./js/save.js?v=4";
+import { Pool } from "./js/pool.js?v=4";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js?v=3";
+} from "./js/nes.js?v=4";
+import {
+  mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane, blendWidth,
+} from "./js/worldgen.js?v=4";
 
 const save = loadSave();
 
@@ -112,6 +115,11 @@ let bustPending = false;
 let keysBrake = false;
 let touchStart = null;
 let last = performance.now();
+let worldSeed = 1;
+let transitionQueue = [];
+let transitionFrom = null;
+let transitionTo = null;
+let transitioning = false;
 
 const activeSegments = [];
 const activeTraffic = [];
@@ -171,49 +179,68 @@ function remapLaneToLayout() {
   laneVel = 0;
 }
 
-function clearAheadTraffic() {
+function softRemapLane() {
+  const layout = currentLayout();
+  lane = nearestLane(layout, laneX, true);
+  // Keep laneX; spring damp will ease toward layout.xs[lane]
+  laneVel *= 0.4;
+}
+
+function disposeEphemeral(seg) {
+  scene.remove(seg);
+  seg.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose?.();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose?.());
+      else obj.material.dispose?.();
+    }
+  });
+}
+
+function clearAheadTrafficSoft() {
+  // Only cull traffic far ahead so the corridor isn't jammed with wrong-biome cars
   for (let i = activeTraffic.length - 1; i >= 0; i--) {
     const t = activeTraffic[i];
     if (t.userData.pursuit) continue;
-    if (t.position.z > playerZ + 5) {
+    if (t.position.z > playerZ + 55) {
       activeTraffic.splice(i, 1);
       (t.userData.police ? policePool : carPool).return(t);
     }
   }
-  for (let i = activeCoins.length - 1; i >= 0; i--) {
-    const c = activeCoins[i];
-    if (c.position.z > playerZ + 5) {
-      activeCoins.splice(i, 1);
-      coinPool.return(c);
-    }
-  }
 }
 
-function clearAheadSegments() {
-  for (let i = activeSegments.length - 1; i >= 0; i--) {
-    const seg = activeSegments[i];
-    if (seg.position.z > playerZ + SEG_LEN * 0.5) {
-      activeSegments.splice(i, 1);
-      recycleSegment(seg);
-    }
+function beginBiomeTransition(toBiome) {
+  if (transitioning && transitionTo === toBiome) return;
+  const from = activeBiome;
+  transitionFrom = from;
+  transitionTo = toBiome;
+  transitionQueue = buildTransitionPlan(from, toBiome);
+  transitioning = true;
+  turnCooldown = TURN_COOLDOWN_SEGS + transitionQueue.length + 2;
+  turnActive = null;
+  clearAheadTrafficSoft();
+  softRemapLane();
+  if (hudTurn) hudTurn.classList.add("hidden");
+  if (hudLight) {
+    hudLight.textContent = `→ ${biomeLabel(toBiome)}`;
+    hudLight.style.color = "#ffec27";
+    hudLight.classList.remove("hidden");
+    setTimeout(() => hudLight.classList.add("hidden"), 1400);
   }
-  let maxZ = playerZ;
-  for (const seg of activeSegments) maxZ = Math.max(maxZ, seg.position.z + SEG_LEN / 2);
-  nextSpawnZ = maxZ;
 }
 
 function applyBiomeSwitch(biome) {
-  activeBiome = biome;
-  onRampPending = true;
-  clearAheadTraffic();
-  clearAheadSegments();
-  remapLaneToLayout();
-  turnCooldown = TURN_COOLDOWN_SEGS;
-  turnActive = null;
-  if (hudTurn) hudTurn.classList.add("hidden");
+  // Legacy name — seamless corridor instead of hard cut
+  beginBiomeTransition(biome);
 }
 
 function recycleSegment(seg) {
+  if (seg.userData.ephemeral) {
+    const idx = activeSegments.indexOf(seg);
+    if (idx >= 0) activeSegments.splice(idx, 1);
+    disposeEphemeral(seg);
+    return;
+  }
   seg.visible = false;
   const b = seg.userData.biome;
   let key = b;
@@ -223,27 +250,63 @@ function recycleSegment(seg) {
   segmentPool[key].return(seg);
 }
 
-function spawnSegment() {
-  const biome = activeBiome;
-  let kind = "";
-  if (onRampPending) {
-    kind = "R";
-    onRampPending = false;
-  } else if (turnCooldown <= 0 && spawnIndex > 5 && Math.random() < 0.28) {
-    kind = "T";
-    turnCooldown = TURN_COOLDOWN_SEGS;
-  } else if (spawnIndex > 2 && Math.random() < 0.2 && biome !== "highway") {
-    kind = "I";
-  } else if (spawnIndex > 4 && biome === "highway" && Math.random() < 0.08) {
-    kind = "I";
+function spawnEphemeral(plan) {
+  const fromL = layoutFor(transitionFrom || activeBiome);
+  const toL = layoutFor(transitionTo || plan.biome);
+  const width = blendWidth(fromL, toL, plan.t);
+  const mix = plan.t < 0.55 ? transitionTo : transitionFrom;
+  const seed = hash2(spawnIndex, worldSeed);
+  const seg = makeSegment(tex, plan.biome, {
+    onRamp: plan.kind === "R" || plan.phase === "exit" || plan.phase === "enter",
+    transition: true,
+    widthOverride: width,
+    mixBiome: mix,
+    seed,
+    distance,
+  });
+  seg.userData.ephemeral = true;
+  seg.userData.transitionPhase = plan.phase;
+  seg.userData.resolved = false;
+  seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
+  activeSegments.push(seg);
+
+  // Mid-corridor: adopt destination biome for traffic / lane rules
+  if (plan.t >= 0.6) {
+    activeBiome = transitionTo;
+    softRemapLane();
   }
-  if (turnCooldown > 0 && kind !== "T") turnCooldown--;
+
+  nextSpawnZ += SEG_LEN;
+  spawnIndex++;
+}
+
+function spawnSegment() {
+  // Seamless transition corridor first
+  if (transitionQueue.length) {
+    const step = transitionQueue.shift();
+    spawnEphemeral(step);
+    if (!transitionQueue.length) {
+      activeBiome = transitionTo;
+      transitioning = false;
+      transitionFrom = null;
+      softRemapLane();
+    }
+    return;
+  }
+
+  const biome = activeBiome;
+  const rng = mulberry32(hash2(spawnIndex, worldSeed ^ 0x9e3779b9));
+  const decided = decideSegment(biome, spawnIndex, turnCooldown, rng);
+  let kind = decided.kind;
+
+  if (kind === "T") turnCooldown = TURN_COOLDOWN_SEGS;
+  else if (turnCooldown > 0) turnCooldown--;
 
   const key = poolKey(biome, kind);
   const seg = segmentPool[key].rent();
 
   if (seg.userData.turnOffer) {
-    const pair = pickTurnBiomes(biome, distance);
+    const pair = pickTurnBiomes(biome, distance, rng);
     seg.userData.turnLeftBiome = pair.left;
     seg.userData.turnRightBiome = pair.right;
     seg.userData.turnResolved = false;
@@ -251,17 +314,17 @@ function spawnSegment() {
 
   seg.userData.resolved = false;
   seg.userData.lightState = "green";
-  seg.userData.lightTimer = 1.2 + Math.random() * 1.5;
+  seg.userData.lightTimer = 1.2 + rng() * 1.5;
   if (seg.userData.lightGroup) updateLightVisual(seg);
   seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
   activeSegments.push(seg);
 
   const layout = layoutFor(biome);
-  if (Math.random() < 0.55 && kind !== "T") {
+  if (rng() < 0.55 && kind !== "T") {
     const coin = coinPool.rent();
     const sameDir = [];
     for (let i = 0; i < layout.count; i++) if (layout.dirs[i] === 1) sameDir.push(i);
-    const li = sameDir.length ? sameDir[(Math.random() * sameDir.length) | 0] : 0;
+    const li = sameDir.length ? sameDir[(rng() * sameDir.length) | 0] : layout.defaultLane;
     coin.position.set(layout.xs[li], 1.0, nextSpawnZ + SEG_LEN * 0.5);
     activeCoins.push(coin);
   }
@@ -271,7 +334,11 @@ function spawnSegment() {
 }
 
 function clearWorld() {
-  while (activeSegments.length) recycleSegment(activeSegments.pop());
+  while (activeSegments.length) {
+    const seg = activeSegments.pop();
+    if (seg.userData.ephemeral) disposeEphemeral(seg);
+    else recycleSegment(seg);
+  }
   while (activeTraffic.length) {
     const t = activeTraffic.pop();
     (t.userData.police ? policePool : carPool).return(t);
@@ -279,6 +346,10 @@ function clearWorld() {
   while (activeCross.length) crossPool.return(activeCross.pop());
   while (activeCoins.length) coinPool.return(activeCoins.pop());
   pursuit = null;
+  transitionQueue = [];
+  transitioning = false;
+  transitionFrom = null;
+  transitionTo = null;
 }
 
 function updateHeatUI() {
@@ -388,6 +459,11 @@ function startRun() {
   onRampPending = false;
   bustPending = false;
   keysBrake = false;
+  worldSeed = (Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0;
+  transitionQueue = [];
+  transitioning = false;
+  transitionFrom = null;
+  transitionTo = null;
   player.position.set(laneX, 0, 0);
   player.rotation.set(0, 0, 0);
   for (let i = 0; i < 10; i++) spawnSegment();
