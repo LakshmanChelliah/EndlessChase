@@ -85,12 +85,12 @@ const tex = createTextures();
 addSky(camera);
 
 // ---------- Menu / intro camera ----------
-/** City curb sits at ±8.2; park on the left sidewalk just outside it. */
-const MENU_PARK = { x: -9.45, z: 3.2, yaw: 0.12 };
+/** City curb sits at ±8.2; park fully on the left sidewalk just outside it. */
+const MENU_PARK = { x: -10.25, z: 2.8, yaw: 0.06 };
 const INTRO_DURATION = 1.35;
 
-const _menuCamPos = new THREE.Vector3(-5.2, 2.85, -3.6);
-const _menuCamLook = new THREE.Vector3(-9.1, 0.55, 7.0);
+const _menuCamPos = new THREE.Vector3(-4.6, 2.55, -2.4);
+const _menuCamLook = new THREE.Vector3(-9.8, 0.5, 6.2);
 const _camLook = new THREE.Vector3().copy(_menuCamLook);
 const _tmpV = new THREE.Vector3();
 const _tmpV2 = new THREE.Vector3();
@@ -518,11 +518,11 @@ function setupMenuScene() {
   }
 
   // Quiet parked deco cars further along the same curb
-  const decoZs = [16, 28];
+  const decoZs = [15, 27];
   for (let i = 0; i < decoZs.length; i++) {
     const deco = carPool.rent();
-    deco.position.set(MENU_PARK.x, 0, decoZs[i]);
-    deco.rotation.y = 0;
+    deco.position.set(MENU_PARK.x - 0.15 * i, 0, decoZs[i]);
+    deco.rotation.y = (i === 0 ? 0.04 : -0.03);
     deco.userData.police = false;
     deco.userData.pursuit = false;
     deco.userData.dir = 1;
