@@ -127,37 +127,54 @@ export function makeCoin(tex) {
   return mesh;
 }
 
-function addLaneMarkings(root, layout, biome) {
+function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
   const half = layout.width / 2;
+  const gap = intersection ? CROSS_GAP : 0;
+  const markLen = intersection ? SEG_LEN / 2 - gap : SEG_LEN;
+  const markCenters = intersection
+    ? [-(gap + markLen / 2), gap + markLen / 2]
+    : [0];
+
   if (biome === "highway") {
     const mid = (layout.xs[0] + layout.xs[1]) / 2;
-    for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += 4) {
-      const dash = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1.4), basicColor(NES.white));
-      dash.position.set(mid, 0.04, z);
-      root.add(dash);
+    for (const zc of markCenters) {
+      const z0 = zc - markLen / 2 + 2;
+      const z1 = zc + markLen / 2;
+      for (let z = z0; z < z1; z += 4) {
+        const dash = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1.4), basicColor(NES.white));
+        dash.position.set(mid, 0.04, z);
+        root.add(dash);
+      }
     }
   } else {
-    // Double yellow center divider
-    for (const ox of [-0.18, 0.18]) {
-      const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, SEG_LEN - 1), basicColor(NES.yellow));
-      line.position.set(ox, 0.04, 0);
-      root.add(line);
+    // Double yellow center divider (gapped at intersection)
+    for (const zc of markCenters) {
+      for (const ox of [-0.18, 0.18]) {
+        const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, Math.max(0.5, markLen - 1)), basicColor(NES.yellow));
+        line.position.set(ox, 0.04, zc);
+        root.add(line);
+      }
     }
     if (biome === "city") {
-      // White dashes within each direction half (left = forward, right = oncoming)
       for (const x of [-4.0, 4.0]) {
-        for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += 4) {
-          const dash = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1.4), basicColor(NES.white));
-          dash.position.set(x, 0.04, z);
-          root.add(dash);
+        for (const zc of markCenters) {
+          const z0 = zc - markLen / 2 + 2;
+          const z1 = zc + markLen / 2;
+          for (let z = z0; z < z1; z += 4) {
+            const dash = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1.4), basicColor(NES.white));
+            dash.position.set(x, 0.04, z);
+            root.add(dash);
+          }
         }
       }
     }
   }
   for (const x of [-(half + 0.2), half + 0.2]) {
-    const c = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, SEG_LEN), basicColor(NES.curb));
-    c.position.set(x, 0.15, 0);
-    root.add(c);
+    for (const zc of markCenters) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, markLen), basicColor(NES.curb));
+      c.position.set(x, 0.15, zc);
+      root.add(c);
+    }
   }
 }
 
@@ -177,6 +194,57 @@ function addTurnOfferVisuals(root, layout) {
       root.add(chev);
     }
   }
+}
+
+/** Cross-street gap half-length (local Z) — no buildings through the junction. */
+const CROSS_GAP = 5;
+
+function addCrossStreet(root, half, width) {
+  const armLen = 12;
+  const armW = Math.max(8, width * 0.7);
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.PlaneGeometry(armLen, armW), basicColor(NES.asphalt));
+    arm.rotation.x = -Math.PI / 2;
+    arm.position.set(side * (half + armLen / 2), 0.012, 0);
+    root.add(arm);
+    // Sidewalk strips along the cross-street arms
+    for (const zSide of [-1, 1]) {
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.85, 2.2), basicColor(0x3a3d48));
+      walk.rotation.x = -Math.PI / 2;
+      walk.position.set(side * (half + armLen / 2), 0.018, zSide * (armW / 2 + 1.1));
+      root.add(walk);
+    }
+  }
+  // Stop line just south of the zebra
+  const stop = new THREE.Mesh(new THREE.BoxGeometry(width - 1.5, 0.05, 0.35), basicColor(NES.white));
+  stop.position.set(0, 0.05, -2.4);
+  root.add(stop);
+}
+
+function addThreeLampSignal(root, half, tex) {
+  const lightGroup = new THREE.Group();
+  const poleX = -(half - 0.5);
+  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.6, 0.25), basicColor(0xc2c3c7));
+  pole.position.set(poleX, 1.8, 2.2);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.1, 0.45), basicColor(0x1a1c2c));
+  housing.position.set(poleX, 3.4, 2.35);
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.0, 2.0),
+    new THREE.MeshBasicMaterial({ map: tex.light, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide })
+  );
+  sign.position.set(poleX - 0.55, 3.4, 2.35);
+  const mkBulb = (name, y, color) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.22), basicColor(color));
+    b.position.set(poleX, y, 2.55);
+    b.name = name;
+    return b;
+  };
+  const bulbRed = mkBulb("bulbRed", 4.0, NES.asphalt);
+  const bulbYellow = mkBulb("bulbYellow", 3.4, NES.asphalt);
+  const bulbGreen = mkBulb("bulbGreen", 2.8, NES.green);
+  lightGroup.add(pole, housing, sign, bulbRed, bulbYellow, bulbGreen);
+  root.add(lightGroup);
+  return lightGroup;
 }
 
 /**
@@ -224,36 +292,47 @@ export function makeSegment(tex, biome, opts = {}) {
   const markLayout = widthOverride != null
     ? { ...layout, width, xs: layout.xs.map((x) => x * (width / layout.width)) }
     : layout;
-  addLaneMarkings(root, markLayout, biome);
+  addLaneMarkings(root, markLayout, biome, { intersection });
 
   const propBiome = biome;
   let gantryGroup = null;
+  // Intersection: leave a building-free gap and split roadside props N/S of the cross street
+  const gap = intersection ? CROSS_GAP : 0;
+  const patchLen = intersection ? (SEG_LEN / 2 - gap) : SEG_LEN;
+  const patchCenters = intersection
+    ? [-(gap + patchLen / 2), gap + patchLen / 2]
+    : [0];
 
   if (propBiome === "rural") {
     // Wide berm so houses sit fully on grass, not half in the void
     const bermW = 12;
     const bermCenter = half + 1.2 + bermW / 2;
     for (const side of [-1, 1]) {
-      const grass = new THREE.Mesh(new THREE.PlaneGeometry(bermW, SEG_LEN), basicColor(NES.forest));
-      grass.rotation.x = -Math.PI / 2;
-      grass.position.set(side * bermCenter, 0.02, 0);
-      root.add(grass);
-      const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, 5.5), basicColor(0x4a5a38));
-      pad.rotation.x = -Math.PI / 2;
-      const houseX = side * (bermCenter + 0.5);
-      pad.position.set(houseX, 0.03, (rnd() - 0.5) * 4);
-      root.add(pad);
-      if (rnd() > 0.2) {
-        const house = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.6, 4), basic(tex.house));
-        house.position.set(houseX, 1.3, pad.position.z);
-        root.add(house);
+      for (const zc of patchCenters) {
+        const grass = new THREE.Mesh(new THREE.PlaneGeometry(bermW, patchLen), basicColor(NES.forest));
+        grass.rotation.x = -Math.PI / 2;
+        grass.position.set(side * bermCenter, 0.02, zc);
+        root.add(grass);
+        if (patchLen < 3) continue;
+        const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, Math.min(5.5, patchLen - 0.5)), basicColor(0x4a5a38));
+        pad.rotation.x = -Math.PI / 2;
+        const houseX = side * (bermCenter + 0.5);
+        pad.position.set(houseX, 0.03, zc + (rnd() - 0.5) * Math.min(2, patchLen * 0.3));
+        root.add(pad);
+        if (rnd() > 0.2) {
+          const house = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.6, Math.min(4, patchLen - 0.4)), basic(tex.house));
+          house.position.set(houseX, 1.3, pad.position.z);
+          root.add(house);
+        }
       }
     }
   } else if (propBiome === "highway") {
     for (const side of [-1, 1]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, SEG_LEN), basicColor(0xc2c3c7));
-      rail.position.set(side * (half + 0.5), 0.4, 0);
-      root.add(rail);
+      for (const zc of patchCenters) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, patchLen), basicColor(0xc2c3c7));
+        rail.position.set(side * (half + 0.5), 0.4, zc);
+        root.add(rail);
+      }
     }
     // Larger rectangular overhead sign — shown sparsely via spawnIndex
     gantryGroup = new THREE.Group();
@@ -278,25 +357,28 @@ export function makeSegment(tex, biome, opts = {}) {
     const walkW = 10;
     const walkCenter = half + 0.8 + walkW / 2;
     for (const side of [-1, 1]) {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(walkW, SEG_LEN), basicColor(0x3a3d48));
-      walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * walkCenter, 0.015, 0);
-      root.add(walk);
-      const h1 = 5 + (rnd() * 4) | 0;
-      const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, h1, 5.5), basic(tex.building));
-      b1.position.set(side * (walkCenter - 0.5), h1 / 2, -2 + (rnd() - 0.5) * 2);
-      root.add(b1);
-      if (rnd() > 0.3) {
-        const h2 = 4 + (rnd() * 3) | 0;
-        const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.0, h2, 4.5), basic(tex.building));
-        b2.position.set(side * (walkCenter + 1.5), h2 / 2, 5);
-        root.add(b2);
+      for (const zc of patchCenters) {
+        const walk = new THREE.Mesh(new THREE.PlaneGeometry(walkW, patchLen), basicColor(0x3a3d48));
+        walk.rotation.x = -Math.PI / 2;
+        walk.position.set(side * walkCenter, 0.015, zc);
+        root.add(walk);
+        if (patchLen < 3.5) continue;
+        const h1 = 5 + (rnd() * 4) | 0;
+        const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, h1, Math.min(5.5, patchLen - 0.5)), basic(tex.building));
+        b1.position.set(side * (walkCenter - 0.5), h1 / 2, zc);
+        root.add(b1);
+        if (!intersection && rnd() > 0.3) {
+          const h2 = 4 + (rnd() * 3) | 0;
+          const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.0, h2, 4.5), basic(tex.building));
+          b2.position.set(side * (walkCenter + 1.5), h2 / 2, 5);
+          root.add(b2);
+        }
       }
     }
   }
 
-  // Mixed scenery during mid-transition
-  if (mixBiome && mixBiome !== biome) {
+  // Mixed scenery during mid-transition (skip on intersection gap center)
+  if (mixBiome && mixBiome !== biome && !intersection) {
     const side = rnd() > 0.5 ? 1 : -1;
     if (mixBiome === "rural") {
       const grass = new THREE.Mesh(new THREE.PlaneGeometry(8, SEG_LEN * 0.7), basicColor(NES.forest));
@@ -331,24 +413,12 @@ export function makeSegment(tex, biome, opts = {}) {
 
   let lightGroup = null;
   if (intersection) {
+    addCrossStreet(root, half, width);
     const zebra = new THREE.Mesh(new THREE.PlaneGeometry(width - 2, 2.2), basicColor(NES.white));
     zebra.rotation.x = -Math.PI / 2;
-    zebra.position.y = 0.03;
+    zebra.position.set(0, 0.03, 0);
     root.add(zebra);
-    lightGroup = new THREE.Group();
-    const poleX = -(half - 0.5);
-    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.2, 0.2), basicColor(0xc2c3c7));
-    pole.position.set(poleX, 1.6, 2);
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.2, 2.4),
-      new THREE.MeshBasicMaterial({ map: tex.light, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide })
-    );
-    sign.position.set(poleX, 3.2, 2);
-    const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.2), basicColor(NES.green));
-    bulb.position.set(poleX, 3.5, 2.15);
-    bulb.name = "bulb";
-    lightGroup.add(pole, sign, bulb);
-    root.add(lightGroup);
+    lightGroup = addThreeLampSignal(root, half, tex);
   }
 
   let turnLeftBiome = null;
@@ -380,8 +450,20 @@ export function makeSegment(tex, biome, opts = {}) {
 }
 
 export function updateLightVisual(seg) {
-  const bulb = seg.userData.lightGroup?.getObjectByName("bulb");
-  if (!bulb) return;
+  const g = seg.userData.lightGroup;
+  if (!g) return;
   const s = seg.userData.lightState;
-  bulb.material.color.setHex(s === "red" ? NES.red : s === "yellow" ? NES.yellow : NES.green);
+  const dim = NES.asphalt;
+  const set = (name, onHex) => {
+    const b = g.getObjectByName(name);
+    if (b) b.material.color.setHex(onHex);
+  };
+  set("bulbRed", s === "red" ? NES.red : dim);
+  set("bulbYellow", s === "yellow" ? NES.yellow : dim);
+  set("bulbGreen", s === "green" ? NES.green : dim);
+  // Legacy single-bulb fallback
+  const legacy = g.getObjectByName("bulb");
+  if (legacy) {
+    legacy.material.color.setHex(s === "red" ? NES.red : s === "yellow" ? NES.yellow : NES.green);
+  }
 }

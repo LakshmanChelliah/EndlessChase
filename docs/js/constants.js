@@ -18,6 +18,15 @@ export const TURN_WINDOW = 1.25;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
 
+/** Traffic light phase durations (seconds) */
+export const LIGHT_GREEN = 3.0;
+export const LIGHT_YELLOW = 1.0;
+export const LIGHT_RED = 3.0;
+/** Show phase on HUD when intersection is this far ahead */
+export const LIGHT_HUD_AHEAD = 18;
+/** Same-dir NPCs stop this far before intersection center */
+export const NPC_STOP_OFFSET = 3;
+
 export const NES = {
   black: 0x000000,
   navy: 0x1d2b53,

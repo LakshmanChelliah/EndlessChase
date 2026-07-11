@@ -9,18 +9,19 @@ import {
   BRAKE_DURATION, BRAKE_SPEED_MUL,
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
+  LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=7";
+} from "./js/constants.js?v=8";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=7";
-import { Pool } from "./js/pool.js?v=7";
+} from "./js/save.js?v=8";
+import { Pool } from "./js/pool.js?v=8";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js?v=7";
+} from "./js/nes.js?v=8";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane,
-} from "./js/worldgen.js?v=7";
+} from "./js/worldgen.js?v=8";
 
 const save = loadSave();
 
@@ -40,6 +41,7 @@ const hudHeatFill = document.getElementById("hud-heat-fill");
 const hudHeat = document.getElementById("hud-heat");
 const hudTurn = document.getElementById("hud-turn");
 const hudLaneWarn = document.getElementById("hud-lane-warn");
+const hudSpeed = document.getElementById("hud-speed");
 const goTitle = document.getElementById("go-title");
 const goScore = document.getElementById("go-score");
 const goCoins = document.getElementById("go-coins");
@@ -243,7 +245,7 @@ function configureGantry(seg) {
 function placeSegment(seg) {
   seg.userData.resolved = false;
   seg.userData.lightState = "green";
-  seg.userData.lightTimer = 1.2 + Math.random() * 1.5;
+  seg.userData.lightTimer = LIGHT_GREEN * (0.4 + Math.random() * 0.6);
   seg.userData.turnResolved = false;
   if (seg.userData.lightGroup) updateLightVisual(seg);
   if (seg.userData.gantryGroup) seg.userData.gantryGroup.visible = false;
@@ -359,6 +361,27 @@ function spawnPursuit() {
   bustPending = true;
 }
 
+function lightDuration(state) {
+  if (state === "yellow") return LIGHT_YELLOW;
+  if (state === "red") return LIGHT_RED;
+  return LIGHT_GREEN;
+}
+
+function findAheadIntersection(fromZ, maxAhead = 40) {
+  let best = null;
+  let bestDz = Infinity;
+  for (const seg of activeSegments) {
+    if (!seg.userData.intersection) continue;
+    const dz = seg.position.z - fromZ;
+    if (dz < -2 || dz > maxAhead) continue;
+    if (dz < bestDz) {
+      bestDz = dz;
+      best = seg;
+    }
+  }
+  return best;
+}
+
 function spawnTrafficCar() {
   const layout = currentLayout();
   const oncomingIdx = [];
@@ -376,6 +399,20 @@ function spawnTrafficCar() {
     tLane = poolLanes[(tLane + 1) % poolLanes.length];
   }
 
+  // Avoid stacking same-dir cars in a red/yellow stop box
+  if (!wantOncoming) {
+    const ahead = findAheadIntersection(playerZ + 35, 55);
+    if (ahead && (ahead.userData.lightState === "red" || ahead.userData.lightState === "yellow")) {
+      const stopZ = ahead.position.z - NPC_STOP_OFFSET;
+      // Spawn past the junction instead of in the stop queue box
+      const zTry = playerZ + 40 + Math.random() * 30;
+      if (Math.abs(zTry - stopZ) < 8) {
+        // skip this spawn tick
+        return;
+      }
+    }
+  }
+
   const police = !wantOncoming && Math.random() < 0.12;
   const car = (police ? policePool : carPool).rent();
   const dir = layout.dirs[tLane];
@@ -383,15 +420,18 @@ function spawnTrafficCar() {
     car.position.set(layout.xs[tLane], 0, playerZ + 50 + Math.random() * 40);
     car.rotation.y = Math.PI;
     car.userData.speed = 14 + Math.random() * 8;
+    car.userData.cruiseSpeed = car.userData.speed;
   } else {
     car.position.set(layout.xs[tLane], 0, playerZ + 40 + Math.random() * 30);
     car.rotation.y = 0;
     car.userData.speed = police ? speed * 0.9 : 6 + Math.random() * 6;
+    car.userData.cruiseSpeed = car.userData.speed;
   }
   car.userData.police = police;
   car.userData.pursuit = false;
   car.userData.dir = dir;
   car.userData.lane = tLane;
+  car.userData.stopped = false;
   activeTraffic.push(car);
 }
 
@@ -660,10 +700,18 @@ function tick(now) {
           const order = ["green", "yellow", "red"];
           const idx = order.indexOf(seg.userData.lightState);
           seg.userData.lightState = order[(idx + 1) % 3];
-          seg.userData.lightTimer = seg.userData.lightState === "yellow" ? 0.7 : 2.0;
+          seg.userData.lightTimer = lightDuration(seg.userData.lightState);
           updateLightVisual(seg);
         }
         const dz = Math.abs(playerZ - seg.position.z);
+        const aheadDz = seg.position.z - playerZ;
+        // Preview phase on HUD before the resolve zone
+        if (aheadDz > 0 && aheadDz < LIGHT_HUD_AHEAD && !seg.userData.resolved) {
+          const state = seg.userData.lightState;
+          hudLight.textContent = state === "red" ? "● RED" : state === "yellow" ? "● YELLOW" : "● GREEN";
+          hudLight.style.color = state === "red" ? "#ff004d" : state === "yellow" ? "#ffec27" : "#00e436";
+          hudLight.classList.remove("hidden");
+        }
         if (!seg.userData.resolved && dz < 4) {
           seg.userData.resolved = true;
           const state = seg.userData.lightState;
@@ -716,6 +764,23 @@ function tick(now) {
         continue;
       }
       const dir = t.userData.dir || 1;
+      // Same-direction NPCs obey red/yellow lights
+      if (dir === 1) {
+        const cruise = t.userData.cruiseSpeed || t.userData.speed || 8;
+        const ix = findAheadIntersection(t.position.z - 1, 28);
+        if (ix && (ix.userData.lightState === "red" || ix.userData.lightState === "yellow")) {
+          const stopZ = ix.position.z - NPC_STOP_OFFSET;
+          const distToStop = stopZ - t.position.z;
+          if (distToStop > -1.5 && distToStop < 22) {
+            const target = distToStop < 1.2 ? 0 : Math.min(cruise, Math.max(0, distToStop * 1.8));
+            t.userData.speed = THREE.MathUtils.damp(t.userData.speed, target, 6, dt);
+            t.userData.stopped = t.userData.speed < 0.4;
+          }
+        } else if (t.userData.stopped || t.userData.speed < cruise * 0.95) {
+          t.userData.speed = THREE.MathUtils.damp(t.userData.speed, cruise, 3, dt);
+          if (t.userData.speed > cruise * 0.85) t.userData.stopped = false;
+        }
+      }
       t.position.z += (dir === -1 ? -t.userData.speed : t.userData.speed) * dt;
       if (t.position.z < playerZ - 25 || t.position.z > playerZ + 100) {
         activeTraffic.splice(i, 1);
@@ -761,6 +826,7 @@ function tick(now) {
 
     hudDistance.textContent = `${Math.floor(distance)} m`;
     hudCoins.textContent = `$${save.coins}`;
+    if (hudSpeed) hudSpeed.textContent = `${Math.round(speed * 4)}`;
     if (braking && boostTimer <= 0) {
       hudBoost.textContent = "BRAKE";
       hudBoost.classList.remove("hidden");
