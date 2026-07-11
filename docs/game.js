@@ -10,17 +10,17 @@ import {
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=6";
+} from "./js/constants.js?v=7";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=6";
-import { Pool } from "./js/pool.js?v=6";
+} from "./js/save.js?v=7";
+import { Pool } from "./js/pool.js?v=7";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js?v=6";
+} from "./js/nes.js?v=7";
 import {
-  mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane, blendWidth,
-} from "./js/worldgen.js?v=6";
+  mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane,
+} from "./js/worldgen.js?v=7";
 
 const save = loadSave();
 
@@ -186,17 +186,6 @@ function softRemapLane() {
   laneVel *= 0.4;
 }
 
-function disposeEphemeral(seg) {
-  scene.remove(seg);
-  seg.traverse((obj) => {
-    if (obj.geometry) obj.geometry.dispose?.();
-    if (obj.material) {
-      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose?.());
-      else obj.material.dispose?.();
-    }
-  });
-}
-
 function clearAheadTrafficSoft() {
   // Only cull traffic far ahead so the corridor isn't jammed with wrong-biome cars
   for (let i = activeTraffic.length - 1; i >= 0; i--) {
@@ -230,23 +219,17 @@ function beginBiomeTransition(toBiome) {
 }
 
 function applyBiomeSwitch(biome) {
-  // Legacy name — seamless corridor instead of hard cut
   beginBiomeTransition(biome);
 }
 
 function recycleSegment(seg) {
-  if (seg.userData.ephemeral) {
-    const idx = activeSegments.indexOf(seg);
-    if (idx >= 0) activeSegments.splice(idx, 1);
-    disposeEphemeral(seg);
-    return;
-  }
   seg.visible = false;
   const b = seg.userData.biome;
   let key = b;
   if (seg.userData.turnOffer) key = poolKey(b, "T");
   else if (seg.userData.onRamp) key = poolKey(b, "R");
   else if (seg.userData.intersection) key = poolKey(b, "I");
+  if (!segmentPool[key]) key = b;
   segmentPool[key].return(seg);
 }
 
@@ -257,44 +240,40 @@ function configureGantry(seg) {
   g.visible = seg.userData.biome === "highway" && spawnIndex > 2 && spawnIndex % 6 === 0;
 }
 
-function spawnEphemeral(plan) {
-  const fromL = layoutFor(transitionFrom || activeBiome);
-  const toL = layoutFor(transitionTo || plan.biome);
-  const width = blendWidth(fromL, toL, plan.t);
-  const mix = plan.t < 0.55 ? transitionTo : transitionFrom;
-  const seed = hash2(spawnIndex, worldSeed);
-  const seg = makeSegment(tex, plan.biome, {
-    onRamp: plan.kind === "R" || plan.phase === "exit" || plan.phase === "enter",
-    transition: true,
-    widthOverride: width,
-    mixBiome: mix,
-    seed,
-    distance,
-  });
-  seg.userData.ephemeral = true;
-  seg.userData.transitionPhase = plan.phase;
+function placeSegment(seg) {
   seg.userData.resolved = false;
+  seg.userData.lightState = "green";
+  seg.userData.lightTimer = 1.2 + Math.random() * 1.5;
+  seg.userData.turnResolved = false;
+  if (seg.userData.lightGroup) updateLightVisual(seg);
+  if (seg.userData.gantryGroup) seg.userData.gantryGroup.visible = false;
+  seg.visible = true;
   seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
   configureGantry(seg);
   activeSegments.push(seg);
-
-  // Mid-corridor: adopt destination biome for traffic / lane rules
-  if (plan.t >= 0.6) {
-    activeBiome = transitionTo;
-    softRemapLane();
-  }
-
   nextSpawnZ += SEG_LEN;
   spawnIndex++;
 }
 
+function spawnTransitionStep(plan) {
+  const key = poolKey(plan.biome, plan.kind || "");
+  const seg = segmentPool[key].rent();
+  seg.userData.transitionPhase = plan.phase;
+  placeSegment(seg);
+
+  if (plan.adopt && transitionTo) {
+    activeBiome = transitionTo;
+    softRemapLane();
+  }
+}
+
 function spawnSegment() {
-  // Seamless transition corridor first
+  // Seamless transition corridor — pooled tiles only (keeps textures alive)
   if (transitionQueue.length) {
     const step = transitionQueue.shift();
-    spawnEphemeral(step);
+    spawnTransitionStep(step);
     if (!transitionQueue.length) {
-      activeBiome = transitionTo;
+      activeBiome = transitionTo || activeBiome;
       transitioning = false;
       transitionFrom = null;
       softRemapLane();
@@ -317,16 +296,9 @@ function spawnSegment() {
     const pair = pickTurnBiomes(biome, distance, rng);
     seg.userData.turnLeftBiome = pair.left;
     seg.userData.turnRightBiome = pair.right;
-    seg.userData.turnResolved = false;
   }
 
-  seg.userData.resolved = false;
-  seg.userData.lightState = "green";
-  seg.userData.lightTimer = 1.2 + rng() * 1.5;
-  if (seg.userData.lightGroup) updateLightVisual(seg);
-  seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
-  configureGantry(seg);
-  activeSegments.push(seg);
+  placeSegment(seg);
 
   const layout = layoutFor(biome);
   if (rng() < 0.55 && kind !== "T") {
@@ -334,20 +306,13 @@ function spawnSegment() {
     const sameDir = [];
     for (let i = 0; i < layout.count; i++) if (layout.dirs[i] === 1) sameDir.push(i);
     const li = sameDir.length ? sameDir[(rng() * sameDir.length) | 0] : layout.defaultLane;
-    coin.position.set(layout.xs[li], 1.0, nextSpawnZ + SEG_LEN * 0.5);
+    coin.position.set(layout.xs[li], 1.0, seg.position.z);
     activeCoins.push(coin);
   }
-
-  nextSpawnZ += SEG_LEN;
-  spawnIndex++;
 }
 
 function clearWorld() {
-  while (activeSegments.length) {
-    const seg = activeSegments.pop();
-    if (seg.userData.ephemeral) disposeEphemeral(seg);
-    else recycleSegment(seg);
-  }
+  while (activeSegments.length) recycleSegment(activeSegments.pop());
   while (activeTraffic.length) {
     const t = activeTraffic.pop();
     (t.userData.police ? policePool : carPool).return(t);
