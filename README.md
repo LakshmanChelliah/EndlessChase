@@ -14,7 +14,7 @@ City is **4 lanes** (2 opposing); rural is **2-way**; highway is **2 one-way**.
 npx --yes serve docs -p 4173
 ```
 
-Swipe / A·D for lanes; swipe down / S to brake.
+Swipe / A·D for lanes (inverted); swipe down to brake, swipe up to speed up.
 
 ## Repo layout
 
@@ -28,8 +28,8 @@ Swipe / A·D for lanes; swipe down / S to brake.
 
 ## Controls
 
-- **Swipe** left/right / **A·D** — lanes (including opposing traffic)  
-- **Swipe down** / **S** — brake (slow too long → heat → cops bust you)  
+- **Swipe** left/right / **A·D** — lanes (inverted: swipe left steers right)  
+- **Swipe down** / **S** — brake and stay slow until **swipe up** / **W** / Space  
 - Turn cues — swipe L/R onto an on-ramp to switch biomes  
 - Red light fast — NOS + heat + cross traffic; brake through red to stay cooler  
 - Play / Retry / Garage — UI  
