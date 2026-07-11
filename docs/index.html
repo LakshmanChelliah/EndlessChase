@@ -5,16 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>Endless Chase</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="game-root">
-    <canvas id="c"></canvas>
+    <canvas id="c" width="320" height="180"></canvas>
 
     <div id="ui">
       <section id="panel-menu" class="panel">
         <h1 class="brand">Endless <span>Chase</span></h1>
-        <p class="tag">Outrun the cops. Swipe lanes. Run a red for NOS — or get busted.</p>
+        <p class="tag">8-BIT GETAWAY. SWIPE LANES. BLOW RED LIGHTS FOR BOOST.</p>
         <button type="button" id="btn-play" class="btn primary">Play</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
       </section>
@@ -22,14 +25,14 @@
       <section id="panel-hud" class="panel hud hidden">
         <div class="hud-row">
           <span id="hud-distance">0 m</span>
-          <span id="hud-coins">0</span>
+          <span id="hud-coins">$0</span>
         </div>
         <div id="hud-boost" class="boost hidden">BOOST</div>
         <div id="hud-light" class="light-hint hidden"></div>
       </section>
 
       <section id="panel-gameover" class="panel hidden">
-        <h2>Busted</h2>
+        <h2>Busted!</h2>
         <p id="go-score">0 m</p>
         <p id="go-coins">+$0</p>
         <button type="button" id="btn-retry" class="btn primary">Retry</button>
@@ -39,17 +42,17 @@
 
       <section id="panel-upgrades" class="panel hidden">
         <h2>Garage</h2>
-        <p id="up-coins">Cash: $0</p>
+        <p id="up-coins">CASH $0</p>
         <div class="upgrade-row">
-          <span id="up-speed-label">Top Speed</span>
+          <span id="up-speed-label">SPEED</span>
           <button type="button" id="btn-up-speed" class="btn small">Buy</button>
         </div>
         <div class="upgrade-row">
-          <span id="up-accel-label">Acceleration</span>
+          <span id="up-accel-label">ACCEL</span>
           <button type="button" id="btn-up-accel" class="btn small">Buy</button>
         </div>
         <div class="upgrade-row">
-          <span id="up-handling-label">Handling</span>
+          <span id="up-handling-label">HANDL</span>
           <button type="button" id="btn-up-handling" class="btn small">Buy</button>
         </div>
         <button type="button" id="btn-up-back" class="btn ghost">Back</button>
