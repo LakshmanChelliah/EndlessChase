@@ -123,7 +123,12 @@ html, body {
   transform: translateX(-50%);
   width: min(94vw, 360px);
   padding: 0.85rem 0.85rem 0.95rem;
-  background: rgba(29, 43, 83, 0.88);
+  background: rgba(29, 43, 83, 0.78);
+}
+
+#panel-menu .tag {
+  margin-bottom: 0.75rem;
+  font-size: 0.5rem;
 }
 
 .panel.hud {

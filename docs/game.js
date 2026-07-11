@@ -89,8 +89,8 @@ addSky(camera);
 const MENU_PARK = { x: -9.45, z: 3.2, yaw: 0.12 };
 const INTRO_DURATION = 1.35;
 
-const _menuCamPos = new THREE.Vector3(3.2, 4.0, -5.5);
-const _menuCamLook = new THREE.Vector3(-8.2, 0.75, 5.5);
+const _menuCamPos = new THREE.Vector3(-5.2, 2.85, -3.6);
+const _menuCamLook = new THREE.Vector3(-9.1, 0.55, 7.0);
 const _camLook = new THREE.Vector3().copy(_menuCamLook);
 const _tmpV = new THREE.Vector3();
 const _tmpV2 = new THREE.Vector3();
