@@ -40,26 +40,28 @@ export function basicColor(color) {
   return new THREE.MeshBasicMaterial({ color });
 }
 
-export function addSky(scene) {
-  // Procedural NES dusk: navy → purple-gray → thin soft peach.
-  // Avoids the old sky.png solid orange band that read as a flat "yellow wall".
-  const w = 8;
-  const h = 64;
+/**
+ * Screen-locked NES sky (parented to the camera).
+ * Must NOT be a world-space sphere — the player drives past z≈120 and
+ * would clip through a fixed dome (that read as a yellow wall).
+ */
+export function addSky(camera) {
+  const w = 4;
+  const h = 32;
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, "#1d2b53");
-  g.addColorStop(0.55, "#1d2b53");
-  g.addColorStop(0.78, "#83769c");
-  g.addColorStop(0.92, "#c4a574");
-  g.addColorStop(1, "#6b8cae");
+  // Pure night/navy → muted purple. No orange/yellow horizon band.
+  g.addColorStop(0, "#0f1730");
+  g.addColorStop(0.45, "#1d2b53");
+  g.addColorStop(0.82, "#3a4570");
+  g.addColorStop(1, "#5a6588");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
-  // sparse stars (top half only)
   ctx.fillStyle = "#fff1e8";
-  for (const [x, y] of [[1, 4], [5, 8], [3, 12], [6, 3], [2, 18]]) {
+  for (const [x, y] of [[1, 2], [3, 5], [0, 8], [2, 11], [1, 14]]) {
     ctx.fillRect(x, y, 1, 1);
   }
 
@@ -70,8 +72,7 @@ export function addSky(scene) {
   map.colorSpace = THREE.SRGBColorSpace;
   map.needsUpdate = true;
 
-  // Full dome (not half-sphere) so the horizon blends instead of clipping into a band
-  const skyGeo = new THREE.SphereGeometry(120, 24, 12);
+  const skyGeo = new THREE.SphereGeometry(40, 16, 10);
   const skyMat = new THREE.MeshBasicMaterial({
     map,
     side: THREE.BackSide,
@@ -79,8 +80,10 @@ export function addSky(scene) {
     depthWrite: false,
   });
   const sky = new THREE.Mesh(skyGeo, skyMat);
-  sky.renderOrder = -1;
-  scene.add(sky);
+  sky.name = "sky";
+  sky.frustumCulled = false;
+  sky.renderOrder = -10;
+  camera.add(sky);
   return sky;
 }
 
