@@ -13,19 +13,19 @@ import {
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=13";
+} from "./js/constants.js?v=14";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=13";
-import { Pool } from "./js/pool.js?v=13";
+} from "./js/save.js?v=14";
+import { Pool } from "./js/pool.js?v=14";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper,
-} from "./js/nes.js?v=13";
+} from "./js/nes.js?v=14";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=13";
+} from "./js/worldgen.js?v=14";
 
 const save = loadSave();
 
@@ -845,8 +845,9 @@ function updateIntro(dt) {
   const z = bezier3(MENU_PARK.z, intro.p1z, intro.p2z, intro.p3z, u);
   const tx = bezier3Deriv(MENU_PARK.x, intro.p1x, intro.p2x, intro.p3x, u);
   const tz = bezier3Deriv(MENU_PARK.z, intro.p1z, intro.p2z, intro.p3z, u);
-  // yaw 0 faces +Z; negative yaw faces toward +X (into the road from left curb)
-  const tangentYaw = Math.atan2(-tx, Math.max(0.001, tz));
+  // Game convention: yaw 0 faces +Z; positive yaw noses toward +X (into the road
+  // from the left curb) — same sign as gameplay turnYaw when changing to a rightward lane.
+  const tangentYaw = Math.atan2(tx, Math.max(0.001, tz));
   intro.yaw = THREE.MathUtils.damp(intro.yaw, tangentYaw, 18, dt);
 
   const rollTarget = THREE.MathUtils.clamp(-intro.yaw * 0.2, -0.1, 0.1);
