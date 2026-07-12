@@ -127,6 +127,102 @@ export function makeCoin(tex) {
   return mesh;
 }
 
+/** Low-poly unlit construction cone (pooled obstacle). */
+export function makeCone() {
+  const root = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.55), basicColor(NES.curb));
+  base.position.y = 0.04;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.55, 0.32), basicColor(NES.orange));
+  body.position.y = 0.35;
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.28, 0.18), basicColor(NES.orange));
+  tip.position.y = 0.72;
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 0.34), basicColor(NES.white));
+  band.position.y = 0.42;
+  root.add(base, body, tip, band);
+  root.userData.kind = "cone";
+  root.userData.hitHalfX = 0.45;
+  root.userData.hitHalfZ = 0.45;
+  return root;
+}
+
+/** Low-poly unlit striped barricade (pooled obstacle). */
+export function makeBarricade() {
+  const root = new THREE.Group();
+  const board = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.35, 0.18), basicColor(NES.orange));
+  board.position.y = 0.55;
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 0.2), basicColor(NES.white));
+  stripe.position.y = 0.55;
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), basicColor(NES.curb));
+  legL.position.set(-0.55, 0.35, 0);
+  const legR = legL.clone();
+  legR.position.x = 0.55;
+  root.add(board, stripe, legL, legR);
+  root.userData.kind = "barricade";
+  root.userData.hitHalfX = 0.9;
+  root.userData.hitHalfZ = 0.35;
+  return root;
+}
+
+/**
+ * Trapezoid the road plane: near edge (−Z local, player approach) = widthStart,
+ * far edge (+Z local) = widthEnd. PlaneGeometry is in XY before rotation.x = -π/2,
+ * so after rotation local ±X is still position.x and geometry Y maps to world Z.
+ */
+export function applyRoadTaper(seg, widthStart, widthEnd) {
+  const road = seg.userData.roadMesh;
+  if (!road || !road.geometry) return;
+  const pos = road.geometry.attributes.position;
+  // Default PlaneGeometry(width, height): vertices at (±w/2, ±h/2, 0) in geo space.
+  // After rot.x=-π/2: geo Y → world −Z (Three.js), so +geoY is −worldZ (toward player approach from +Z travel).
+  // Player travels +Z, enters segment at local −Z first. Local −Z corresponds to −geoY after rotation...
+  // Mesh at identity: vertex (x,y,0) → after rot.x=-90°: (x, 0, -y). So geoY+ → worldZ−.
+  // Approach edge (local −Z / world more negative relative to center) = geoY+.
+  const halfStart = widthStart / 2;
+  const halfEnd = widthEnd / 2;
+  for (let i = 0; i < pos.count; i++) {
+    const gy = pos.getY(i);
+    // geoY > 0 → approach (−Z), use widthStart; geoY < 0 → exit (+Z), use widthEnd
+    const half = gy >= 0 ? halfStart : halfEnd;
+    const sx = Math.sign(pos.getX(i) || 1);
+    pos.setX(i, sx * half);
+  }
+  pos.needsUpdate = true;
+  road.geometry.computeBoundingSphere();
+  seg.userData.layoutWidth = Math.max(widthStart, widthEnd);
+  seg.userData.tapered = true;
+
+  // Nudge curbs to the wider half so they don't float inside asphalt
+  const curbHalf = Math.max(halfStart, halfEnd) + 0.2;
+  for (const child of seg.children) {
+    if (child.userData && child.userData.isCurb) {
+      child.position.x = Math.sign(child.userData.curbSide || child.position.x || 1) * curbHalf;
+    }
+  }
+}
+
+/** Restore rectangular road after pool return. */
+export function resetRoadTaper(seg) {
+  const road = seg.userData.roadMesh;
+  if (!road || !road.geometry) return;
+  const base = seg.userData.baseWidth || layoutFor(seg.userData.biome).width;
+  const half = base / 2;
+  const pos = road.geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const sx = Math.sign(pos.getX(i) || 1);
+    pos.setX(i, sx * half);
+  }
+  pos.needsUpdate = true;
+  road.geometry.computeBoundingSphere();
+  seg.userData.layoutWidth = base;
+  seg.userData.tapered = false;
+  for (const child of seg.children) {
+    if (child.userData && child.userData.isCurb) {
+      const side = child.userData.curbSide || Math.sign(child.position.x || 1);
+      child.position.x = side * (half + 0.2);
+    }
+  }
+}
+
 function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
   const half = layout.width / 2;
   const gap = intersection ? CROSS_GAP : 0;
@@ -173,6 +269,8 @@ function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
     for (const zc of markCenters) {
       const c = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, markLen), basicColor(NES.curb));
       c.position.set(x, 0.15, zc);
+      c.userData.isCurb = true;
+      c.userData.curbSide = Math.sign(x);
       root.add(c);
     }
   }
@@ -394,6 +492,7 @@ export function makeSegment(tex, biome, opts = {}) {
   const road = new THREE.Mesh(new THREE.PlaneGeometry(width, SEG_LEN), roadMat);
   road.rotation.x = -Math.PI / 2;
   road.position.y = 0.01;
+  road.userData.isRoad = true;
   root.add(road);
 
   // Markings use layout xs when width matches; otherwise scale X
@@ -549,6 +648,14 @@ export function makeSegment(tex, biome, opts = {}) {
     turnLeftBiome,
     turnRightBiome,
     layoutWidth: width,
+    baseWidth: width,
+    roadMesh: road,
+    tapered: false,
+    usableLanes: [...Array(layout.count).keys()],
+    adoptBiome: false,
+    layoutBiome: biome,
+    closedLaneXs: [],
+    transitionPhase: null,
   };
   return root;
 }

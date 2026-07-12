@@ -33,7 +33,9 @@
 | **Rural** | **10 m** | −2.0, 2.0 | **0 forward**, 1 oncoming; double yellow at x=0 |
 | **Highway** | **10 m** | −2.0, 2.0 | both same (+Z); dashed white between lanes |
 
-Biome changes append a **transition corridor** (taper → exit ramp → enter ramp → settle) instead of wiping the road. Segment kinds are picked with a seeded PRNG hashed by tile index for seemingly-random but structured variety.
+Biome changes append a **transition corridor** (exit ramp → taper tiles → enter ramp → settle) instead of wiping the road. Segment kinds are picked with a seeded PRNG hashed by tile index for seemingly-random but structured variety.
+
+**Physical lane merges:** When narrowing (e.g. city 4-lane → highway/rural 2-lane), taper tiles progressively close the outer lanes with pooled construction cones and barricades, and the road floor mesh trapezoids inward via vertex adjustments. Lane limits (`usableLanes`) are stamped on each segment; the player’s swipe/spring targets come from `getSegmentAt(player.z)`, not a global biome flip at spawn. The new biome is adopted only when the player crosses an enter/settle tile.
 
 Turn-offer tiles add left/right stubs + gore; on-ramp / transition tiles add a merge strip.
 
