@@ -10,20 +10,21 @@ import {
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
+  CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=9";
+} from "./js/constants.js?v=12";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=9";
-import { Pool } from "./js/pool.js?v=9";
+} from "./js/save.js?v=12";
+import { Pool } from "./js/pool.js?v=12";
 import {
-  createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
+  createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper,
-} from "./js/nes.js?v=9";
+} from "./js/nes.js?v=12";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=9";
+} from "./js/worldgen.js?v=12";
 
 const save = loadSave();
 
@@ -91,7 +92,8 @@ addSky(camera);
 // ---------- Menu / intro camera ----------
 /** City curb sits at ±8.2; park fully on the left sidewalk just outside it. */
 const MENU_PARK = { x: -10.25, z: 2.8, yaw: 0.06 };
-const INTRO_DURATION = 1.35;
+/** Long enough to read the steer-out → straighten arc. */
+const INTRO_DURATION = 2.05;
 
 const _menuCamPos = new THREE.Vector3(-4.6, 2.55, -2.4);
 const _menuCamLook = new THREE.Vector3(-9.8, 0.5, 6.2);
@@ -112,11 +114,34 @@ function setCameraLook(x, y, z) {
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+function easeInCubic(t) {
+  return t * t * t;
+}
+/** Cubic Bezier scalar. */
+function bezier3(a, b, c, d, t) {
+  const u = 1 - t;
+  return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+}
+/** Cubic Bezier derivative (path tangent). */
+function bezier3Deriv(a, b, c, d, t) {
+  const u = 1 - t;
+  return 3 * u * u * (b - a) + 6 * u * t * (c - b) + 3 * t * t * (d - c);
+}
 
 // ---------- State ----------
 let running = false;
 let alive = false;
-/** @type {null | { t:number, duration:number, fromCam:THREE.Vector3, fromLook:THREE.Vector3, toCam:THREE.Vector3, toLook:THREE.Vector3, fromPos:THREE.Vector3, toPos:THREE.Vector3, fromYaw:number, toYaw:number }} */
+/** @type {null | {
+ *   t:number, duration:number,
+ *   fromCam:THREE.Vector3, fromLook:THREE.Vector3,
+ *   toCam:THREE.Vector3, toLook:THREE.Vector3,
+ *   laneX:number,
+ *   p1x:number, p1z:number, p2x:number, p2z:number, p3x:number, p3z:number,
+ *   yaw:number, roll:number
+ * }} */
 let intro = null;
 let activeBiome = "city";
 let lane = 2;
@@ -152,6 +177,7 @@ let transitionFrom = null;
 let transitionTo = null;
 let transitioning = false;
 let menuTime = 0;
+let crossSpawnTimer = 0;
 
 const activeSegments = [];
 const activeTraffic = [];
@@ -194,7 +220,7 @@ const carPool = new Pool(() => {
   return c;
 }, 10);
 const policePool = new Pool(() => { const c = makeCar(tex.police); scene.add(c); return c; }, 3);
-const crossPool = new Pool(() => { const c = makeTruck(tex); scene.add(c); return c; }, 3);
+const crossPool = new Pool(() => { const c = makeTruck(tex); scene.add(c); return c; }, 4);
 const coinPool = new Pool(() => { const c = makeCoin(tex); scene.add(c); return c; }, 10);
 const conePool = new Pool(() => { const o = makeCone(); scene.add(o); return o; }, 24);
 const barricadePool = new Pool(() => { const o = makeBarricade(); scene.add(o); return o; }, 12);
@@ -439,7 +465,7 @@ function clearWorld() {
     const t = activeTraffic.pop();
     (t.userData.police ? policePool : carPool).return(t);
   }
-  while (activeCross.length) crossPool.return(activeCross.pop());
+  while (activeCross.length) returnCross(activeCross.pop());
   while (activeCoins.length) coinPool.return(activeCoins.pop());
   while (activeObstacles.length) returnObstacle(activeObstacles.pop());
   pursuit = null;
@@ -501,6 +527,48 @@ function findAheadIntersection(fromZ, maxAhead = 40) {
     }
   }
   return best;
+}
+
+function findNearbyRedIntersection() {
+  let best = null;
+  let bestAbs = Infinity;
+  for (const seg of activeSegments) {
+    if (!seg.userData.intersection) continue;
+    if (seg.userData.lightState !== "red") continue;
+    const dz = seg.position.z - playerZ;
+    if (dz < -8 || dz > 40) continue;
+    const a = Math.abs(dz);
+    if (a < bestAbs) {
+      bestAbs = a;
+      best = seg;
+    }
+  }
+  return best;
+}
+
+/** Spawn cross traffic far off-screen so approach is visible (no curb teleport). */
+function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5 } = {}) {
+  if (activeCross.length >= CROSS_MAX && !hazard) return null;
+  if (activeCross.length >= CROSS_MAX + 1) return null;
+  const useTruck = hazard || Math.random() < 0.35;
+  const car = useTruck ? crossPool.rent() : carPool.rent();
+  const speed = hazard ? CROSS_HAZARD_SPEED : CROSS_SPEED * (0.85 + Math.random() * 0.3);
+  const laneZ = seg.position.z + (Math.random() - 0.5) * 3.2;
+  const startX = fromLeft ? -CROSS_SPAWN_X : CROSS_SPAWN_X;
+  car.position.set(startX, 0, laneZ);
+  car.rotation.y = fromLeft ? Math.PI / 2 : -Math.PI / 2;
+  car.userData.vx = fromLeft ? speed : -speed;
+  car.userData.crossKind = useTruck ? "truck" : "car";
+  car.userData.hazard = hazard;
+  car.userData.police = false;
+  car.userData.pursuit = false;
+  activeCross.push(car);
+  return car;
+}
+
+function returnCross(car) {
+  if (car.userData.crossKind === "truck") crossPool.return(car);
+  else carPool.return(car);
 }
 
 function spawnTrafficCar() {
@@ -664,6 +732,7 @@ function resetRunState() {
   onRampPending = false;
   bustPending = false;
   keysBrake = false;
+  crossSpawnTimer = 0.4;
   worldSeed = (Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0;
   transitionQueue = [];
   transitioning = false;
@@ -690,7 +759,6 @@ function startRun(opts = {}) {
   updateHeatUI();
   trafficTimer = 0.8;
 
-  const toPos = new THREE.Vector3(laneX, 0, 0);
   const toCam = gameplayCamPos(laneX, 0).clone();
   const toLook = gameplayCamLook(laneX, 0).clone();
 
@@ -698,18 +766,25 @@ function startRun(opts = {}) {
     intro = null;
     running = true;
     alive = true;
-    player.position.copy(toPos);
+    player.position.set(laneX, 0, 0);
     player.rotation.set(0, 0, 0);
     camera.position.copy(toCam);
     setCameraLook(toLook.x, toLook.y, toLook.z);
     return;
   }
 
-  // Seamless: stay parked, then pull into the default forward lane
+  // Seamless: stay parked, then steer out of the curb into the forward lane
   parkPlayerCurbside();
   applyMenuCamera();
   running = false;
   alive = true;
+
+  // Bezier pull-out (left curb → lane). Control points shape a real parallel exit:
+  // P1: creep forward with nose starting to cut in
+  // P2: deep into the street while still angled
+  // P3: settled in-lane heading down the road
+  const p0x = MENU_PARK.x;
+  const p0z = MENU_PARK.z;
   intro = {
     t: 0,
     duration: INTRO_DURATION,
@@ -717,55 +792,74 @@ function startRun(opts = {}) {
     fromLook: _camLook.clone(),
     toCam,
     toLook,
-    fromPos: new THREE.Vector3(MENU_PARK.x, 0, MENU_PARK.z),
-    toPos,
-    fromYaw: MENU_PARK.yaw,
-    toYaw: 0,
+    laneX,
+    p1x: p0x + 1.1,
+    p1z: p0z + 3.4,
+    p2x: laneX + 0.6,
+    p2z: p0z + 9.5,
+    p3x: laneX,
+    p3z: p0z + 17,
+    yaw: MENU_PARK.yaw,
+    roll: 0,
   };
 }
 
 function finishIntro() {
   if (!intro) return;
-  const pz = playerZ;
+  const pz = Math.max(0, intro.p3z);
+  playerZ = pz;
+  laneX = intro.laneX;
   player.position.set(laneX, 0, pz);
   player.rotation.set(0, 0, 0);
   camera.position.copy(gameplayCamPos(laneX, pz));
   const look = gameplayCamLook(laneX, pz);
   setCameraLook(look.x, look.y, look.z);
   distance = pz;
+  turnYaw = 0;
   intro = null;
   running = true;
   alive = true;
 }
 
+/**
+ * Parallel-park pull-out along a Bezier whose tangent sets yaw —
+ * nose leads the turn; body follows the arc (not a sideways slide).
+ */
 function updateIntro(dt) {
   if (!intro) return;
   intro.t += dt;
-  const u = Math.min(1, intro.t / intro.duration);
-  const e = easeInOutCubic(u);
-  const pull = easeInOutCubic(Math.min(1, u * 1.15));
+  const uLinear = Math.min(1, intro.t / intro.duration);
+  // Ease-in so the first beat is a slow curb creep, then it opens up
+  const u = easeInOutCubic(uLinear);
 
-  // Soft roll-out late in the blend so gameplay already has forward motion
-  if (u > 0.55) {
-    const ramp = (u - 0.55) / 0.45;
-    playerZ = speed * 0.4 * ramp * ramp;
-  } else {
-    playerZ = 0;
-  }
+  const x = bezier3(MENU_PARK.x, intro.p1x, intro.p2x, intro.p3x, u);
+  const z = bezier3(MENU_PARK.z, intro.p1z, intro.p2z, intro.p3z, u);
+  const tx = bezier3Deriv(MENU_PARK.x, intro.p1x, intro.p2x, intro.p3x, u);
+  const tz = bezier3Deriv(MENU_PARK.z, intro.p1z, intro.p2z, intro.p3z, u);
+  // yaw 0 faces +Z; negative yaw faces toward +X (into the road from left curb)
+  const tangentYaw = Math.atan2(-tx, Math.max(0.001, tz));
+  intro.yaw = THREE.MathUtils.damp(intro.yaw, tangentYaw, 18, dt);
+
+  const rollTarget = THREE.MathUtils.clamp(-intro.yaw * 0.2, -0.1, 0.1);
+  intro.roll = THREE.MathUtils.damp(intro.roll, uLinear > 0.88 ? 0 : rollTarget, 10, dt);
+
+  player.position.set(x, 0, z);
+  player.rotation.set(intro.roll * 0.35, intro.yaw, intro.roll);
+
+  playerZ = Math.max(0, z);
   distance = playerZ;
+  // Feed chase-cam a blended lateral so it doesn't whip while we arc
+  laneX = THREE.MathUtils.lerp(x, intro.laneX, Math.min(1, Math.max(0, (u - 0.45) / 0.55)));
 
-  player.position.x = THREE.MathUtils.lerp(intro.fromPos.x, intro.toPos.x, pull);
-  player.position.y = 0;
-  player.position.z = THREE.MathUtils.lerp(intro.fromPos.z, playerZ, e);
-  player.rotation.y = THREE.MathUtils.lerp(intro.fromYaw, intro.toYaw, e);
-
+  // Hold the curb framing while the nose cuts out, then rise into chase cam
+  const camU = easeInOutCubic(Math.max(0, (uLinear - 0.22) / 0.78));
   gameplayCamPos(laneX, playerZ, intro.toCam);
   gameplayCamLook(laneX, playerZ, intro.toLook);
-  camera.position.lerpVectors(intro.fromCam, intro.toCam, e);
-  _camLook.lerpVectors(intro.fromLook, intro.toLook, e);
+  camera.position.lerpVectors(intro.fromCam, intro.toCam, camU);
+  _camLook.lerpVectors(intro.fromLook, intro.toLook, camU);
   camera.lookAt(_camLook);
 
-  if (u >= 1) finishIntro();
+  if (uLinear >= 1) finishIntro();
 }
 
 function onSwipe(dir) {
@@ -998,6 +1092,7 @@ function tick(now) {
           seg.userData.lightTimer = lightDuration(seg.userData.lightState);
           updateLightVisual(seg);
         }
+        pulseLightGlow(seg, now / 1000);
         const dz = Math.abs(playerZ - seg.position.z);
         const aheadDz = seg.position.z - playerZ;
         // Preview phase on HUD before the resolve zone
@@ -1016,10 +1111,7 @@ function tick(now) {
               boostTimer = 2.5;
               boostMul = 1.35;
               heat = Math.min(100, heat + 22);
-              const truck = crossPool.rent();
-              truck.position.set(-(layout.width / 2 + 4), 0, seg.position.z);
-              truck.userData.vx = 22;
-              activeCross.push(truck);
+              spawnCrossVehicle(seg, { hazard: true, fromLeft: Math.random() < 0.5 });
               hudLight.textContent = "RED! BOOST";
               hudLight.style.color = "#ff004d";
             } else {
@@ -1039,6 +1131,16 @@ function tick(now) {
           }
           setTimeout(() => hudLight.classList.add("hidden"), 1200);
         }
+      }
+    }
+
+    // Ambient cross traffic while a nearby light is red (approaches from far L/R)
+    crossSpawnTimer -= dt;
+    if (crossSpawnTimer <= 0) {
+      crossSpawnTimer = CROSS_SPAWN_INTERVAL;
+      const redSeg = findNearbyRedIntersection();
+      if (redSeg && activeCross.length < CROSS_MAX) {
+        spawnCrossVehicle(redSeg, { hazard: false });
       }
     }
 
@@ -1091,9 +1193,9 @@ function tick(now) {
     for (let i = activeCross.length - 1; i >= 0; i--) {
       const t = activeCross[i];
       t.position.x += t.userData.vx * dt;
-      if (t.position.x > currentLayout().width / 2 + 8) {
+      if (Math.abs(t.position.x) > CROSS_SPAWN_X + 4) {
         activeCross.splice(i, 1);
-        crossPool.return(t);
+        returnCross(t);
         continue;
       }
       if (Math.abs(t.position.z - playerZ) < 2.5 && Math.abs(t.position.x - laneX) < 2.0) {
@@ -1169,7 +1271,36 @@ window.__endlessChase = {
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, braking, coins: save.coins,
     transitioning, transitionQueue: transitionQueue.length,
+    playerX: +player.position.x.toFixed(2),
+    playerZ: +player.position.z.toFixed(2),
+    playerYaw: +player.rotation.y.toFixed(3),
   }),
   getSegmentAt,
   buildTransitionPlan,
+  getCross: () => activeCross.map((c) => ({
+    x: +c.position.x.toFixed(2),
+    z: +c.position.z.toFixed(2),
+    vx: c.userData.vx,
+    kind: c.userData.crossKind,
+  })),
+  getIntersections: () => activeSegments
+    .filter((s) => s.userData.intersection)
+    .map((s) => ({
+      z: +s.position.z.toFixed(1),
+      light: s.userData.lightState,
+      dz: +(s.position.z - playerZ).toFixed(1),
+    })),
+  debugSpawnCross: (hazard = false) => {
+    let seg = findAheadIntersection(playerZ - 5, 100);
+    if (!seg) seg = activeSegments.find((s) => s.userData.intersection);
+    if (!seg) return { ok: false, reason: "no-intersection" };
+    seg.userData.lightState = "red";
+    updateLightVisual(seg);
+    const car = spawnCrossVehicle(seg, { hazard, fromLeft: true });
+    return {
+      ok: !!car,
+      segZ: seg.position.z,
+      cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
+    };
+  },
 };

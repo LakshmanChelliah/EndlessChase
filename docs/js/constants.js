@@ -27,6 +27,13 @@ export const LIGHT_HUD_AHEAD = 18;
 /** Same-dir NPCs stop this far before intersection center */
 export const NPC_STOP_OFFSET = 3;
 
+/** Cross-street traffic — spawn far so approach is visible */
+export const CROSS_SPAWN_X = 28;
+export const CROSS_SPEED = 14;
+export const CROSS_HAZARD_SPEED = 22;
+export const CROSS_MAX = 3;
+export const CROSS_SPAWN_INTERVAL = 1.15;
+
 export const NES = {
   black: 0x000000,
   navy: 0x1d2b53,

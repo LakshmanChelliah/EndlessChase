@@ -297,50 +297,158 @@ function addTurnOfferVisuals(root, layout) {
 /** Cross-street gap half-length (local Z) — no buildings through the junction. */
 const CROSS_GAP = 5;
 
-function addCrossStreet(root, half, width) {
-  const armLen = 12;
-  const armW = Math.max(8, width * 0.7);
+function addStopBar(root, len, x, z, alongX) {
+  const bar = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? 0.35 : len, 0.05, alongX ? len : 0.35),
+    basicColor(NES.white)
+  );
+  bar.position.set(x, 0.05, z);
+  root.add(bar);
+}
+
+function addMainZebra(root, roadWidth, z) {
+  const stripeW = 0.55;
+  const count = Math.max(5, Math.floor(roadWidth / 1.1));
+  for (let i = 0; i < count; i++) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(stripeW, 0.04, 1.8), basicColor(NES.white));
+    stripe.position.set(-roadWidth / 2 + 0.8 + i * stripeW * 1.55, 0.05, z);
+    root.add(stripe);
+  }
+}
+
+function addCrossZebra(root, armW, x) {
+  const stripeW = 0.5;
+  const count = Math.max(5, Math.floor(armW / 1.2));
+  for (let i = 0; i < count; i++) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.04, stripeW), basicColor(NES.white));
+    stripe.position.set(x, 0.05, -armW / 2 + 0.9 + i * stripeW * 1.55);
+    root.add(stripe);
+  }
+}
+
+/**
+ * Reference-style junction: asphalt arms, paint, stop bars, zebras, curb corners.
+ * City gets 4-lane cross; rural/highway get 2-lane cross.
+ */
+function addCrossStreet(root, half, width, biome = "city") {
+  const fourLane = biome === "city";
+  const armLen = 15;
+  const armW = fourLane ? Math.max(12, width * 0.85) : Math.max(8, width * 0.75);
+  const armHalf = armW / 2;
+
   for (const side of [-1, 1]) {
     const arm = new THREE.Mesh(new THREE.PlaneGeometry(armLen, armW), basicColor(NES.asphalt));
     arm.rotation.x = -Math.PI / 2;
     arm.position.set(side * (half + armLen / 2), 0.012, 0);
     root.add(arm);
-    // Sidewalk strips along the cross-street arms
     for (const zSide of [-1, 1]) {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.85, 2.2), basicColor(0x3a3d48));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.9, 2.0), basicColor(0x3a3d48));
       walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * (half + armLen / 2), 0.018, zSide * (armW / 2 + 1.1));
+      walk.position.set(side * (half + armLen / 2), 0.018, zSide * (armHalf + 1.05));
       root.add(walk);
     }
   }
-  // Stop line just south of the zebra
-  const stop = new THREE.Mesh(new THREE.BoxGeometry(width - 1.5, 0.05, 0.35), basicColor(NES.white));
-  stop.position.set(0, 0.05, -2.4);
-  root.add(stop);
+
+  for (const side of [-1, 1]) {
+    const xMid = side * (half + armLen / 2);
+    for (const oz of [-0.18, 0.18]) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(armLen - 1, 0.04, 0.12), basicColor(NES.yellow));
+      line.position.set(xMid, 0.04, oz);
+      root.add(line);
+    }
+    for (const oz of [-(armHalf - 0.25), armHalf - 0.25]) {
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(armLen - 0.5, 0.04, 0.14), basicColor(NES.white));
+      edge.position.set(xMid, 0.04, oz);
+      root.add(edge);
+    }
+    if (fourLane) {
+      for (const oz of [-2.0, 2.0]) {
+        for (let xi = 0; xi < 4; xi++) {
+          const dash = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.04, 0.16), basicColor(NES.white));
+          dash.position.set(xMid - armLen / 2 + 2 + xi * 3.5, 0.04, oz);
+          root.add(dash);
+        }
+      }
+    }
+  }
+
+  addStopBar(root, width - 1.2, 0, -(armHalf + 0.55), false);
+  addStopBar(root, width - 1.2, 0, armHalf + 0.55, false);
+  addMainZebra(root, width - 1.5, -(armHalf - 0.95));
+  addMainZebra(root, width - 1.5, armHalf - 0.95);
+
+  for (const side of [-1, 1]) {
+    addStopBar(root, armW - 1.0, side * (half + 0.5), 0, true);
+    addCrossZebra(root, armW, side * (half + 1.55));
+  }
+
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      for (let k = 0; k < 3; k++) {
+        const curb = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.28, 0.55), basicColor(NES.curb));
+        curb.position.set(
+          sx * (half + 0.3 + k * 0.4),
+          0.14,
+          sz * (armHalf + 0.3 + (2 - k) * 0.4)
+        );
+        root.add(curb);
+      }
+    }
+  }
+}
+
+function makeSignalHead(poleX, poleZ, facing) {
+  const head = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.32, 4.4, 0.32), basicColor(0xc2c3c7));
+  pole.position.set(poleX, 2.2, poleZ);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(1.05, 3.0, 0.65), basicColor(0x0a0a12));
+  housing.position.set(poleX, 4.0, poleZ + facing * 0.15);
+  head.add(pole, housing);
+
+  const mk = (name, y) => {
+    const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.72, 0.38), basicColor(NES.asphalt));
+    bulb.position.set(poleX, y, poleZ + facing * 0.48);
+    bulb.name = name;
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.2, 2.2),
+      new THREE.MeshBasicMaterial({
+        color: NES.white,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    glow.position.set(poleX, y, poleZ + facing * 0.75);
+    glow.name = name + "Glow";
+    head.add(bulb, glow);
+  };
+  mk("bulbRed", 5.05);
+  mk("bulbYellow", 4.05);
+  mk("bulbGreen", 3.05);
+  return head;
 }
 
 function addThreeLampSignal(root, half, tex) {
   const lightGroup = new THREE.Group();
-  const poleX = -(half - 0.5);
-  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.6, 0.25), basicColor(0xc2c3c7));
-  pole.position.set(poleX, 1.8, 2.2);
-  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.1, 0.45), basicColor(0x1a1c2c));
-  housing.position.set(poleX, 3.4, 2.35);
+  const left = makeSignalHead(-(half - 0.35), 2.4, 1);
+  const right = makeSignalHead(half - 0.35, 2.4, 1);
+  right.traverse((o) => {
+    if (!o.name) return;
+    if (o.name === "bulbRed") o.name = "bulbRedB";
+    else if (o.name === "bulbYellow") o.name = "bulbYellowB";
+    else if (o.name === "bulbGreen") o.name = "bulbGreenB";
+    else if (o.name === "bulbRedGlow") o.name = "bulbRedBGlow";
+    else if (o.name === "bulbYellowGlow") o.name = "bulbYellowBGlow";
+    else if (o.name === "bulbGreenGlow") o.name = "bulbGreenBGlow";
+  });
+  lightGroup.add(left, right);
   const sign = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.0, 2.0),
+    new THREE.PlaneGeometry(1.1, 2.4),
     new THREE.MeshBasicMaterial({ map: tex.light, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide })
   );
-  sign.position.set(poleX - 0.55, 3.4, 2.35);
-  const mkBulb = (name, y, color) => {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.22), basicColor(color));
-    b.position.set(poleX, y, 2.55);
-    b.name = name;
-    return b;
-  };
-  const bulbRed = mkBulb("bulbRed", 4.0, NES.asphalt);
-  const bulbYellow = mkBulb("bulbYellow", 3.4, NES.asphalt);
-  const bulbGreen = mkBulb("bulbGreen", 2.8, NES.green);
-  lightGroup.add(pole, housing, sign, bulbRed, bulbYellow, bulbGreen);
+  sign.position.set(-(half - 0.35) - 0.75, 4.0, 2.4);
+  lightGroup.add(sign);
   root.add(lightGroup);
   return lightGroup;
 }
@@ -512,11 +620,7 @@ export function makeSegment(tex, biome, opts = {}) {
 
   let lightGroup = null;
   if (intersection) {
-    addCrossStreet(root, half, width);
-    const zebra = new THREE.Mesh(new THREE.PlaneGeometry(width - 2, 2.2), basicColor(NES.white));
-    zebra.rotation.x = -Math.PI / 2;
-    zebra.position.set(0, 0.03, 0);
-    root.add(zebra);
+    addCrossStreet(root, half, width, biome);
     lightGroup = addThreeLampSignal(root, half, tex);
   }
 
@@ -560,17 +664,49 @@ export function updateLightVisual(seg) {
   const g = seg.userData.lightGroup;
   if (!g) return;
   const s = seg.userData.lightState;
-  const dim = NES.asphalt;
-  const set = (name, onHex) => {
-    const b = g.getObjectByName(name);
-    if (b) b.material.color.setHex(onHex);
-  };
-  set("bulbRed", s === "red" ? NES.red : dim);
-  set("bulbYellow", s === "yellow" ? NES.yellow : dim);
-  set("bulbGreen", s === "green" ? NES.green : dim);
+  const dim = 0x1a1a22;
+  const lit = { red: NES.red, yellow: NES.yellow, green: NES.green };
+  const pairs = [
+    ["bulbRed", "bulbRedB", "red"],
+    ["bulbYellow", "bulbYellowB", "yellow"],
+    ["bulbGreen", "bulbGreenB", "green"],
+  ];
+  for (const [a, b, key] of pairs) {
+    const on = s === key;
+    const hex = on ? lit[key] : dim;
+    for (const name of [a, b]) {
+      const bulb = g.getObjectByName(name);
+      if (bulb) bulb.material.color.setHex(hex);
+      const glow = g.getObjectByName(name + "Glow");
+      if (glow) {
+        glow.material.color.setHex(on ? lit[key] : dim);
+        glow.material.opacity = on ? 0.55 : 0;
+        glow.visible = on;
+        if (on) glow.scale.set(1, 1, 1);
+      }
+    }
+  }
   // Legacy single-bulb fallback
   const legacy = g.getObjectByName("bulb");
   if (legacy) {
     legacy.material.color.setHex(s === "red" ? NES.red : s === "yellow" ? NES.yellow : NES.green);
+  }
+}
+
+/** Pulse active glow quads so the phase reads at chase-cam distance. */
+export function pulseLightGlow(seg, timeSec) {
+  const g = seg.userData.lightGroup;
+  if (!g) return;
+  const s = seg.userData.lightState;
+  const pulse = 1 + 0.12 * Math.sin(timeSec * 8);
+  const names =
+    s === "red" ? ["bulbRedGlow", "bulbRedBGlow"]
+      : s === "yellow" ? ["bulbYellowGlow", "bulbYellowBGlow"]
+        : ["bulbGreenGlow", "bulbGreenBGlow"];
+  for (const name of names) {
+    const glow = g.getObjectByName(name);
+    if (!glow) continue;
+    glow.scale.set(pulse, pulse, 1);
+    glow.material.opacity = 0.45 + 0.2 * Math.sin(timeSec * 8);
   }
 }
