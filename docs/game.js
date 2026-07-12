@@ -9,22 +9,23 @@ import {
   BRAKE_DURATION, BRAKE_SPEED_MUL,
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
+  INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=12";
+} from "./js/constants.js?v=13";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=12";
-import { Pool } from "./js/pool.js?v=12";
+} from "./js/save.js?v=13";
+import { Pool } from "./js/pool.js?v=13";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper,
-} from "./js/nes.js?v=12";
+} from "./js/nes.js?v=13";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=12";
+} from "./js/worldgen.js?v=13";
 
 const save = loadSave();
 
@@ -162,6 +163,7 @@ let brakeTimer = 0;
 let heat = 0;
 let slowTimer = 0;
 let turnCooldown = 4;
+let intersectionCooldown = 2;
 let turnActive = null;
 let turnYaw = 0;
 let turnYawVel = 0;
@@ -343,6 +345,7 @@ function beginBiomeTransition(toBiome) {
   transitionQueue = buildTransitionPlan(from, toBiome);
   transitioning = true;
   turnCooldown = TURN_COOLDOWN_SEGS + transitionQueue.length + 2;
+  intersectionCooldown = Math.max(intersectionCooldown, INTERSECTION_COOLDOWN_SEGS + 1);
   turnActive = null;
   clearAheadTrafficSoft();
   softRemapLane();
@@ -429,11 +432,16 @@ function spawnSegment() {
 
   const biome = activeBiome;
   const rng = mulberry32(hash2(spawnIndex, worldSeed ^ 0x9e3779b9));
-  const decided = decideSegment(biome, spawnIndex, turnCooldown, rng);
+  const decided = decideSegment(biome, spawnIndex, turnCooldown, rng, intersectionCooldown);
   let kind = decided.kind;
 
   if (kind === "T") turnCooldown = TURN_COOLDOWN_SEGS;
   else if (turnCooldown > 0) turnCooldown--;
+
+  if (kind === "I") intersectionCooldown = INTERSECTION_COOLDOWN_SEGS;
+  else if (intersectionCooldown > 0) intersectionCooldown--;
+  // Turns also push lights apart so a light isn't glued to an on-ramp
+  if (kind === "T" && intersectionCooldown < 2) intersectionCooldown = 2;
 
   const key = poolKey(biome, kind);
   const seg = segmentPool[key].rent();
@@ -726,6 +734,7 @@ function resetRunState() {
   heat = 0;
   slowTimer = 0;
   turnCooldown = 6;
+  intersectionCooldown = 3;
   turnActive = null;
   turnYaw = 0;
   turnYawVel = 0;

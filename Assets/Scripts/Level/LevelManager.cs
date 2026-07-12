@@ -24,6 +24,7 @@ namespace EndlessChase.Level
         readonly List<RoadSegment> _active = new List<RoadSegment>(16);
         float _nextSpawnZ;
         int _spawnIndex;
+        int _intersectionCooldown;
         bool _running;
 
         public BiomeType CurrentBiome { get; private set; } = BiomeType.City;
@@ -34,6 +35,7 @@ namespace EndlessChase.Level
             ClearActive();
             _nextSpawnZ = 0f;
             _spawnIndex = 0;
+            _intersectionCooldown = 2;
             _running = true;
             CurrentBiome = BiomeType.City;
 
@@ -89,15 +91,25 @@ namespace EndlessChase.Level
             bool intersection = false;
             string poolId = null;
 
-            if (def.intersectionPoolIds != null && def.intersectionPoolIds.Length > 0 &&
-                Random.value < def.intersectionChance && _spawnIndex > 2)
+            bool canSpawnLight = _intersectionCooldown <= 0 && _spawnIndex > 2 &&
+                def.intersectionPoolIds != null && def.intersectionPoolIds.Length > 0 &&
+                Random.value < def.intersectionChance;
+
+            if (canSpawnLight)
             {
                 intersection = true;
                 poolId = def.intersectionPoolIds[Random.Range(0, def.intersectionPoolIds.Length)];
+                _intersectionCooldown = Mathf.Max(0, def.intersectionCooldownSegments);
             }
             else if (def.straightPoolIds != null && def.straightPoolIds.Length > 0)
             {
                 poolId = def.straightPoolIds[Random.Range(0, def.straightPoolIds.Length)];
+                if (_intersectionCooldown > 0)
+                    _intersectionCooldown--;
+            }
+            else if (_intersectionCooldown > 0)
+            {
+                _intersectionCooldown--;
             }
 
             if (string.IsNullOrEmpty(poolId)) return;
