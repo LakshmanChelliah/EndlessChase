@@ -11,17 +11,19 @@ import {
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=8";
+} from "./js/constants.js?v=9";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=8";
-import { Pool } from "./js/pool.js?v=8";
+} from "./js/save.js?v=9";
+import { Pool } from "./js/pool.js?v=9";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js?v=8";
+  makeCone, makeBarricade, applyRoadTaper, resetRoadTaper,
+} from "./js/nes.js?v=9";
 import {
-  mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane,
-} from "./js/worldgen.js?v=8";
+  mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
+  nearestUsableLane,
+} from "./js/worldgen.js?v=9";
 
 const save = loadSave();
 
@@ -155,6 +157,7 @@ const activeSegments = [];
 const activeTraffic = [];
 const activeCoins = [];
 const activeCross = [];
+const activeObstacles = [];
 
 const player = makeCar(tex.player);
 scene.add(player);
@@ -193,27 +196,105 @@ const carPool = new Pool(() => {
 const policePool = new Pool(() => { const c = makeCar(tex.police); scene.add(c); return c; }, 3);
 const crossPool = new Pool(() => { const c = makeTruck(tex); scene.add(c); return c; }, 3);
 const coinPool = new Pool(() => { const c = makeCoin(tex); scene.add(c); return c; }, 10);
+const conePool = new Pool(() => { const o = makeCone(); scene.add(o); return o; }, 24);
+const barricadePool = new Pool(() => { const o = makeBarricade(); scene.add(o); return o; }, 12);
 
+/** Layout for global biome (traffic defaults / HUD). Player control uses segment layout. */
 function currentLayout() { return layoutFor(activeBiome); }
 
-function remapLaneToLayout() {
-  const layout = currentLayout();
-  let best = layout.defaultLane;
-  let bestDist = Infinity;
-  for (let i = 0; i < layout.count; i++) {
-    const d = Math.abs(layout.xs[i] - laneX);
-    if (d < bestDist) { bestDist = d; best = i; }
+/** Segment under a world Z (segment centers at position.z, length SEG_LEN). */
+function getSegmentAt(z) {
+  const half = SEG_LEN / 2;
+  for (const seg of activeSegments) {
+    if (z >= seg.position.z - half && z < seg.position.z + half) return seg;
   }
-  lane = best;
+  return null;
+}
+
+function layoutBiomeForSegment(seg) {
+  if (!seg) return activeBiome;
+  return seg.userData.layoutBiome || seg.userData.biome || activeBiome;
+}
+
+function layoutForSegment(seg) {
+  return layoutFor(layoutBiomeForSegment(seg));
+}
+
+function usableLanesForSegment(seg) {
+  const layout = layoutForSegment(seg);
+  if (seg && Array.isArray(seg.userData.usableLanes) && seg.userData.usableLanes.length) {
+    return seg.userData.usableLanes.filter((i) => i >= 0 && i < layout.count);
+  }
+  return [...Array(layout.count).keys()];
+}
+
+function playerControlLayout() {
+  const seg = getSegmentAt(playerZ);
+  const layout = layoutForSegment(seg);
+  const usable = usableLanesForSegment(seg);
+  return { seg, layout, usable };
+}
+
+function stampSegmentDefaults(seg) {
+  const layout = layoutFor(seg.userData.biome);
+  seg.userData.layoutBiome = seg.userData.biome;
+  seg.userData.usableLanes = [...Array(layout.count).keys()];
+  seg.userData.adoptBiome = false;
+  seg.userData.closedLaneXs = [];
+  seg.userData.transitionPhase = null;
+  seg.userData.widthStart = layout.width;
+  seg.userData.widthEnd = layout.width;
+}
+
+function returnObstacle(o) {
+  if (o.userData.kind === "barricade") barricadePool.return(o);
+  else conePool.return(o);
+}
+
+function spawnTransitionObstacles(seg, closedLaneXs) {
+  if (!closedLaneXs || !closedLaneXs.length) return;
+  const zBase = seg.position.z;
+  for (const x of closedLaneXs) {
+    // Barricade near approach edge of the tile
+    const bar = barricadePool.rent();
+    bar.position.set(x, 0, zBase - SEG_LEN * 0.28);
+    bar.rotation.y = 0;
+    activeObstacles.push(bar);
+    // Cone row along the closed lane
+    for (let i = 0; i < 4; i++) {
+      const cone = conePool.rent();
+      cone.position.set(x + (i % 2 === 0 ? 0 : 0.15), 0, zBase - SEG_LEN * 0.15 + i * 3.2);
+      cone.rotation.y = 0;
+      activeObstacles.push(cone);
+    }
+  }
+}
+
+function remapLaneToLayout() {
+  const { layout, usable } = playerControlLayout();
+  lane = nearestUsableLane(layout, laneX, usable, true);
   laneX = layout.xs[lane];
   laneVel = 0;
 }
 
 function softRemapLane() {
-  const layout = currentLayout();
-  lane = nearestLane(layout, laneX, true);
+  const { layout, usable } = playerControlLayout();
+  lane = nearestUsableLane(layout, laneX, usable, true);
   // Keep laneX; spring damp will ease toward layout.xs[lane]
   laneVel *= 0.4;
+}
+
+function adoptBiomeFromSegment(seg) {
+  if (!seg || !seg.userData.adoptBiome) return;
+  const next = seg.userData.biome;
+  if (!next || next === activeBiome) return;
+  activeBiome = next;
+  softRemapLane();
+  if (!transitionQueue.length && transitioning && transitionTo === next) {
+    transitioning = false;
+    transitionFrom = null;
+    transitionTo = null;
+  }
 }
 
 function clearAheadTrafficSoft() {
@@ -253,6 +334,8 @@ function applyBiomeSwitch(biome) {
 }
 
 function recycleSegment(seg) {
+  resetRoadTaper(seg);
+  stampSegmentDefaults(seg);
   seg.visible = false;
   const b = seg.userData.biome;
   let key = b;
@@ -289,24 +372,31 @@ function spawnTransitionStep(plan) {
   const key = poolKey(plan.biome, plan.kind || "");
   const seg = segmentPool[key].rent();
   seg.userData.transitionPhase = plan.phase;
+  seg.userData.usableLanes = (plan.usableLanes || []).slice();
+  seg.userData.closedLaneXs = (plan.closedLaneXs || []).slice();
+  seg.userData.widthStart = plan.widthStart;
+  seg.userData.widthEnd = plan.widthEnd;
+  seg.userData.layoutBiome = plan.layoutBiome || plan.biome;
+  seg.userData.adoptBiome = !!plan.adopt;
+  // Do NOT flip activeBiome here — adoption is player-position based
   placeSegment(seg);
 
-  if (plan.adopt && transitionTo) {
-    activeBiome = transitionTo;
-    softRemapLane();
+  if (plan.widthStart != null && plan.widthEnd != null) {
+    applyRoadTaper(seg, plan.widthStart, plan.widthEnd);
+  }
+  if (plan.closedLaneXs && plan.closedLaneXs.length) {
+    spawnTransitionObstacles(seg, plan.closedLaneXs);
   }
 }
 
 function spawnSegment() {
-  // Seamless transition corridor — pooled tiles only (keeps textures alive)
+  // Seamless transition corridor — pooled tiles + taper metadata
   if (transitionQueue.length) {
     const step = transitionQueue.shift();
     spawnTransitionStep(step);
     if (!transitionQueue.length) {
-      activeBiome = transitionTo || activeBiome;
-      transitioning = false;
+      // Queue drained; keep transitioning flag until player adopts enter tile
       transitionFrom = null;
-      softRemapLane();
     }
     return;
   }
@@ -321,6 +411,7 @@ function spawnSegment() {
 
   const key = poolKey(biome, kind);
   const seg = segmentPool[key].rent();
+  stampSegmentDefaults(seg);
 
   if (seg.userData.turnOffer) {
     const pair = pickTurnBiomes(biome, distance, rng);
@@ -331,11 +422,12 @@ function spawnSegment() {
   placeSegment(seg);
 
   const layout = layoutFor(biome);
+  const usable = usableLanesForSegment(seg);
   if (rng() < 0.55 && kind !== "T") {
     const coin = coinPool.rent();
     const sameDir = [];
-    for (let i = 0; i < layout.count; i++) if (layout.dirs[i] === 1) sameDir.push(i);
-    const li = sameDir.length ? sameDir[(rng() * sameDir.length) | 0] : layout.defaultLane;
+    for (const i of usable) if (layout.dirs[i] === 1) sameDir.push(i);
+    const li = sameDir.length ? sameDir[(rng() * sameDir.length) | 0] : (usable[0] ?? layout.defaultLane);
     coin.position.set(layout.xs[li], 1.0, seg.position.z);
     activeCoins.push(coin);
   }
@@ -349,6 +441,7 @@ function clearWorld() {
   }
   while (activeCross.length) crossPool.return(activeCross.pop());
   while (activeCoins.length) coinPool.return(activeCoins.pop());
+  while (activeObstacles.length) returnObstacle(activeObstacles.pop());
   pursuit = null;
   transitionQueue = [];
   transitioning = false;
@@ -411,10 +504,15 @@ function findAheadIntersection(fromZ, maxAhead = 40) {
 }
 
 function spawnTrafficCar() {
-  const layout = currentLayout();
+  // Prefer layout of the segment where the car will spawn (~40–70m ahead)
+  const spawnZ = playerZ + 45;
+  const aheadSeg = getSegmentAt(spawnZ) || getSegmentAt(playerZ);
+  const layout = aheadSeg ? layoutForSegment(aheadSeg) : currentLayout();
+  const usable = aheadSeg ? usableLanesForSegment(aheadSeg) : [...Array(layout.count).keys()];
   const oncomingIdx = [];
   const sameIdx = [];
-  for (let i = 0; i < layout.count; i++) {
+  for (const i of usable) {
+    if (i < 0 || i >= layout.count) continue;
     if (layout.dirs[i] === -1) oncomingIdx.push(i);
     else sameIdx.push(i);
   }
@@ -681,10 +779,15 @@ function onSwipe(dir) {
     applyBiomeSwitch(biome);
     return;
   }
-  const layout = currentLayout();
+  const { layout, usable } = playerControlLayout();
   // Inverted side-to-side: swipe left → move right lane, swipe right → move left
-  if (dir === "left") lane = Math.min(layout.count - 1, lane + 1);
-  if (dir === "right") lane = Math.max(0, lane - 1);
+  if (dir === "left" || dir === "right") {
+    const delta = dir === "left" ? 1 : -1;
+    let next = lane + delta;
+    // Walk toward the swipe until we hit a usable lane; block if none
+    while (next >= 0 && next < layout.count && !usable.includes(next)) next += delta;
+    if (next >= 0 && next < layout.count && usable.includes(next)) lane = next;
+  }
   if (dir === "down") startBrake();
   if (dir === "up") resumeThrottle();
 }
@@ -813,9 +916,14 @@ function tick(now) {
     if (heat >= 100 && !bustPending) spawnPursuit();
     updateHeatUI();
 
-    const layout = currentLayout();
+    const { seg: playerSeg, layout, usable } = playerControlLayout();
+    adoptBiomeFromSegment(playerSeg);
+    // If current lane closed under us, soft-push to nearest open lane
+    if (!usable.includes(lane)) {
+      lane = nearestUsableLane(layout, laneX, usable, true);
+    }
     const smooth = THREE.MathUtils.lerp(0.18, 0.08, Math.min(1, (handlingFactor(save) - 1) / 0.5));
-    const targetX = layout.xs[lane];
+    const targetX = layout.xs[Math.min(Math.max(0, lane), layout.count - 1)];
     const omega = 2 / Math.max(0.05, smooth);
     const x = omega * dt;
     const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
@@ -1011,6 +1119,21 @@ function tick(now) {
       }
     }
 
+    for (let i = activeObstacles.length - 1; i >= 0; i--) {
+      const o = activeObstacles[i];
+      if (o.position.z < playerZ - 25) {
+        activeObstacles.splice(i, 1);
+        returnObstacle(o);
+        continue;
+      }
+      const hx = o.userData.hitHalfX || 0.5;
+      const hz = o.userData.hitHalfZ || 0.5;
+      if (Math.abs(o.position.z - playerZ) < hz + 1.1 && Math.abs(o.position.x - laneX) < hx + 0.7) {
+        crash();
+        break;
+      }
+    }
+
     hudDistance.textContent = `${Math.floor(distance)} m`;
     hudCoins.textContent = `$${save.coins}`;
     if (hudSpeed) hudSpeed.textContent = `${Math.round(speed * 4)}`;
@@ -1045,5 +1168,8 @@ window.__endlessChase = {
   getSave: () => ({ ...save }),
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, braking, coins: save.coins,
+    transitioning, transitionQueue: transitionQueue.length,
   }),
+  getSegmentAt,
+  buildTransitionPlan,
 };

@@ -43,35 +43,55 @@ export const NES = {
 
 /** @typedef {"city"|"rural"|"highway"} Biome */
 
-/** @param {Biome} biome */
-export function layoutFor(biome) {
-  if (biome === "city") {
-    return {
-      count: 4,
-      width: 16,
-      xs: [-6.0, -2.0, 2.0, 6.0],
-      // Left lanes forward (+Z); right lanes oncoming (−Z)
-      dirs: [1, 1, -1, -1],
-      defaultLane: 1,
-    };
-  }
-  if (biome === "rural") {
-    return {
-      count: 2,
-      width: 10,
-      xs: [-2.0, 2.0],
-      // Left forward, right oncoming
-      dirs: [1, -1],
-      defaultLane: 0,
-    };
-  }
-  return {
+/**
+ * Canonical biome layouts. Lane indices are stable within a biome.
+ * City outer lanes (0, 3) close during narrowing transitions.
+ */
+export const BIOMES = {
+  city: {
+    id: "city",
+    count: 4,
+    width: 16,
+    xs: [-6.0, -2.0, 2.0, 6.0],
+    // Left lanes forward (+Z); right lanes oncoming (−Z)
+    dirs: [1, 1, -1, -1],
+    defaultLane: 1,
+  },
+  rural: {
+    id: "rural",
+    count: 2,
+    width: 10,
+    xs: [-2.0, 2.0],
+    // Left forward, right oncoming
+    dirs: [1, -1],
+    defaultLane: 0,
+  },
+  highway: {
+    id: "highway",
     count: 2,
     width: 10,
     xs: [-2.0, 2.0],
     dirs: [1, 1],
     defaultLane: 0,
-  };
+  },
+};
+
+/**
+ * Transition corridor defs. Narrowing closes outer lanes with obstacles;
+ * widening expands width with no closures.
+ */
+export const TRANSITIONS = {
+  CITY_TO_HIGHWAY: { from: "city", to: "highway", taperSteps: 4, closeLaneIndices: [0, 3] },
+  CITY_TO_RURAL: { from: "city", to: "rural", taperSteps: 4, closeLaneIndices: [0, 3] },
+  HIGHWAY_TO_CITY: { from: "highway", to: "city", taperSteps: 3, closeLaneIndices: [] },
+  HIGHWAY_TO_RURAL: { from: "highway", to: "rural", taperSteps: 3, closeLaneIndices: [] },
+  RURAL_TO_CITY: { from: "rural", to: "city", taperSteps: 3, closeLaneIndices: [] },
+  RURAL_TO_HIGHWAY: { from: "rural", to: "highway", taperSteps: 3, closeLaneIndices: [] },
+};
+
+/** @param {Biome} biome */
+export function layoutFor(biome) {
+  return BIOMES[biome] || BIOMES.highway;
 }
 
 export function biomeLabel(b) {
