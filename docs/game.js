@@ -10,18 +10,19 @@ import {
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
+  CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=8";
+} from "./js/constants.js?v=9";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=8";
-import { Pool } from "./js/pool.js?v=8";
+} from "./js/save.js?v=9";
+import { Pool } from "./js/pool.js?v=9";
 import {
-  createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual,
-} from "./js/nes.js?v=8";
+  createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
+} from "./js/nes.js?v=9";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane,
-} from "./js/worldgen.js?v=8";
+} from "./js/worldgen.js?v=9";
 
 const save = loadSave();
 
@@ -150,6 +151,7 @@ let transitionFrom = null;
 let transitionTo = null;
 let transitioning = false;
 let menuTime = 0;
+let crossSpawnTimer = 0;
 
 const activeSegments = [];
 const activeTraffic = [];
@@ -191,7 +193,7 @@ const carPool = new Pool(() => {
   return c;
 }, 10);
 const policePool = new Pool(() => { const c = makeCar(tex.police); scene.add(c); return c; }, 3);
-const crossPool = new Pool(() => { const c = makeTruck(tex); scene.add(c); return c; }, 3);
+const crossPool = new Pool(() => { const c = makeTruck(tex); scene.add(c); return c; }, 4);
 const coinPool = new Pool(() => { const c = makeCoin(tex); scene.add(c); return c; }, 10);
 
 function currentLayout() { return layoutFor(activeBiome); }
@@ -347,7 +349,7 @@ function clearWorld() {
     const t = activeTraffic.pop();
     (t.userData.police ? policePool : carPool).return(t);
   }
-  while (activeCross.length) crossPool.return(activeCross.pop());
+  while (activeCross.length) returnCross(activeCross.pop());
   while (activeCoins.length) coinPool.return(activeCoins.pop());
   pursuit = null;
   transitionQueue = [];
@@ -408,6 +410,48 @@ function findAheadIntersection(fromZ, maxAhead = 40) {
     }
   }
   return best;
+}
+
+function findNearbyRedIntersection() {
+  let best = null;
+  let bestAbs = Infinity;
+  for (const seg of activeSegments) {
+    if (!seg.userData.intersection) continue;
+    if (seg.userData.lightState !== "red") continue;
+    const dz = seg.position.z - playerZ;
+    if (dz < -8 || dz > 40) continue;
+    const a = Math.abs(dz);
+    if (a < bestAbs) {
+      bestAbs = a;
+      best = seg;
+    }
+  }
+  return best;
+}
+
+/** Spawn cross traffic far off-screen so approach is visible (no curb teleport). */
+function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5 } = {}) {
+  if (activeCross.length >= CROSS_MAX && !hazard) return null;
+  if (activeCross.length >= CROSS_MAX + 1) return null;
+  const useTruck = hazard || Math.random() < 0.35;
+  const car = useTruck ? crossPool.rent() : carPool.rent();
+  const speed = hazard ? CROSS_HAZARD_SPEED : CROSS_SPEED * (0.85 + Math.random() * 0.3);
+  const laneZ = seg.position.z + (Math.random() - 0.5) * 3.2;
+  const startX = fromLeft ? -CROSS_SPAWN_X : CROSS_SPAWN_X;
+  car.position.set(startX, 0, laneZ);
+  car.rotation.y = fromLeft ? Math.PI / 2 : -Math.PI / 2;
+  car.userData.vx = fromLeft ? speed : -speed;
+  car.userData.crossKind = useTruck ? "truck" : "car";
+  car.userData.hazard = hazard;
+  car.userData.police = false;
+  car.userData.pursuit = false;
+  activeCross.push(car);
+  return car;
+}
+
+function returnCross(car) {
+  if (car.userData.crossKind === "truck") crossPool.return(car);
+  else carPool.return(car);
 }
 
 function spawnTrafficCar() {
@@ -566,6 +610,7 @@ function resetRunState() {
   onRampPending = false;
   bustPending = false;
   keysBrake = false;
+  crossSpawnTimer = 0.4;
   worldSeed = (Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0;
   transitionQueue = [];
   transitioning = false;
@@ -890,6 +935,7 @@ function tick(now) {
           seg.userData.lightTimer = lightDuration(seg.userData.lightState);
           updateLightVisual(seg);
         }
+        pulseLightGlow(seg, now / 1000);
         const dz = Math.abs(playerZ - seg.position.z);
         const aheadDz = seg.position.z - playerZ;
         // Preview phase on HUD before the resolve zone
@@ -908,10 +954,7 @@ function tick(now) {
               boostTimer = 2.5;
               boostMul = 1.35;
               heat = Math.min(100, heat + 22);
-              const truck = crossPool.rent();
-              truck.position.set(-(layout.width / 2 + 4), 0, seg.position.z);
-              truck.userData.vx = 22;
-              activeCross.push(truck);
+              spawnCrossVehicle(seg, { hazard: true, fromLeft: Math.random() < 0.5 });
               hudLight.textContent = "RED! BOOST";
               hudLight.style.color = "#ff004d";
             } else {
@@ -931,6 +974,16 @@ function tick(now) {
           }
           setTimeout(() => hudLight.classList.add("hidden"), 1200);
         }
+      }
+    }
+
+    // Ambient cross traffic while a nearby light is red (approaches from far L/R)
+    crossSpawnTimer -= dt;
+    if (crossSpawnTimer <= 0) {
+      crossSpawnTimer = CROSS_SPAWN_INTERVAL;
+      const redSeg = findNearbyRedIntersection();
+      if (redSeg && activeCross.length < CROSS_MAX) {
+        spawnCrossVehicle(redSeg, { hazard: false });
       }
     }
 
@@ -983,9 +1036,9 @@ function tick(now) {
     for (let i = activeCross.length - 1; i >= 0; i--) {
       const t = activeCross[i];
       t.position.x += t.userData.vx * dt;
-      if (t.position.x > currentLayout().width / 2 + 8) {
+      if (Math.abs(t.position.x) > CROSS_SPAWN_X + 4) {
         activeCross.splice(i, 1);
-        crossPool.return(t);
+        returnCross(t);
         continue;
       }
       if (Math.abs(t.position.z - playerZ) < 2.5 && Math.abs(t.position.x - laneX) < 2.0) {
@@ -1046,4 +1099,30 @@ window.__endlessChase = {
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, braking, coins: save.coins,
   }),
+  getCross: () => activeCross.map((c) => ({
+    x: +c.position.x.toFixed(2),
+    z: +c.position.z.toFixed(2),
+    vx: c.userData.vx,
+    kind: c.userData.crossKind,
+  })),
+  getIntersections: () => activeSegments
+    .filter((s) => s.userData.intersection)
+    .map((s) => ({
+      z: +s.position.z.toFixed(1),
+      light: s.userData.lightState,
+      dz: +(s.position.z - playerZ).toFixed(1),
+    })),
+  debugSpawnCross: (hazard = false) => {
+    let seg = findAheadIntersection(playerZ - 5, 100);
+    if (!seg) seg = activeSegments.find((s) => s.userData.intersection);
+    if (!seg) return { ok: false, reason: "no-intersection" };
+    seg.userData.lightState = "red";
+    updateLightVisual(seg);
+    const car = spawnCrossVehicle(seg, { hazard, fromLeft: true });
+    return {
+      ok: !!car,
+      segZ: seg.position.z,
+      cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
+    };
+  },
 };
