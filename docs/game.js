@@ -12,17 +12,17 @@ import {
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=9";
+} from "./js/constants.js?v=11";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=9";
-import { Pool } from "./js/pool.js?v=9";
+} from "./js/save.js?v=11";
+import { Pool } from "./js/pool.js?v=11";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
-} from "./js/nes.js?v=9";
+} from "./js/nes.js?v=11";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan, nearestLane,
-} from "./js/worldgen.js?v=9";
+} from "./js/worldgen.js?v=11";
 
 const save = loadSave();
 
@@ -90,7 +90,8 @@ addSky(camera);
 // ---------- Menu / intro camera ----------
 /** City curb sits at ±8.2; park fully on the left sidewalk just outside it. */
 const MENU_PARK = { x: -10.25, z: 2.8, yaw: 0.06 };
-const INTRO_DURATION = 1.35;
+/** Long enough to read the steer-out → straighten arc. */
+const INTRO_DURATION = 2.05;
 
 const _menuCamPos = new THREE.Vector3(-4.6, 2.55, -2.4);
 const _menuCamLook = new THREE.Vector3(-9.8, 0.5, 6.2);
@@ -111,11 +112,34 @@ function setCameraLook(x, y, z) {
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+function easeInCubic(t) {
+  return t * t * t;
+}
+/** Cubic Bezier scalar. */
+function bezier3(a, b, c, d, t) {
+  const u = 1 - t;
+  return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+}
+/** Cubic Bezier derivative (path tangent). */
+function bezier3Deriv(a, b, c, d, t) {
+  const u = 1 - t;
+  return 3 * u * u * (b - a) + 6 * u * t * (c - b) + 3 * t * t * (d - c);
+}
 
 // ---------- State ----------
 let running = false;
 let alive = false;
-/** @type {null | { t:number, duration:number, fromCam:THREE.Vector3, fromLook:THREE.Vector3, toCam:THREE.Vector3, toLook:THREE.Vector3, fromPos:THREE.Vector3, toPos:THREE.Vector3, fromYaw:number, toYaw:number }} */
+/** @type {null | {
+ *   t:number, duration:number,
+ *   fromCam:THREE.Vector3, fromLook:THREE.Vector3,
+ *   toCam:THREE.Vector3, toLook:THREE.Vector3,
+ *   laneX:number,
+ *   p1x:number, p1z:number, p2x:number, p2z:number, p3x:number, p3z:number,
+ *   yaw:number, roll:number
+ * }} */
 let intro = null;
 let activeBiome = "city";
 let lane = 2;
@@ -637,7 +661,6 @@ function startRun(opts = {}) {
   updateHeatUI();
   trafficTimer = 0.8;
 
-  const toPos = new THREE.Vector3(laneX, 0, 0);
   const toCam = gameplayCamPos(laneX, 0).clone();
   const toLook = gameplayCamLook(laneX, 0).clone();
 
@@ -645,18 +668,25 @@ function startRun(opts = {}) {
     intro = null;
     running = true;
     alive = true;
-    player.position.copy(toPos);
+    player.position.set(laneX, 0, 0);
     player.rotation.set(0, 0, 0);
     camera.position.copy(toCam);
     setCameraLook(toLook.x, toLook.y, toLook.z);
     return;
   }
 
-  // Seamless: stay parked, then pull into the default forward lane
+  // Seamless: stay parked, then steer out of the curb into the forward lane
   parkPlayerCurbside();
   applyMenuCamera();
   running = false;
   alive = true;
+
+  // Bezier pull-out (left curb → lane). Control points shape a real parallel exit:
+  // P1: creep forward with nose starting to cut in
+  // P2: deep into the street while still angled
+  // P3: settled in-lane heading down the road
+  const p0x = MENU_PARK.x;
+  const p0z = MENU_PARK.z;
   intro = {
     t: 0,
     duration: INTRO_DURATION,
@@ -664,55 +694,74 @@ function startRun(opts = {}) {
     fromLook: _camLook.clone(),
     toCam,
     toLook,
-    fromPos: new THREE.Vector3(MENU_PARK.x, 0, MENU_PARK.z),
-    toPos,
-    fromYaw: MENU_PARK.yaw,
-    toYaw: 0,
+    laneX,
+    p1x: p0x + 1.1,
+    p1z: p0z + 3.4,
+    p2x: laneX + 0.6,
+    p2z: p0z + 9.5,
+    p3x: laneX,
+    p3z: p0z + 17,
+    yaw: MENU_PARK.yaw,
+    roll: 0,
   };
 }
 
 function finishIntro() {
   if (!intro) return;
-  const pz = playerZ;
+  const pz = Math.max(0, intro.p3z);
+  playerZ = pz;
+  laneX = intro.laneX;
   player.position.set(laneX, 0, pz);
   player.rotation.set(0, 0, 0);
   camera.position.copy(gameplayCamPos(laneX, pz));
   const look = gameplayCamLook(laneX, pz);
   setCameraLook(look.x, look.y, look.z);
   distance = pz;
+  turnYaw = 0;
   intro = null;
   running = true;
   alive = true;
 }
 
+/**
+ * Parallel-park pull-out along a Bezier whose tangent sets yaw —
+ * nose leads the turn; body follows the arc (not a sideways slide).
+ */
 function updateIntro(dt) {
   if (!intro) return;
   intro.t += dt;
-  const u = Math.min(1, intro.t / intro.duration);
-  const e = easeInOutCubic(u);
-  const pull = easeInOutCubic(Math.min(1, u * 1.15));
+  const uLinear = Math.min(1, intro.t / intro.duration);
+  // Ease-in so the first beat is a slow curb creep, then it opens up
+  const u = easeInOutCubic(uLinear);
 
-  // Soft roll-out late in the blend so gameplay already has forward motion
-  if (u > 0.55) {
-    const ramp = (u - 0.55) / 0.45;
-    playerZ = speed * 0.4 * ramp * ramp;
-  } else {
-    playerZ = 0;
-  }
+  const x = bezier3(MENU_PARK.x, intro.p1x, intro.p2x, intro.p3x, u);
+  const z = bezier3(MENU_PARK.z, intro.p1z, intro.p2z, intro.p3z, u);
+  const tx = bezier3Deriv(MENU_PARK.x, intro.p1x, intro.p2x, intro.p3x, u);
+  const tz = bezier3Deriv(MENU_PARK.z, intro.p1z, intro.p2z, intro.p3z, u);
+  // yaw 0 faces +Z; negative yaw faces toward +X (into the road from left curb)
+  const tangentYaw = Math.atan2(-tx, Math.max(0.001, tz));
+  intro.yaw = THREE.MathUtils.damp(intro.yaw, tangentYaw, 18, dt);
+
+  const rollTarget = THREE.MathUtils.clamp(-intro.yaw * 0.2, -0.1, 0.1);
+  intro.roll = THREE.MathUtils.damp(intro.roll, uLinear > 0.88 ? 0 : rollTarget, 10, dt);
+
+  player.position.set(x, 0, z);
+  player.rotation.set(intro.roll * 0.35, intro.yaw, intro.roll);
+
+  playerZ = Math.max(0, z);
   distance = playerZ;
+  // Feed chase-cam a blended lateral so it doesn't whip while we arc
+  laneX = THREE.MathUtils.lerp(x, intro.laneX, Math.min(1, Math.max(0, (u - 0.45) / 0.55)));
 
-  player.position.x = THREE.MathUtils.lerp(intro.fromPos.x, intro.toPos.x, pull);
-  player.position.y = 0;
-  player.position.z = THREE.MathUtils.lerp(intro.fromPos.z, playerZ, e);
-  player.rotation.y = THREE.MathUtils.lerp(intro.fromYaw, intro.toYaw, e);
-
+  // Hold the curb framing while the nose cuts out, then rise into chase cam
+  const camU = easeInOutCubic(Math.max(0, (uLinear - 0.22) / 0.78));
   gameplayCamPos(laneX, playerZ, intro.toCam);
   gameplayCamLook(laneX, playerZ, intro.toLook);
-  camera.position.lerpVectors(intro.fromCam, intro.toCam, e);
-  _camLook.lerpVectors(intro.fromLook, intro.toLook, e);
+  camera.position.lerpVectors(intro.fromCam, intro.toCam, camU);
+  _camLook.lerpVectors(intro.fromLook, intro.toLook, camU);
   camera.lookAt(_camLook);
 
-  if (u >= 1) finishIntro();
+  if (uLinear >= 1) finishIntro();
 }
 
 function onSwipe(dir) {
@@ -1098,6 +1147,9 @@ window.__endlessChase = {
   getSave: () => ({ ...save }),
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, braking, coins: save.coins,
+    playerX: +player.position.x.toFixed(2),
+    playerZ: +player.position.z.toFixed(2),
+    playerYaw: +player.rotation.y.toFixed(3),
   }),
   getCross: () => activeCross.map((c) => ({
     x: +c.position.x.toFixed(2),
