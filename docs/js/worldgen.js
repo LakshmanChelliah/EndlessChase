@@ -40,8 +40,9 @@ export function pickTurnBiomes(from, distance = 0, rng = Math.random) {
 /**
  * Decide what kind of segment to spawn for a given index.
  * Returns { kind: ""|"I"|"T"|"R", reason }
+ * @param {number} [intersectionCooldown=0] remaining segments before another light may spawn
  */
-export function decideSegment(biome, spawnIndex, turnCooldown, rng) {
+export function decideSegment(biome, spawnIndex, turnCooldown, rng, intersectionCooldown = 0) {
   // Quiet opening stretch
   if (spawnIndex < 4) return { kind: "", reason: "intro" };
 
@@ -53,8 +54,9 @@ export function decideSegment(biome, spawnIndex, turnCooldown, rng) {
     if (rng() < base + wave) return { kind: "T", reason: "turn" };
   }
 
-  // Intersections — denser in city, rare on highway
-  const iChance = biome === "city" ? 0.22 : biome === "rural" ? 0.14 : 0.06;
+  // Intersections — denser in city, rare on highway; never back-to-back
+  if (intersectionCooldown > 0) return { kind: "", reason: "light-gap" };
+  const iChance = biome === "city" ? 0.14 : biome === "rural" ? 0.1 : 0.05;
   if (spawnIndex > 3 && rng() < iChance) return { kind: "I", reason: "light" };
 
   return { kind: "", reason: "straight" };

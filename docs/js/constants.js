@@ -18,6 +18,12 @@ export const TURN_WINDOW = 1.25;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
 
+/**
+ * Minimum straight segments between traffic-light intersections.
+ * Prevents city lights from stacking on consecutive tiles.
+ */
+export const INTERSECTION_COOLDOWN_SEGS = 3;
+
 /** Traffic light phase durations (seconds) */
 export const LIGHT_GREEN = 3.0;
 export const LIGHT_YELLOW = 1.0;
