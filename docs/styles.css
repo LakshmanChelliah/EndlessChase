@@ -241,12 +241,29 @@ html, body {
   background: var(--nes-red);
 }
 
+.gas-block {
+  margin-top: 0.45rem;
+  width: min(72vw, 220px);
+}
+
+.gas-text {
+  font-size: clamp(0.85rem, 4.2vw, 1.15rem);
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--nes-green);
+  text-shadow: 3px 3px 0 #000;
+  margin-bottom: 0.28rem;
+}
+
+.gas-block.ok .gas-text { color: var(--nes-green); }
+.gas-block.low .gas-text { color: var(--nes-orange); }
+.gas-block.critical .gas-text { color: var(--nes-red); }
+
 .gas-bar {
-  margin-top: 0.25rem;
-  height: 6px;
-  width: min(42vw, 140px);
+  height: 12px;
+  width: 100%;
   background: #000;
-  border: 2px solid var(--nes-gray);
+  border: 3px solid var(--nes-white);
   overflow: hidden;
 }
 
@@ -254,87 +271,137 @@ html, body {
   height: 100%;
   width: 50%;
   background: var(--nes-green);
-  transition: width 0.05s linear;
+  transition: width 0.08s linear, background-color 0.15s ease;
 }
 
-.gas-bar.low .gas-fill {
-  background: var(--nes-orange);
-}
+.gas-block.ok .gas-fill { background: var(--nes-green); }
+.gas-block.low .gas-fill { background: var(--nes-orange); }
+.gas-block.critical .gas-fill { background: var(--nes-red); }
 
-.gas-bar.empty .gas-fill {
-  background: var(--nes-red);
-}
-
-.station-cue {
-  margin-top: 0.4rem;
-  padding: 0.3rem 0.4rem;
-  background: rgba(0, 0, 0, 0.8);
-  border: 2px solid var(--nes-green);
-  color: var(--nes-green);
-  font-size: 0.42rem;
-  line-height: 1.55;
-  text-shadow: 2px 2px 0 #000;
-}
-
-.fill-overlay {
+.station-float {
   position: absolute;
-  left: 50%;
-  top: 42%;
-  transform: translate(-50%, -50%);
-  width: min(78vw, 220px);
-  padding: 0.7rem 0.65rem 0.55rem;
+  z-index: 5;
+  transform: translate(-50%, -120%);
+  padding: 0.45rem 0.55rem;
   background: rgba(0, 0, 0, 0.88);
   border: 3px solid var(--nes-yellow);
-  text-align: center;
-  z-index: 4;
-  pointer-events: none;
-}
-
-.fill-title {
   color: var(--nes-yellow);
-  font-size: 0.55rem;
-  margin-bottom: 0.45rem;
+  font-family: inherit;
+  font-size: 0.48rem;
+  line-height: 1.4;
   text-shadow: 2px 2px 0 #000;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: station-bob 0.9s ease-in-out infinite;
 }
 
-.fill-timer {
-  color: var(--nes-red);
+.station-float:active {
+  border-color: var(--nes-green);
+  color: var(--nes-green);
+}
+
+@keyframes station-bob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -6px; }
+}
+
+.pump-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: none;
+  transform: none;
+  left: 0;
+  top: 0;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background: rgba(0, 0, 0, 0.72);
+  pointer-events: auto;
+}
+
+.pump-panel.hidden { display: none; }
+
+.pump-shell {
+  width: min(88vw, 280px);
+  padding: 1rem 0.85rem 0.85rem;
+  background: #0a0a12;
+  border: 4px solid var(--nes-yellow);
+  box-shadow: 0 0 0 3px #000, inset 0 0 0 2px #3a3d48;
+  text-align: center;
+}
+
+.pump-title {
+  margin: 0 0 0.65rem;
+  color: var(--nes-yellow);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+
+.pump-current {
+  margin: 0 0 0.4rem;
   font-size: 0.85rem;
-  margin-bottom: 0.45rem;
+  color: var(--nes-white);
   text-shadow: 2px 2px 0 #000;
 }
 
-.fill-timer.warn {
-  color: var(--nes-orange);
-}
-
-.fill-gas-bar {
-  height: 10px;
+.pump-preview-bar {
+  position: relative;
+  height: 14px;
   width: 100%;
   background: #000;
-  border: 2px solid var(--nes-white);
+  border: 3px solid var(--nes-white);
   overflow: hidden;
   margin-bottom: 0.45rem;
 }
 
-.fill-gas-fill {
-  height: 100%;
-  width: 0%;
+.pump-bar-now {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
   background: var(--nes-green);
 }
 
-.fill-hint {
-  color: var(--nes-white);
-  font-size: 0.45rem;
-  line-height: 1.5;
-  text-shadow: 2px 2px 0 #000;
+.pump-bar-add {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: var(--nes-yellow);
+  opacity: 0.85;
+  mix-blend-mode: screen;
 }
 
-.fill-leave {
-  margin-top: 0.35rem;
+.pump-preview {
+  margin: 0 0 0.7rem;
+  font-size: 0.45rem;
   color: var(--nes-gray);
-  font-size: 0.35rem;
-  line-height: 1.4;
+  line-height: 1.5;
+}
+
+.pump-amounts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.7rem;
+}
+
+.pump-amounts .pump-amt[data-fill="max"] {
+  grid-column: 1 / -1;
+}
+
+.pump-amt.selected {
+  outline: 3px solid var(--nes-green);
+  outline-offset: 1px;
+}
+
+.pump-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .turn-cue {

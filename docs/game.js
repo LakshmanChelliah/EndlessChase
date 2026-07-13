@@ -13,22 +13,22 @@ import {
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
-  GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_STATION_WINDOW, GAS_HUD_AHEAD,
-  GAS_FILL_PER_TAP, GAS_STOP_HEAT, GAS_LATE_HEAT,
-  layoutFor, biomeLabel, poolKey, gasPoliceWindow,
-} from "./js/constants.js?v=15";
+  GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
+  GAS_COLOR_OK, GAS_COLOR_LOW, GAS_STOP_HEAT,
+  layoutFor, biomeLabel, poolKey,
+} from "./js/constants.js?v=16";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=15";
-import { Pool } from "./js/pool.js?v=15";
+} from "./js/save.js?v=16";
+import { Pool } from "./js/pool.js?v=16";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
-  makeCone, makeBarricade, applyRoadTaper, resetRoadTaper,
-} from "./js/nes.js?v=15";
+  makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
+} from "./js/nes.js?v=16";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=15";
+} from "./js/worldgen.js?v=16";
 
 const save = loadSave();
 
@@ -39,6 +39,7 @@ const panels = {
   hud: document.getElementById("panel-hud"),
   gameover: document.getElementById("panel-gameover"),
   upgrades: document.getElementById("panel-upgrades"),
+  pump: document.getElementById("panel-pump"),
 };
 const hudDistance = document.getElementById("hud-distance");
 const hudCoins = document.getElementById("hud-coins");
@@ -46,15 +47,20 @@ const hudBoost = document.getElementById("hud-boost");
 const hudLight = document.getElementById("hud-light");
 const hudHeatFill = document.getElementById("hud-heat-fill");
 const hudHeat = document.getElementById("hud-heat");
+const hudGasBlock = document.getElementById("hud-gas-block");
 const hudGasFill = document.getElementById("hud-gas-fill");
-const hudGas = document.getElementById("hud-gas");
-const hudStation = document.getElementById("hud-station");
-const hudFill = document.getElementById("hud-fill");
-const hudFillTimer = document.getElementById("hud-fill-timer");
-const hudFillGas = document.getElementById("hud-fill-gas");
+const hudGasText = document.getElementById("hud-gas-text");
+const hudStationFloat = document.getElementById("hud-station-float");
 const hudTurn = document.getElementById("hud-turn");
 const hudLaneWarn = document.getElementById("hud-lane-warn");
 const hudSpeed = document.getElementById("hud-speed");
+const pumpCurrent = document.getElementById("pump-current");
+const pumpPreview = document.getElementById("pump-preview");
+const pumpBarNow = document.getElementById("pump-bar-now");
+const pumpBarAdd = document.getElementById("pump-bar-add");
+const btnPumpConfirm = document.getElementById("btn-pump-confirm");
+const btnPumpLeave = document.getElementById("btn-pump-leave");
+const pumpAmtButtons = [...document.querySelectorAll(".pump-amt")];
 const goTitle = document.getElementById("go-title");
 const goScore = document.getElementById("go-score");
 const goCoins = document.getElementById("go-coins");
@@ -67,7 +73,16 @@ const btnUpAccel = document.getElementById("btn-up-accel");
 const btnUpHandling = document.getElementById("btn-up-handling");
 
 function showPanel(name) {
-  for (const k of Object.keys(panels)) panels[k].classList.toggle("hidden", k !== name);
+  for (const k of Object.keys(panels)) {
+    if (!panels[k]) continue;
+    // Pump overlays HUD — don't force-hide via this helper when opening pump
+    if (k === "pump") continue;
+    panels[k].classList.toggle("hidden", k !== name);
+  }
+}
+
+function showPumpPanel(show) {
+  if (panels.pump) panels.pump.classList.toggle("hidden", !show);
 }
 
 function refreshUpgradesUI() {
@@ -176,10 +191,10 @@ let turnCooldown = 4;
 let intersectionCooldown = 2;
 let gasCooldown = 12;
 let turnActive = null;
-/** @type {null | { seg: object, timer: number }} */
-let stationOffer = null;
-/** @type {null | { seg: object, timer: number, maxTimer: number, biome: string }} */
-let gasFill = null;
+/** @type {null | { seg: object }} */
+let nearbyStation = null;
+/** @type {null | { seg: object, selection: number|"max"|null, pausedSpeed: number }} */
+let gasPump = null;
 let turnYaw = 0;
 let turnYawVel = 0;
 let onRampPending = false;
@@ -367,11 +382,11 @@ function beginBiomeTransition(toBiome) {
   intersectionCooldown = Math.max(intersectionCooldown, INTERSECTION_COOLDOWN_SEGS + 1);
   gasCooldown = Math.max(gasCooldown, 4);
   turnActive = null;
-  if (stationOffer) skipGasStation();
+  nearbyStation = null;
+  hideStationFloat();
   clearAheadTrafficSoft();
   softRemapLane();
   if (hudTurn) hudTurn.classList.add("hidden");
-  if (hudStation) hudStation.classList.add("hidden");
   if (hudLight) {
     hudLight.textContent = `→ ${biomeLabel(toBiome)}`;
     hudLight.style.color = "#ffec27";
@@ -413,12 +428,25 @@ function placeSegment(seg) {
   seg.userData.gasResolved = false;
   if (seg.userData.lightGroup) updateLightVisual(seg);
   if (seg.userData.gantryGroup) seg.userData.gantryGroup.visible = false;
+  if (seg.userData.gasStation) configureGasStationSide(seg);
   seg.visible = true;
   seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
   configureGantry(seg);
   activeSegments.push(seg);
   nextSpawnZ += SEG_LEN;
   spawnIndex++;
+}
+
+/** Rebuild gas station visuals on a random left/right berm each spawn. */
+function configureGasStationSide(seg) {
+  if (seg.userData.gasGroup) {
+    seg.remove(seg.userData.gasGroup);
+    seg.userData.gasGroup = null;
+  }
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const half = (seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
+  seg.userData.gasSide = side;
+  seg.userData.gasGroup = addGasStationVisuals(seg, half, seg.userData.biome, side);
 }
 
 function spawnTransitionStep(plan) {
@@ -512,10 +540,9 @@ function clearWorld() {
   transitioning = false;
   transitionFrom = null;
   transitionTo = null;
-  stationOffer = null;
-  gasFill = null;
-  if (hudFill) hudFill.classList.add("hidden");
-  hideStationCue();
+  nearbyStation = null;
+  closeGasPump({ resume: false });
+  hideStationFloat();
 }
 
 function updateHeatUI() {
@@ -525,79 +552,167 @@ function updateHeatUI() {
 }
 
 function updateGasUI() {
-  if (!hudGasFill) return;
   const g = Math.max(0, Math.min(100, gas));
-  hudGasFill.style.width = `${g}%`;
-  if (hudGas) {
-    hudGas.classList.toggle("low", g > 0 && g <= 25);
-    hudGas.classList.toggle("empty", g <= 0);
+  const pct = Math.round(g);
+  if (hudGasFill) hudGasFill.style.width = `${g}%`;
+  if (hudGasText) hudGasText.textContent = `GAS ${pct}%`;
+  if (hudGasBlock) {
+    hudGasBlock.classList.remove("ok", "low", "critical");
+    if (g < GAS_COLOR_LOW) hudGasBlock.classList.add("critical");
+    else if (g < GAS_COLOR_OK) hudGasBlock.classList.add("low");
+    else hudGasBlock.classList.add("ok");
   }
-  if (hudFillGas) hudFillGas.style.width = `${g}%`;
 }
 
 function randomStartGas() {
   return GAS_START_MIN + Math.random() * (GAS_START_MAX - GAS_START_MIN);
 }
 
-function hideStationCue() {
-  if (hudStation) hudStation.classList.add("hidden");
+function hideStationFloat() {
+  if (hudStationFloat) hudStationFloat.classList.add("hidden");
 }
 
-function showStationCue(aheadHint = false) {
-  if (!hudStation) return;
-  hudStation.textContent = aheadHint
-    ? "GAS AHEAD"
-    : "TAP STOP · SWIPE SKIP";
-  hudStation.classList.remove("hidden");
+function updateStationFloat(seg) {
+  if (!hudStationFloat || !seg?.userData.gasGroup) {
+    hideStationFloat();
+    return;
+  }
+  const anchor = seg.userData.gasGroup.getObjectByName("gasAnchor") || seg.userData.gasGroup;
+  const world = new THREE.Vector3();
+  anchor.getWorldPosition(world);
+  world.project(camera);
+  if (world.z > 1) {
+    hideStationFloat();
+    return;
+  }
+  const stage = document.getElementById("game-stage") || canvas.parentElement;
+  const rect = stage.getBoundingClientRect();
+  const x = (world.x * 0.5 + 0.5) * rect.width;
+  const y = (-world.y * 0.5 + 0.5) * rect.height;
+  hudStationFloat.style.left = `${x}px`;
+  hudStationFloat.style.top = `${y}px`;
+  hudStationFloat.classList.remove("hidden");
 }
 
-function skipGasStation() {
-  if (stationOffer?.seg) stationOffer.seg.userData.gasResolved = true;
-  stationOffer = null;
-  hideStationCue();
+function findInteractableStation() {
+  let best = null;
+  let bestAbs = Infinity;
+  for (const seg of activeSegments) {
+    if (!seg.userData.gasStation || seg.userData.gasResolved) continue;
+    const dz = seg.position.z - playerZ;
+    if (dz < -6 || dz > GAS_HUD_AHEAD) continue;
+    const a = Math.abs(dz);
+    if (a < bestAbs) {
+      bestAbs = a;
+      best = seg;
+    }
+  }
+  return best;
 }
 
-function enterGasFill(seg) {
-  if (gasFill || !seg) return;
-  skipGasStation();
+function openGasPump(seg) {
+  if (gasPump || !seg || !alive) return;
+  nearbyStation = null;
+  hideStationFloat();
   seg.userData.gasResolved = true;
-  const biome = seg.userData.biome || activeBiome;
-  const maxTimer = gasPoliceWindow(biome, heat);
-  gasFill = { seg, timer: maxTimer, maxTimer, biome };
   heat = Math.min(100, heat + GAS_STOP_HEAT);
+  updateHeatUI();
+  gasPump = {
+    seg,
+    selection: null,
+    pausedSpeed: speed,
+  };
   speed = 0;
   braking = true;
-  if (hudFill) hudFill.classList.remove("hidden");
-  updateFillOverlay();
-  updateHeatUI();
+  running = false; // pause chase loop progression
+  showPumpPanel(true);
+  setPumpSelection(null);
+  updatePumpUI();
 }
 
-function leaveGasFill({ busted = false } = {}) {
-  if (!gasFill) return;
-  gasFill = null;
-  if (hudFill) hudFill.classList.add("hidden");
-  resumeThrottle();
-  if (busted) {
-    heat = 100;
-    updateHeatUI();
-    spawnPursuit();
+function closeGasPump({ resume = true } = {}) {
+  const wasOpen = !!gasPump;
+  gasPump = null;
+  showPumpPanel(false);
+  if (resume && wasOpen && alive) {
+    running = true;
+    resumeThrottle();
   }
 }
 
-function updateFillOverlay() {
-  if (!gasFill || !hudFillTimer) return;
-  const t = Math.max(0, gasFill.timer);
-  hudFillTimer.textContent = t.toFixed(1);
-  hudFillTimer.classList.toggle("warn", t < 1.2);
-  if (hudFillGas) hudFillGas.style.width = `${Math.max(0, Math.min(100, gas))}%`;
+function previewGasAfterFill(selection) {
+  if (selection == null) return gas;
+  if (selection === "max") return 100;
+  return Math.min(100, gas + selection);
 }
 
-function pumpGasTap() {
-  if (!gasFill || !alive) return;
-  gas = Math.min(100, gas + GAS_FILL_PER_TAP);
+function setPumpSelection(selection) {
+  if (!gasPump) return;
+  gasPump.selection = selection;
+  for (const btn of pumpAmtButtons) {
+    const v = btn.dataset.fill;
+    const selected = selection === "max" ? v === "max" : String(selection) === v;
+    btn.classList.toggle("selected", selected);
+  }
+  if (btnPumpConfirm) btnPumpConfirm.disabled = selection == null;
+  updatePumpUI();
+}
+
+function updatePumpUI() {
+  const now = Math.max(0, Math.min(100, gas));
+  const after = previewGasAfterFill(gasPump?.selection ?? null);
+  if (pumpCurrent) pumpCurrent.textContent = `FUEL ${Math.round(now)}%`;
+  if (pumpBarNow) pumpBarNow.style.width = `${now}%`;
+  if (pumpBarAdd) {
+    pumpBarAdd.style.left = `${now}%`;
+    pumpBarAdd.style.width = `${Math.max(0, after - now)}%`;
+  }
+  if (pumpPreview) {
+    if (gasPump?.selection == null) pumpPreview.textContent = "SELECT AMOUNT";
+    else pumpPreview.textContent = `PREVIEW ${Math.round(after)}%`;
+  }
+}
+
+function confirmGasPump() {
+  if (!gasPump || gasPump.selection == null) return;
+  gas = previewGasAfterFill(gasPump.selection);
   updateGasUI();
-  updateFillOverlay();
-  if (gas >= 100) leaveGasFill();
+  closeGasPump({ resume: true });
+}
+
+function tryTapGasStation(clientX, clientY) {
+  if (!running || !alive || gasPump) return false;
+  const seg = nearbyStation || findInteractableStation();
+  if (!seg) return false;
+  const dz = Math.abs(seg.position.z - playerZ);
+  if (dz > GAS_INTERACT_RANGE) return false;
+
+  // Prefer UI float hit, else raycast station meshes
+  if (hudStationFloat && !hudStationFloat.classList.contains("hidden")) {
+    const r = hudStationFloat.getBoundingClientRect();
+    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+      openGasPump(seg);
+      return true;
+    }
+  }
+
+  const stage = document.getElementById("game-stage") || canvas;
+  const rect = stage.getBoundingClientRect();
+  const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+  const hits = raycaster.intersectObject(seg.userData.gasGroup, true);
+  if (hits.length && hits.some((h) => h.object.userData.gasHit)) {
+    openGasPump(seg);
+    return true;
+  }
+  // Generous near-tap: if float is visible and tap is roughly toward station side
+  if (nearbyStation === seg && dz < GAS_INTERACT_RANGE * 0.75) {
+    openGasPump(seg);
+    return true;
+  }
+  return false;
 }
 
 function startBrake() {
@@ -753,10 +868,9 @@ function endRun(reason) {
   alive = false;
   running = false;
   intro = null;
-  gasFill = null;
-  stationOffer = null;
-  if (hudFill) hudFill.classList.add("hidden");
-  hideStationCue();
+  closeGasPump({ resume: false });
+  nearbyStation = null;
+  hideStationFloat();
   if (goTitle) goTitle.textContent = reason === "bust" ? "Busted!" : "Wrecked!";
   goScore.textContent = `${Math.floor(distance)} m`;
   goCoins.textContent = `+$${runCoins}`;
@@ -853,8 +967,8 @@ function resetRunState() {
   intersectionCooldown = 3;
   gasCooldown = 14;
   turnActive = null;
-  stationOffer = null;
-  gasFill = null;
+  nearbyStation = null;
+  gasPump = null;
   turnYaw = 0;
   turnYawVel = 0;
   onRampPending = false;
@@ -881,10 +995,10 @@ function startRun(opts = {}) {
   for (let i = 0; i < 10; i++) spawnSegment();
 
   showPanel("hud");
+  showPumpPanel(false);
   hudCoins.textContent = `$${save.coins}`;
   if (hudTurn) hudTurn.classList.add("hidden");
-  if (hudStation) hudStation.classList.add("hidden");
-  if (hudFill) hudFill.classList.add("hidden");
+  hideStationFloat();
   if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
   updateHeatUI();
   updateGasUI();
@@ -995,18 +1109,8 @@ function updateIntro(dt) {
 }
 
 function onSwipe(dir) {
-  if (!alive) return;
-  // While pumping: swipe up leaves early; other swipes ignored
-  if (gasFill) {
-    if (dir === "up") leaveGasFill();
-    return;
-  }
+  if (!alive || gasPump) return;
   if (!running) return;
-  // Approach offer: any swipe skips the station
-  if (stationOffer && (dir === "left" || dir === "right" || dir === "up" || dir === "down")) {
-    skipGasStation();
-    // Still allow lane / brake after skip (fall through) except we already skipped
-  }
   if (turnActive && (dir === "left" || dir === "right")) {
     const biome = dir === "left" ? turnActive.left : turnActive.right;
     turnYawVel = dir === "left" ? TURN_YAW * 4 : -TURN_YAW * 4;
@@ -1035,23 +1139,19 @@ function pointerUp(x, y) {
   const dx = x - touchStart.x;
   const dy = y - touchStart.y;
   const dt = performance.now() - touchStart.t;
+  const start = touchStart;
   touchStart = null;
+  if (gasPump) return;
   const dist = Math.hypot(dx, dy);
-  // Tap (not swipe)
+  // Tap (not swipe) — try gas station interact
   if (dist < MIN_SWIPE && dt < 450) {
-    if (gasFill) {
-      pumpGasTap();
-      return;
-    }
-    if (stationOffer && running && alive) {
-      enterGasFill(stationOffer.seg);
-      return;
-    }
+    if (tryTapGasStation(x, y)) return;
     return;
   }
   if (dt > 450 || dist < MIN_SWIPE) return;
   if (Math.abs(dx) > Math.abs(dy)) onSwipe(dx > 0 ? "right" : "left");
   else onSwipe(dy > 0 ? "down" : "up");
+  void start;
 }
 
 canvas.addEventListener("touchstart", (e) => {
@@ -1067,20 +1167,18 @@ canvas.addEventListener("mousedown", (e) => pointerDown(e.clientX, e.clientY));
 canvas.addEventListener("mouseup", (e) => pointerUp(e.clientX, e.clientY));
 
 window.addEventListener("keydown", (e) => {
-  if (gasFill) {
-    if (e.key === " " || e.key === "f" || e.key === "F") {
+  if (gasPump) {
+    if (e.key === "Escape") {
+      closeGasPump({ resume: true });
+      return;
+    }
+    if (e.key === "1") setPumpSelection(25);
+    if (e.key === "2") setPumpSelection(50);
+    if (e.key === "3" || e.key === "m" || e.key === "M") setPumpSelection("max");
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      pumpGasTap();
-      return;
+      confirmGasPump();
     }
-    if (e.key === "w" || e.key === "ArrowUp" || e.key === "Escape") {
-      leaveGasFill();
-      return;
-    }
-    return;
-  }
-  if (stationOffer && (e.key === " " || e.key === "f" || e.key === "F" || e.key === "Enter")) {
-    enterGasFill(stationOffer.seg);
     return;
   }
   if (e.key === "a" || e.key === "ArrowLeft") onSwipe("left");
@@ -1088,6 +1186,22 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "s" || e.key === "ArrowDown") startBrake();
   if (e.key === "w" || e.key === "ArrowUp" || e.key === " ") resumeThrottle();
 });
+
+if (hudStationFloat) {
+  hudStationFloat.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (nearbyStation) openGasPump(nearbyStation);
+  });
+}
+for (const btn of pumpAmtButtons) {
+  btn.addEventListener("click", () => {
+    const v = btn.dataset.fill;
+    setPumpSelection(v === "max" ? "max" : Number(v));
+  });
+}
+if (btnPumpConfirm) btnPumpConfirm.onclick = () => confirmGasPump();
+if (btnPumpLeave) btnPumpLeave.onclick = () => closeGasPump({ resume: true });
 window.addEventListener("keyup", (e) => {
   // Sticky brake: release of S does not resume — only swipe up / W / Space
   if (e.key === "s" || e.key === "ArrowDown") keysBrake = false;
@@ -1165,33 +1279,6 @@ function tick(now) {
   last = now;
 
   if (running && alive) {
-    // Gas fill mini-mode — car stopped, tap to pump before police timer hits 0
-    if (gasFill) {
-      gasFill.timer -= dt;
-      updateFillOverlay();
-      if (gasFill.timer <= 0) {
-        leaveGasFill({ busted: true });
-      } else if (gas >= 99.5) {
-        leaveGasFill();
-      } else {
-        // Lingering past half the window adds heat
-        if (gasFill.timer < gasFill.maxTimer * 0.45) {
-          heat = Math.min(100, heat + GAS_LATE_HEAT * dt * 0.35);
-          updateHeatUI();
-        }
-        player.position.set(Math.round(laneX * 8) / 8, 0, playerZ);
-        camera.position.copy(gameplayCamPos(laneX, playerZ));
-        const lookFill = gameplayCamLook(laneX, playerZ);
-        setCameraLook(lookFill.x, lookFill.y, lookFill.z);
-        hudDistance.textContent = `${Math.floor(distance)} m`;
-        hudCoins.textContent = `$${save.coins}`;
-        if (hudSpeed) hudSpeed.textContent = "0";
-        renderer.render(scene, camera);
-        requestAnimationFrame(tick);
-        return;
-      }
-    }
-
     // Sticky brake: stays on until swipe up / W. No timed auto-release.
     let targetSpeed = 18 * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
     if (braking) targetSpeed *= BRAKE_SPEED_MUL;
@@ -1295,26 +1382,10 @@ function tick(now) {
         }
       }
 
-      if (seg.userData.gasStation && !seg.userData.gasResolved && !gasFill) {
+      if (seg.userData.gasStation && !seg.userData.gasResolved && !gasPump) {
         const aheadDz = seg.position.z - playerZ;
-        // Preview far ahead; open the STOP/SKIP window once close
-        if (aheadDz > 12 && aheadDz < GAS_HUD_AHEAD && !stationOffer) {
-          showStationCue(true);
-        }
-        if (aheadDz <= 12 && aheadDz > -2) {
-          if (!stationOffer || stationOffer.seg !== seg) {
-            stationOffer = { seg, timer: GAS_STATION_WINDOW };
-            showStationCue(false);
-          }
-        }
-        if (stationOffer && stationOffer.seg === seg) {
-          stationOffer.timer -= dt;
-          if (stationOffer.timer <= 0 || aheadDz < -2) {
-            skipGasStation();
-          }
-        } else if (aheadDz < -2 && !seg.userData.gasResolved) {
+        if (aheadDz < -8) {
           seg.userData.gasResolved = true;
-          hideStationCue();
         }
       }
 
@@ -1481,6 +1552,25 @@ function tick(now) {
       hudBoost.textContent = "BOOST";
       hudBoost.classList.toggle("hidden", boostTimer <= 0);
     }
+
+    // Floating "Tap to fill up!" over nearby gas station
+    const station = findInteractableStation();
+    nearbyStation = station && Math.abs(station.position.z - playerZ) <= GAS_INTERACT_RANGE
+      ? station
+      : (station && station.position.z - playerZ > 0 && station.position.z - playerZ < GAS_HUD_AHEAD ? station : null);
+    if (nearbyStation && Math.abs(nearbyStation.position.z - playerZ) <= GAS_INTERACT_RANGE) {
+      updateStationFloat(nearbyStation);
+    } else {
+      hideStationFloat();
+    }
+  } else if (gasPump && alive) {
+    // Paused at pump — keep framing the car
+    player.position.set(Math.round(laneX * 8) / 8, 0, playerZ);
+    camera.position.copy(gameplayCamPos(laneX, playerZ));
+    const look = gameplayCamLook(laneX, playerZ);
+    setCameraLook(look.x, look.y, look.z);
+    updateGasUI();
+    updatePumpUI();
   } else if (intro) {
     updateIntro(dt);
   } else if (!running) {
@@ -1505,7 +1595,7 @@ window.__endlessChase = {
   getSave: () => ({ ...save }),
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, gas, braking, coins: save.coins,
-    stationOffer: !!stationOffer, gasFill: !!gasFill,
+    nearbyStation: !!nearbyStation, gasPump: !!gasPump, pumpSelection: gasPump?.selection ?? null,
     transitioning, transitionQueue: transitionQueue.length,
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),

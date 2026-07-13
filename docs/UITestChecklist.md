@@ -9,8 +9,9 @@
 - [ ] Swipe down / S brakes; heat rises → pursuit → **Busted!**
 - [ ] Collision shows **Wrecked!**; **Retry** works
 - [ ] Turn cue; swipe L/R switches biome via on-ramp
-- [ ] Gas station cue; **tap** to stop & pump, **swipe** to skip; police timer busts if empty-handed
-- [ ] Empty tank forces coast → heat / bust; gas bar turns red
+- [ ] Gas station on L or R; **Tap to fill up!** float; tap opens pump UI
+- [ ] Pump: select +25% / +50% / FILL MAX → Confirm updates gas and resumes
+- [ ] Empty tank forces coast → heat / bust; gas text/bar turns red below 15%
 - [ ] Coins + Garage upgrades persist across reload
 - [ ] Red fast → BOOST + heat; red while braking → RED SLOW
 - [ ] Modules load (`docs/js/*.js`) with no console errors
