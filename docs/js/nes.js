@@ -455,13 +455,18 @@ function addThreeLampSignal(root, half, tex) {
 
 /**
  * Roadside NES gas station — canopy, pumps, price board.
- * Sits on the right berm so forward lanes stay clear.
+ * @param {1|-1} side 1 = right of road, -1 = left
  */
-export function addGasStationVisuals(root, half, biome) {
+export function addGasStationVisuals(root, half, biome, side = 1) {
   const group = new THREE.Group();
   group.name = "gasStation";
-  const side = 1; // right side of road
+  group.userData.gasSide = side;
   const padX = half + (biome === "city" ? 6.2 : 5.4);
+  // Anchor used for screen-space "Tap to fill up!" projection
+  const anchor = new THREE.Object3D();
+  anchor.name = "gasAnchor";
+  anchor.position.set(side * padX, 4.2, 0);
+  group.add(anchor);
 
   const lot = new THREE.Mesh(
     new THREE.PlaneGeometry(7.5, 11),
@@ -469,6 +474,7 @@ export function addGasStationVisuals(root, half, biome) {
   );
   lot.rotation.x = -Math.PI / 2;
   lot.position.set(side * padX, 0.03, 0);
+  lot.userData.gasHit = true;
   group.add(lot);
 
   // Canopy posts + roof
@@ -476,47 +482,58 @@ export function addGasStationVisuals(root, half, biome) {
   for (const ox of [-2.4, 2.4]) {
     for (const oz of [-3.2, 3.2]) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.28, postH, 0.28), basicColor(NES.curb));
-      post.position.set(side * padX + ox, postH / 2, oz);
+      post.position.set(side * (padX) + side * ox, postH / 2, oz);
+      post.userData.gasHit = true;
       group.add(post);
     }
   }
   const roof = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.35, 9.2), basicColor(NES.red));
   roof.position.set(side * padX, postH + 0.1, 0);
+  roof.userData.gasHit = true;
   group.add(roof);
   const trim = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.18, 9.4), basicColor(NES.yellow));
   trim.position.set(side * padX, postH - 0.05, 0);
+  trim.userData.gasHit = true;
   group.add(trim);
 
-  // Pumps
+  // Pumps — sit toward the road curb from the lot center
   for (const oz of [-2.2, 0.4, 2.8]) {
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.4, 0.55), basicColor(0xc2c3c7));
-    body.position.set(side * padX - 0.6, 0.7, oz);
+    body.position.set(side * padX - side * 0.6, 0.7, oz);
+    body.userData.gasHit = true;
     group.add(body);
     const hose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 0.12), basicColor(NES.black));
-    hose.position.set(side * padX - 1.05, 0.55, oz);
+    hose.position.set(side * padX - side * 1.05, 0.55, oz);
+    hose.userData.gasHit = true;
     group.add(hose);
     const nozzle = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.18), basicColor(NES.orange));
-    nozzle.position.set(side * padX - 1.25, 0.95, oz);
+    nozzle.position.set(side * padX - side * 1.25, 0.95, oz);
+    nozzle.userData.gasHit = true;
     group.add(nozzle);
   }
 
-  // Store booth
+  // Store booth farther from the road
   const booth = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.4, 3.2), basicColor(NES.navy));
-  booth.position.set(side * padX + 2.2, 1.2, -1.5);
+  booth.position.set(side * padX + side * 2.2, 1.2, -1.5);
+  booth.userData.gasHit = true;
   group.add(booth);
   const sign = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 0.2), basicColor(NES.green));
-  sign.position.set(side * padX + 2.2, 2.9, -1.5);
+  sign.position.set(side * padX + side * 2.2, 2.9, -1.5);
+  sign.userData.gasHit = true;
   group.add(sign);
 
   // Price board pole near curb
   const pole = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.6, 0.2), basicColor(NES.curb));
   pole.position.set(side * (half + 1.1), 1.8, 4.5);
+  pole.userData.gasHit = true;
   group.add(pole);
   const board = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.3, 0.15), basicColor(NES.white));
   board.position.set(side * (half + 1.1), 3.4, 4.5);
+  board.userData.gasHit = true;
   group.add(board);
   const digit = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.55, 0.08), basicColor(NES.red));
-  digit.position.set(side * (half + 1.1), 3.55, 4.58);
+  digit.position.set(side * (half + 1.1), 3.55, side > 0 ? 4.58 : 4.42);
+  digit.userData.gasHit = true;
   group.add(digit);
 
   root.add(group);
@@ -534,6 +551,7 @@ export function makeSegment(tex, biome, opts = {}) {
     turnOffer = false,
     onRamp = false,
     gasStation = false,
+    gasSide: gasSideOpt = null,
     distance = 0,
     widthOverride = null,
     mixBiome = null,
@@ -552,6 +570,10 @@ export function makeSegment(tex, biome, opts = {}) {
     r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
     return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
   };
+  /** @type {1|-1} */
+  const gasSide = gasStation
+    ? (gasSideOpt === -1 || gasSideOpt === 1 ? gasSideOpt : (rnd() < 0.5 ? -1 : 1))
+    : 1;
 
   const roadMat = basic(tex.road);
   roadMat.map = tex.road.clone();
@@ -586,13 +608,12 @@ export function makeSegment(tex, biome, opts = {}) {
     const bermW = 12;
     const bermCenter = half + 1.2 + bermW / 2;
     for (const side of [-1, 1]) {
-      if (gasStation && side === 1) continue; // right berm reserved for pumps
       for (const zc of patchCenters) {
         const grass = new THREE.Mesh(new THREE.PlaneGeometry(bermW, patchLen), basicColor(NES.forest));
         grass.rotation.x = -Math.PI / 2;
         grass.position.set(side * bermCenter, 0.02, zc);
         root.add(grass);
-        if (patchLen < 3) continue;
+        if (gasStation || patchLen < 3) continue;
         const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, Math.min(5.5, patchLen - 0.5)), basicColor(0x4a5a38));
         pad.rotation.x = -Math.PI / 2;
         const houseX = side * (bermCenter + 0.5);
@@ -607,7 +628,7 @@ export function makeSegment(tex, biome, opts = {}) {
     }
   } else if (propBiome === "highway") {
     for (const side of [-1, 1]) {
-      if (gasStation && side === 1) continue;
+      if (gasStation) continue;
       for (const zc of patchCenters) {
         const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, patchLen), basicColor(0xc2c3c7));
         rail.position.set(side * (half + 0.5), 0.4, zc);
@@ -637,13 +658,12 @@ export function makeSegment(tex, biome, opts = {}) {
     const walkW = 10;
     const walkCenter = half + 0.8 + walkW / 2;
     for (const side of [-1, 1]) {
-      if (gasStation && side === 1) continue; // right walk reserved for station
       for (const zc of patchCenters) {
         const walk = new THREE.Mesh(new THREE.PlaneGeometry(walkW, patchLen), basicColor(0x3a3d48));
         walk.rotation.x = -Math.PI / 2;
         walk.position.set(side * walkCenter, 0.015, zc);
         root.add(walk);
-        if (patchLen < 3.5) continue;
+        if (gasStation || patchLen < 3.5) continue;
         const h1 = 5 + (rnd() * 4) | 0;
         const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, h1, Math.min(5.5, patchLen - 0.5)), basic(tex.building));
         b1.position.set(side * (walkCenter - 0.5), h1 / 2, zc);
@@ -699,8 +719,9 @@ export function makeSegment(tex, biome, opts = {}) {
   }
 
   let gasGroup = null;
+  // Visuals added at place-time so L/R can be chosen per spawn
   if (gasStation && !intersection && !turnOffer) {
-    gasGroup = addGasStationVisuals(root, half, biome);
+    gasGroup = addGasStationVisuals(root, half, biome, gasSide);
   }
 
   let turnLeftBiome = null;
@@ -718,6 +739,7 @@ export function makeSegment(tex, biome, opts = {}) {
     turnOffer,
     onRamp,
     gasStation,
+    gasSide,
     transition,
     lightGroup,
     gasGroup,
