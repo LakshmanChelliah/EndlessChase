@@ -241,6 +241,102 @@ html, body {
   background: var(--nes-red);
 }
 
+.gas-bar {
+  margin-top: 0.25rem;
+  height: 6px;
+  width: min(42vw, 140px);
+  background: #000;
+  border: 2px solid var(--nes-gray);
+  overflow: hidden;
+}
+
+.gas-fill {
+  height: 100%;
+  width: 50%;
+  background: var(--nes-green);
+  transition: width 0.05s linear;
+}
+
+.gas-bar.low .gas-fill {
+  background: var(--nes-orange);
+}
+
+.gas-bar.empty .gas-fill {
+  background: var(--nes-red);
+}
+
+.station-cue {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.4rem;
+  background: rgba(0, 0, 0, 0.8);
+  border: 2px solid var(--nes-green);
+  color: var(--nes-green);
+  font-size: 0.42rem;
+  line-height: 1.55;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.fill-overlay {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  width: min(78vw, 220px);
+  padding: 0.7rem 0.65rem 0.55rem;
+  background: rgba(0, 0, 0, 0.88);
+  border: 3px solid var(--nes-yellow);
+  text-align: center;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.fill-title {
+  color: var(--nes-yellow);
+  font-size: 0.55rem;
+  margin-bottom: 0.45rem;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.fill-timer {
+  color: var(--nes-red);
+  font-size: 0.85rem;
+  margin-bottom: 0.45rem;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.fill-timer.warn {
+  color: var(--nes-orange);
+}
+
+.fill-gas-bar {
+  height: 10px;
+  width: 100%;
+  background: #000;
+  border: 2px solid var(--nes-white);
+  overflow: hidden;
+  margin-bottom: 0.45rem;
+}
+
+.fill-gas-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--nes-green);
+}
+
+.fill-hint {
+  color: var(--nes-white);
+  font-size: 0.45rem;
+  line-height: 1.5;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.fill-leave {
+  margin-top: 0.35rem;
+  color: var(--nes-gray);
+  font-size: 0.35rem;
+  line-height: 1.4;
+}
+
 .turn-cue {
   margin-top: 0.4rem;
   padding: 0.3rem 0.4rem;

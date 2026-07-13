@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=11" />
+  <link rel="stylesheet" href="styles.css?v=12" />
 </head>
 <body>
   <div id="game-root">
@@ -23,7 +23,7 @@
     <div id="ui">
       <section id="panel-menu" class="panel">
         <h1 class="brand">Endless <span>Chase</span></h1>
-        <p class="tag">SWIPE TO STEER · DOWN TO BRAKE · UP TO SPEED · TAKE TURNS</p>
+        <p class="tag">SWIPE TO STEER · DOWN TO BRAKE · TAP GAS STOPS · TAKE TURNS</p>
         <button type="button" id="btn-play" class="btn primary">Start Engine</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
       </section>
@@ -36,11 +36,24 @@
         <div id="hud-heat" class="heat-bar" aria-label="Police heat">
           <div id="hud-heat-fill" class="heat-fill"></div>
         </div>
+        <div id="hud-gas" class="gas-bar" aria-label="Gas">
+          <div id="hud-gas-fill" class="gas-fill"></div>
+        </div>
         <div id="hud-boost" class="boost hidden">BOOST</div>
         <div id="hud-light" class="light-hint hidden"></div>
+        <div id="hud-station" class="station-cue hidden"></div>
         <div id="hud-turn" class="turn-cue hidden"></div>
         <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
         <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
+        <div id="hud-fill" class="fill-overlay hidden" aria-live="polite">
+          <div id="hud-fill-title" class="fill-title">GAS STOP</div>
+          <div id="hud-fill-timer" class="fill-timer">3.0</div>
+          <div class="fill-gas-bar" aria-label="Fill progress">
+            <div id="hud-fill-gas" class="fill-gas-fill"></div>
+          </div>
+          <div class="fill-hint">TAP TO FILL</div>
+          <div class="fill-leave">SWIPE UP TO LEAVE</div>
+        </div>
       </section>
 
       <section id="panel-gameover" class="panel hidden">
@@ -78,6 +91,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=14"></script>
+  <script type="module" src="game.js?v=15"></script>
 </body>
 </html>

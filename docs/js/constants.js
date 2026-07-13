@@ -40,6 +40,27 @@ export const CROSS_HAZARD_SPEED = 22;
 export const CROSS_MAX = 3;
 export const CROSS_SPAWN_INTERVAL = 1.15;
 
+/** Gas resource — drain, stations, tap-to-fill */
+export const GAS_START_MIN = 35;
+export const GAS_START_MAX = 70;
+/** % drained per second at cruise speed (~18) */
+export const GAS_DRAIN_PER_SEC = 1.55;
+export const GAS_DRAIN_BOOST_MUL = 1.7;
+export const GAS_DRAIN_BRAKE_MUL = 0.35;
+/** Soft fail: empty tank forces a coast that builds heat */
+export const GAS_EMPTY_SPEED_MUL = 0.32;
+/** Minimum straight segments between gas stations */
+export const GAS_STATION_COOLDOWN_SEGS = 18;
+/** Decision window while approaching a station (seconds) */
+export const GAS_STATION_WINDOW = 1.35;
+/** Show station cue when this far ahead (meters) */
+export const GAS_HUD_AHEAD = 22;
+export const GAS_FILL_PER_TAP = 9;
+export const GAS_FILL_MIN_TIME = 1.55;
+/** Heat added when stopping / lingering at the pump */
+export const GAS_STOP_HEAT = 5;
+export const GAS_LATE_HEAT = 10;
+
 export const NES = {
   black: 0x000000,
   navy: 0x1d2b53,
@@ -117,5 +138,18 @@ export function poolKey(biome, kind) {
   if (kind === "I") return biome + "I";
   if (kind === "T") return biome + "T";
   if (kind === "R") return biome + "R";
+  if (kind === "G") return biome + "G";
   return biome;
+}
+
+/**
+ * Police countdown while pumping — higher heat = shorter window.
+ * Rural is safest; city is hottest.
+ * @param {"city"|"rural"|"highway"} biome
+ * @param {number} heat 0–100
+ */
+export function gasPoliceWindow(biome, heat) {
+  const base = biome === "rural" ? 3.7 : biome === "highway" ? 3.1 : 2.75;
+  const heatFactor = 1 - Math.min(1, heat / 100) * 0.48;
+  return Math.max(GAS_FILL_MIN_TIME, base * heatFactor);
 }

@@ -12,20 +12,23 @@ import {
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
-  layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=14";
+  GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
+  GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_STATION_WINDOW, GAS_HUD_AHEAD,
+  GAS_FILL_PER_TAP, GAS_STOP_HEAT, GAS_LATE_HEAT,
+  layoutFor, biomeLabel, poolKey, gasPoliceWindow,
+} from "./js/constants.js?v=15";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=14";
-import { Pool } from "./js/pool.js?v=14";
+} from "./js/save.js?v=15";
+import { Pool } from "./js/pool.js?v=15";
 import {
   createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper,
-} from "./js/nes.js?v=14";
+} from "./js/nes.js?v=15";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=14";
+} from "./js/worldgen.js?v=15";
 
 const save = loadSave();
 
@@ -43,6 +46,12 @@ const hudBoost = document.getElementById("hud-boost");
 const hudLight = document.getElementById("hud-light");
 const hudHeatFill = document.getElementById("hud-heat-fill");
 const hudHeat = document.getElementById("hud-heat");
+const hudGasFill = document.getElementById("hud-gas-fill");
+const hudGas = document.getElementById("hud-gas");
+const hudStation = document.getElementById("hud-station");
+const hudFill = document.getElementById("hud-fill");
+const hudFillTimer = document.getElementById("hud-fill-timer");
+const hudFillGas = document.getElementById("hud-fill-gas");
 const hudTurn = document.getElementById("hud-turn");
 const hudLaneWarn = document.getElementById("hud-lane-warn");
 const hudSpeed = document.getElementById("hud-speed");
@@ -161,10 +170,16 @@ let trafficTimer = 0;
 let braking = false;
 let brakeTimer = 0;
 let heat = 0;
+let gas = 50;
 let slowTimer = 0;
 let turnCooldown = 4;
 let intersectionCooldown = 2;
+let gasCooldown = 12;
 let turnActive = null;
+/** @type {null | { seg: object, timer: number }} */
+let stationOffer = null;
+/** @type {null | { seg: object, timer: number, maxTimer: number, biome: string }} */
+let gasFill = null;
 let turnYaw = 0;
 let turnYawVel = 0;
 let onRampPending = false;
@@ -195,6 +210,7 @@ function segFactory(biome, kind) {
   if (kind === "I") opts.intersection = true;
   if (kind === "T") opts.turnOffer = true;
   if (kind === "R") opts.onRamp = true;
+  if (kind === "G") opts.gasStation = true;
   const s = makeSegment(tex, biome, opts);
   scene.add(s);
   return s;
@@ -205,14 +221,17 @@ const segmentPool = {
   cityI: new Pool(() => segFactory("city", "I"), 2),
   cityT: new Pool(() => segFactory("city", "T"), 1),
   cityR: new Pool(() => segFactory("city", "R"), 1),
+  cityG: new Pool(() => segFactory("city", "G"), 1),
   rural: new Pool(() => segFactory("rural", ""), 3),
   ruralI: new Pool(() => segFactory("rural", "I"), 2),
   ruralT: new Pool(() => segFactory("rural", "T"), 1),
   ruralR: new Pool(() => segFactory("rural", "R"), 1),
+  ruralG: new Pool(() => segFactory("rural", "G"), 1),
   highway: new Pool(() => segFactory("highway", ""), 3),
   highwayI: new Pool(() => segFactory("highway", "I"), 1),
   highwayT: new Pool(() => segFactory("highway", "T"), 1),
   highwayR: new Pool(() => segFactory("highway", "R"), 1),
+  highwayG: new Pool(() => segFactory("highway", "G"), 1),
 };
 
 const civTex = [tex.civA, tex.civB, tex.civC];
@@ -346,10 +365,13 @@ function beginBiomeTransition(toBiome) {
   transitioning = true;
   turnCooldown = TURN_COOLDOWN_SEGS + transitionQueue.length + 2;
   intersectionCooldown = Math.max(intersectionCooldown, INTERSECTION_COOLDOWN_SEGS + 1);
+  gasCooldown = Math.max(gasCooldown, 4);
   turnActive = null;
+  if (stationOffer) skipGasStation();
   clearAheadTrafficSoft();
   softRemapLane();
   if (hudTurn) hudTurn.classList.add("hidden");
+  if (hudStation) hudStation.classList.add("hidden");
   if (hudLight) {
     hudLight.textContent = `→ ${biomeLabel(toBiome)}`;
     hudLight.style.color = "#ffec27";
@@ -371,6 +393,7 @@ function recycleSegment(seg) {
   if (seg.userData.turnOffer) key = poolKey(b, "T");
   else if (seg.userData.onRamp) key = poolKey(b, "R");
   else if (seg.userData.intersection) key = poolKey(b, "I");
+  else if (seg.userData.gasStation) key = poolKey(b, "G");
   if (!segmentPool[key]) key = b;
   segmentPool[key].return(seg);
 }
@@ -387,6 +410,7 @@ function placeSegment(seg) {
   seg.userData.lightState = "green";
   seg.userData.lightTimer = LIGHT_GREEN * (0.4 + Math.random() * 0.6);
   seg.userData.turnResolved = false;
+  seg.userData.gasResolved = false;
   if (seg.userData.lightGroup) updateLightVisual(seg);
   if (seg.userData.gantryGroup) seg.userData.gantryGroup.visible = false;
   seg.visible = true;
@@ -432,7 +456,9 @@ function spawnSegment() {
 
   const biome = activeBiome;
   const rng = mulberry32(hash2(spawnIndex, worldSeed ^ 0x9e3779b9));
-  const decided = decideSegment(biome, spawnIndex, turnCooldown, rng, intersectionCooldown);
+  const decided = decideSegment(
+    biome, spawnIndex, turnCooldown, rng, intersectionCooldown, gasCooldown
+  );
   let kind = decided.kind;
 
   if (kind === "T") turnCooldown = TURN_COOLDOWN_SEGS;
@@ -442,6 +468,11 @@ function spawnSegment() {
   else if (intersectionCooldown > 0) intersectionCooldown--;
   // Turns also push lights apart so a light isn't glued to an on-ramp
   if (kind === "T" && intersectionCooldown < 2) intersectionCooldown = 2;
+
+  if (kind === "G") gasCooldown = GAS_STATION_COOLDOWN_SEGS;
+  else if (gasCooldown > 0) gasCooldown--;
+  // Keep stations away from turns/lights
+  if ((kind === "T" || kind === "I") && gasCooldown < 3) gasCooldown = 3;
 
   const key = poolKey(biome, kind);
   const seg = segmentPool[key].rent();
@@ -481,12 +512,92 @@ function clearWorld() {
   transitioning = false;
   transitionFrom = null;
   transitionTo = null;
+  stationOffer = null;
+  gasFill = null;
+  if (hudFill) hudFill.classList.add("hidden");
+  hideStationCue();
 }
 
 function updateHeatUI() {
   if (!hudHeatFill) return;
   hudHeatFill.style.width = `${Math.min(100, heat)}%`;
   if (hudHeat) hudHeat.classList.toggle("hot", heat >= 70);
+}
+
+function updateGasUI() {
+  if (!hudGasFill) return;
+  const g = Math.max(0, Math.min(100, gas));
+  hudGasFill.style.width = `${g}%`;
+  if (hudGas) {
+    hudGas.classList.toggle("low", g > 0 && g <= 25);
+    hudGas.classList.toggle("empty", g <= 0);
+  }
+  if (hudFillGas) hudFillGas.style.width = `${g}%`;
+}
+
+function randomStartGas() {
+  return GAS_START_MIN + Math.random() * (GAS_START_MAX - GAS_START_MIN);
+}
+
+function hideStationCue() {
+  if (hudStation) hudStation.classList.add("hidden");
+}
+
+function showStationCue(aheadHint = false) {
+  if (!hudStation) return;
+  hudStation.textContent = aheadHint
+    ? "GAS AHEAD"
+    : "TAP STOP · SWIPE SKIP";
+  hudStation.classList.remove("hidden");
+}
+
+function skipGasStation() {
+  if (stationOffer?.seg) stationOffer.seg.userData.gasResolved = true;
+  stationOffer = null;
+  hideStationCue();
+}
+
+function enterGasFill(seg) {
+  if (gasFill || !seg) return;
+  skipGasStation();
+  seg.userData.gasResolved = true;
+  const biome = seg.userData.biome || activeBiome;
+  const maxTimer = gasPoliceWindow(biome, heat);
+  gasFill = { seg, timer: maxTimer, maxTimer, biome };
+  heat = Math.min(100, heat + GAS_STOP_HEAT);
+  speed = 0;
+  braking = true;
+  if (hudFill) hudFill.classList.remove("hidden");
+  updateFillOverlay();
+  updateHeatUI();
+}
+
+function leaveGasFill({ busted = false } = {}) {
+  if (!gasFill) return;
+  gasFill = null;
+  if (hudFill) hudFill.classList.add("hidden");
+  resumeThrottle();
+  if (busted) {
+    heat = 100;
+    updateHeatUI();
+    spawnPursuit();
+  }
+}
+
+function updateFillOverlay() {
+  if (!gasFill || !hudFillTimer) return;
+  const t = Math.max(0, gasFill.timer);
+  hudFillTimer.textContent = t.toFixed(1);
+  hudFillTimer.classList.toggle("warn", t < 1.2);
+  if (hudFillGas) hudFillGas.style.width = `${Math.max(0, Math.min(100, gas))}%`;
+}
+
+function pumpGasTap() {
+  if (!gasFill || !alive) return;
+  gas = Math.min(100, gas + GAS_FILL_PER_TAP);
+  updateGasUI();
+  updateFillOverlay();
+  if (gas >= 100) leaveGasFill();
 }
 
 function startBrake() {
@@ -642,6 +753,10 @@ function endRun(reason) {
   alive = false;
   running = false;
   intro = null;
+  gasFill = null;
+  stationOffer = null;
+  if (hudFill) hudFill.classList.add("hidden");
+  hideStationCue();
   if (goTitle) goTitle.textContent = reason === "bust" ? "Busted!" : "Wrecked!";
   goScore.textContent = `${Math.floor(distance)} m`;
   goCoins.textContent = `+$${runCoins}`;
@@ -732,10 +847,14 @@ function resetRunState() {
   braking = false;
   brakeTimer = 0;
   heat = 0;
+  gas = randomStartGas();
   slowTimer = 0;
   turnCooldown = 6;
   intersectionCooldown = 3;
+  gasCooldown = 14;
   turnActive = null;
+  stationOffer = null;
+  gasFill = null;
   turnYaw = 0;
   turnYawVel = 0;
   onRampPending = false;
@@ -764,8 +883,11 @@ function startRun(opts = {}) {
   showPanel("hud");
   hudCoins.textContent = `$${save.coins}`;
   if (hudTurn) hudTurn.classList.add("hidden");
+  if (hudStation) hudStation.classList.add("hidden");
+  if (hudFill) hudFill.classList.add("hidden");
   if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
   updateHeatUI();
+  updateGasUI();
   trafficTimer = 0.8;
 
   const toCam = gameplayCamPos(laneX, 0).clone();
@@ -873,7 +995,18 @@ function updateIntro(dt) {
 }
 
 function onSwipe(dir) {
-  if (!running || !alive) return;
+  if (!alive) return;
+  // While pumping: swipe up leaves early; other swipes ignored
+  if (gasFill) {
+    if (dir === "up") leaveGasFill();
+    return;
+  }
+  if (!running) return;
+  // Approach offer: any swipe skips the station
+  if (stationOffer && (dir === "left" || dir === "right" || dir === "up" || dir === "down")) {
+    skipGasStation();
+    // Still allow lane / brake after skip (fall through) except we already skipped
+  }
   if (turnActive && (dir === "left" || dir === "right")) {
     const biome = dir === "left" ? turnActive.left : turnActive.right;
     turnYawVel = dir === "left" ? TURN_YAW * 4 : -TURN_YAW * 4;
@@ -903,7 +1036,20 @@ function pointerUp(x, y) {
   const dy = y - touchStart.y;
   const dt = performance.now() - touchStart.t;
   touchStart = null;
-  if (dt > 450 || Math.hypot(dx, dy) < MIN_SWIPE) return;
+  const dist = Math.hypot(dx, dy);
+  // Tap (not swipe)
+  if (dist < MIN_SWIPE && dt < 450) {
+    if (gasFill) {
+      pumpGasTap();
+      return;
+    }
+    if (stationOffer && running && alive) {
+      enterGasFill(stationOffer.seg);
+      return;
+    }
+    return;
+  }
+  if (dt > 450 || dist < MIN_SWIPE) return;
   if (Math.abs(dx) > Math.abs(dy)) onSwipe(dx > 0 ? "right" : "left");
   else onSwipe(dy > 0 ? "down" : "up");
 }
@@ -921,6 +1067,22 @@ canvas.addEventListener("mousedown", (e) => pointerDown(e.clientX, e.clientY));
 canvas.addEventListener("mouseup", (e) => pointerUp(e.clientX, e.clientY));
 
 window.addEventListener("keydown", (e) => {
+  if (gasFill) {
+    if (e.key === " " || e.key === "f" || e.key === "F") {
+      e.preventDefault();
+      pumpGasTap();
+      return;
+    }
+    if (e.key === "w" || e.key === "ArrowUp" || e.key === "Escape") {
+      leaveGasFill();
+      return;
+    }
+    return;
+  }
+  if (stationOffer && (e.key === " " || e.key === "f" || e.key === "F" || e.key === "Enter")) {
+    enterGasFill(stationOffer.seg);
+    return;
+  }
   if (e.key === "a" || e.key === "ArrowLeft") onSwipe("left");
   if (e.key === "d" || e.key === "ArrowRight") onSwipe("right");
   if (e.key === "s" || e.key === "ArrowDown") startBrake();
@@ -1003,14 +1165,54 @@ function tick(now) {
   last = now;
 
   if (running && alive) {
+    // Gas fill mini-mode — car stopped, tap to pump before police timer hits 0
+    if (gasFill) {
+      gasFill.timer -= dt;
+      updateFillOverlay();
+      if (gasFill.timer <= 0) {
+        leaveGasFill({ busted: true });
+      } else if (gas >= 99.5) {
+        leaveGasFill();
+      } else {
+        // Lingering past half the window adds heat
+        if (gasFill.timer < gasFill.maxTimer * 0.45) {
+          heat = Math.min(100, heat + GAS_LATE_HEAT * dt * 0.35);
+          updateHeatUI();
+        }
+        player.position.set(Math.round(laneX * 8) / 8, 0, playerZ);
+        camera.position.copy(gameplayCamPos(laneX, playerZ));
+        const lookFill = gameplayCamLook(laneX, playerZ);
+        setCameraLook(lookFill.x, lookFill.y, lookFill.z);
+        hudDistance.textContent = `${Math.floor(distance)} m`;
+        hudCoins.textContent = `$${save.coins}`;
+        if (hudSpeed) hudSpeed.textContent = "0";
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+        return;
+      }
+    }
+
     // Sticky brake: stays on until swipe up / W. No timed auto-release.
     let targetSpeed = 18 * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
     if (braking) targetSpeed *= BRAKE_SPEED_MUL;
+    if (gas <= 0) {
+      gas = 0;
+      targetSpeed *= GAS_EMPTY_SPEED_MUL;
+    }
     speed = THREE.MathUtils.damp(speed, targetSpeed, (braking ? 6 : 3) * accelFactor(save), dt);
     playerZ += speed * dt;
     distance = playerZ;
 
-    if (speed < HEAT_SLOW_THRESHOLD || braking) {
+    // Drain gas while moving; boost burns more, brake burns less
+    if (speed > 0.5 && gas > 0) {
+      let drain = GAS_DRAIN_PER_SEC * (speed / 18) * dt;
+      if (boostTimer > 0) drain *= GAS_DRAIN_BOOST_MUL;
+      if (braking) drain *= GAS_DRAIN_BRAKE_MUL;
+      gas = Math.max(0, gas - drain);
+    }
+    updateGasUI();
+
+    if (speed < HEAT_SLOW_THRESHOLD || braking || gas <= 0) {
       slowTimer += dt;
       if (slowTimer > HEAT_GRACE) heat = Math.min(100, heat + HEAT_RISE * dt);
     } else {
@@ -1090,6 +1292,29 @@ function tick(now) {
             turnActive = null;
             if (hudTurn) hudTurn.classList.add("hidden");
           }
+        }
+      }
+
+      if (seg.userData.gasStation && !seg.userData.gasResolved && !gasFill) {
+        const aheadDz = seg.position.z - playerZ;
+        // Preview far ahead; open the STOP/SKIP window once close
+        if (aheadDz > 12 && aheadDz < GAS_HUD_AHEAD && !stationOffer) {
+          showStationCue(true);
+        }
+        if (aheadDz <= 12 && aheadDz > -2) {
+          if (!stationOffer || stationOffer.seg !== seg) {
+            stationOffer = { seg, timer: GAS_STATION_WINDOW };
+            showStationCue(false);
+          }
+        }
+        if (stationOffer && stationOffer.seg === seg) {
+          stationOffer.timer -= dt;
+          if (stationOffer.timer <= 0 || aheadDz < -2) {
+            skipGasStation();
+          }
+        } else if (aheadDz < -2 && !seg.userData.gasResolved) {
+          seg.userData.gasResolved = true;
+          hideStationCue();
         }
       }
 
@@ -1279,7 +1504,8 @@ window.__endlessChase = {
   setupMenuScene,
   getSave: () => ({ ...save }),
   getState: () => ({
-    running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, braking, coins: save.coins,
+    running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, gas, braking, coins: save.coins,
+    stationOffer: !!stationOffer, gasFill: !!gasFill,
     transitioning, transitionQueue: transitionQueue.length,
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),
