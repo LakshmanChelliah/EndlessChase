@@ -39,12 +39,26 @@ export function pickTurnBiomes(from, distance = 0, rng = Math.random) {
 
 /**
  * Decide what kind of segment to spawn for a given index.
- * Returns { kind: ""|"I"|"T"|"R", reason }
+ * Returns { kind: ""|"I"|"T"|"R"|"G", reason }
  * @param {number} [intersectionCooldown=0] remaining segments before another light may spawn
+ * @param {number} [gasCooldown=0] remaining segments before another gas station may spawn
  */
-export function decideSegment(biome, spawnIndex, turnCooldown, rng, intersectionCooldown = 0) {
+export function decideSegment(
+  biome,
+  spawnIndex,
+  turnCooldown,
+  rng,
+  intersectionCooldown = 0,
+  gasCooldown = 0
+) {
   // Quiet opening stretch
   if (spawnIndex < 4) return { kind: "", reason: "intro" };
+
+  // Gas stations — roll before turns/lights so they are not starved
+  if (gasCooldown <= 0 && spawnIndex > 10) {
+    const gChance = biome === "city" ? 0.14 : biome === "rural" ? 0.11 : 0.08;
+    if (rng() < gChance) return { kind: "G", reason: "gas" };
+  }
 
   // Turn offers — rhythmic, not every tile
   if (turnCooldown <= 0 && spawnIndex > 6) {
