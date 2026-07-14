@@ -204,35 +204,29 @@ export function getSirenDebug() {
 }
 
 /**
- * Volume from real police distance (+ optional opening boost).
+ * Volume from the HUD police distance bar (+ optional opening boost).
  *
- * Maps meters → a 0–1 fill (0 at FAR, 1 at NEAR) — same idea as the
- * proximity bar — but uses chase-cop world distance, never car speed/heat.
- * After the opening cue, sirens stay off until fill >= onset (~60%),
- * then ramp louder as cops close in.
+ * `bar` is heat/100 — the same 0–100% fill shown on the police proximity meter.
+ *   • bar < onset (default 60%) → silent (e.g. 30% fill = no sirens)
+ *   • bar >= onset → sirens on; louder as the bar climbs (e.g. 75% > 60%)
  *
- * @param {{ dist: number|null, opening?: number }} p
- * @param {{ near?: number, far?: number, onset?: number, volNear?: number, volOnset?: number }} [cfg]
+ * @param {{ bar?: number, opening?: number }} p
+ * @param {{ onset?: number, volNear?: number, volOnset?: number }} [cfg]
  */
 export function sirenLevelFromProximity(p, cfg = {}) {
-  const near = cfg.near ?? 5;
-  const far = cfg.far ?? 42;
   const onset = cfg.onset ?? 0.6;
-  const volNear = cfg.volNear ?? 0.95;
-  const volOnset = cfg.volOnset ?? 0.22;
+  const volNear = cfg.volNear ?? 0.9;
+  const volOnset = cfg.volOnset ?? 0.3;
   const opening = Math.max(0, Math.min(1, p.opening || 0));
+  const bar = Math.max(0, Math.min(1, p.bar ?? 0));
 
-  let distVol = 0;
-  if (p.dist != null && Number.isFinite(p.dist)) {
-    // 0% fill at FAR, 100% fill at NEAR — "how full the distance bar is"
-    const fill = 1 - (p.dist - near) / Math.max(0.001, far - near);
-    const bar = Math.max(0, Math.min(1, fill));
-    if (bar >= onset) {
-      const u = (bar - onset) / Math.max(0.001, 1 - onset);
-      distVol = volOnset + (volNear - volOnset) * Math.max(0, Math.min(1, u));
-    }
+  let barVol = 0;
+  if (bar >= onset) {
+    // Incremental loudness from onset → full bar
+    const u = (bar - onset) / Math.max(0.001, 1 - onset);
+    barVol = volOnset + (volNear - volOnset) * Math.max(0, Math.min(1, u));
   }
 
   // Opening can only raise volume (establishes the chase at run start)
-  return Math.max(distVol, opening);
+  return Math.max(barVol, opening);
 }
