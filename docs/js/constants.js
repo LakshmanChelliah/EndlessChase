@@ -74,21 +74,18 @@ export const GAS_CAM_PAN = 4.2;
 export const GAS_COP_Z_FAR = 22;
 export const GAS_COP_Z_NEAR = 2.8;
 
-/** Police siren — distance → volume (meters). Near = loud. */
-export const SIREN_NEAR = 5;
-export const SIREN_FAR = 42;
 /**
- * Proximity (0 = at FAR, 1 = at NEAR) where chase sirens turn on.
- * Below this (cops farther away) sirens stay off after the opening cue.
+ * Police siren vs HUD police distance bar (`heat`, 0–100%).
+ * After the opening cue, sirens stay off until the bar reaches this %.
  */
 export const SIREN_ONSET = 0.4;
-/** Loudness at SIREN_NEAR (0–1) */
+/** Loudness when the bar is full / cops are on you (0–1) */
 export const SIREN_VOL_NEAR = 0.95;
 /** Loudness just as sirens turn on at SIREN_ONSET (0–1) */
 export const SIREN_VOL_ONSET = 0.22;
-/** Opening sirens when gameplay begins — fairly loud, then distance gate takes over */
+/** Opening sirens when gameplay begins — fairly loud, then bar gate takes over */
 export const SIREN_OPENING = 0.88;
-/** Seconds for the opening boost to fade; after this, sirens wait for 40% proximity */
+/** Seconds for the opening boost to fade; after this, wait for bar ≥ 40% */
 export const SIREN_OPENING_FADE = 4.0;
 
 export const NES = {

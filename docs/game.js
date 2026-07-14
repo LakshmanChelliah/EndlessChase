@@ -17,9 +17,9 @@ import {
   GAS_COLOR_OK, GAS_COLOR_LOW,
   GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
-  SIREN_NEAR, SIREN_FAR, SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
+  SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=23";
+} from "./js/constants.js?v=24";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -41,7 +41,7 @@ import {
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=4";
+} from "./js/siren.js?v=5";
 
 const save = loadSave();
 
@@ -673,8 +673,8 @@ function nearestPoliceDist() {
 }
 
 /**
- * Siren volume: loud opening at start; afterward silent until cops are
- * ~40% close, then louder as they close in.
+ * Siren volume: loud opening at start; afterward follows the police
+ * distance bar — silent below ~40%, then louder as the bar fills.
  * @param {number} dt
  */
 function updateSirenAudio(dt) {
@@ -692,18 +692,16 @@ function updateSirenAudio(dt) {
   resumeSirenAudio();
   startSiren();
 
-  const dist = nearestPoliceDist();
+  // Same 0–100 meter as the HUD police distance bar
   const target = sirenLevelFromProximity(
-    { dist, opening },
+    { bar: heat / 100, opening },
     {
-      near: SIREN_NEAR,
-      far: SIREN_FAR,
       onset: SIREN_ONSET,
       volNear: SIREN_VOL_NEAR,
       volOnset: SIREN_VOL_ONSET,
     },
   );
-  // Smooth toward target so distance changes feel continuous, not jumpy
+  // Smooth toward target so bar changes feel continuous, not jumpy
   sirenSmoothVol = THREE.MathUtils.damp(sirenSmoothVol, target, 4.5, dt);
   setSirenVolume(sirenSmoothVol);
 }
@@ -2200,6 +2198,7 @@ window.__endlessChase = {
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
     transitioning, transitionQueue: transitionQueue.length,
     policeDist: nearestPoliceDist(),
+    policeBar: +heat.toFixed(1),
     sirenOpeningT: +sirenOpeningT.toFixed(2),
     sirenVol: +sirenSmoothVol.toFixed(3),
     siren: getSirenDebug(),
