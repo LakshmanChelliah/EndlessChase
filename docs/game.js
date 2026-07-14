@@ -1689,6 +1689,7 @@ function endRun(reason) {
   goCoins.textContent = `+$${runCoins}`;
   writeSave(save);
   fromGameOver = true;
+  setupMenuScene(); // rebuild city title street under game-over UI
   showPanel("gameover");
 }
 
