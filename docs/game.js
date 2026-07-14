@@ -17,6 +17,7 @@ import {
   GAS_COLOR_OK, GAS_COLOR_LOW,
   GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
+  SIREN_NEAR, SIREN_FAR, SIREN_AMBIENT, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
 } from "./js/constants.js?v=20";
 import {
@@ -37,6 +38,9 @@ import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
 } from "./js/worldgen.js?v=20";
+import {
+  unlockSirenAudio, startSiren, stopSiren, setSirenVolume, sirenLevelFromProximity,
+} from "./js/siren.js?v=1";
 
 const save = loadSave();
 
@@ -294,6 +298,8 @@ let turnYawVel = 0;
 let onRampPending = false;
 let pursuit = null;
 let bustPending = false;
+/** Seconds remaining for the opening chase siren boost (0 = faded) */
+let sirenOpeningT = 0;
 let keysBrake = false;
 let touchStart = null;
 let last = performance.now();
@@ -643,6 +649,73 @@ function updateHeatUI() {
   if (!hudHeatFill) return;
   hudHeatFill.style.width = `${Math.min(100, heat)}%`;
   if (hudHeat) hudHeat.classList.toggle("hot", heat >= 70);
+}
+
+/** Nearest police car distance in meters, or null if none. */
+function nearestPoliceDist() {
+  let best = null;
+  for (const t of activeTraffic) {
+    if (!t.userData?.police) continue;
+    const dx = t.position.x - laneX;
+    const dz = t.position.z - playerZ;
+    const d = Math.hypot(dx, dz);
+    if (best == null || d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Keep the siren looping while a run is alive; volume from cop distance + heat + opening.
+ * @param {number} dt
+ */
+function updateSirenAudio(dt) {
+  if (!alive || (!running && !gasVisit && !intro)) {
+    stopSiren();
+    return;
+  }
+  if (sirenOpeningT > 0) sirenOpeningT = Math.max(0, sirenOpeningT - dt);
+  const opening = sirenOpeningT > 0
+    ? (sirenOpeningT / SIREN_OPENING_FADE) * SIREN_OPENING
+    : 0;
+  // During intro / first moments, always run the siren so the chase is audible immediately
+  startSiren();
+  const level = sirenLevelFromProximity({
+    dist: nearestPoliceDist(),
+    heat,
+    opening,
+    ambient: (running || gasVisit || intro) ? SIREN_AMBIENT : 0,
+  }, { near: SIREN_NEAR, far: SIREN_FAR });
+  setSirenVolume(level);
+}
+
+/** Begin chase audio — called when gameplay (or intro) starts. */
+function beginChaseSiren() {
+  unlockSirenAudio();
+  sirenOpeningT = SIREN_OPENING_FADE;
+  startSiren();
+  setSirenVolume(SIREN_OPENING);
+}
+
+/**
+ * Spawn a trailing police car behind the player so distance-based sirens
+ * have a real source at the start of a run (not a bust pursuit).
+ */
+function spawnOpeningChaseCop() {
+  const layout = currentLayout();
+  const car = rentPolice(scene);
+  const tLane = Math.min(Math.max(0, lane), layout.count - 1);
+  const behind = 26;
+  car.position.set(layout.xs[tLane], 0, playerZ - behind);
+  car.rotation.y = 0;
+  car.userData.police = true;
+  car.userData.pursuit = false;
+  car.userData.openingChase = true;
+  car.userData.dir = 1;
+  car.userData.speed = Math.max(8, speed * 0.92);
+  car.userData.cruiseSpeed = car.userData.speed;
+  car.userData.lane = tLane;
+  car.userData.stopped = false;
+  activeTraffic.push(car);
 }
 
 function updateGasUI() {
@@ -1219,6 +1292,8 @@ function endRun(reason) {
   alive = false;
   running = false;
   intro = null;
+  sirenOpeningT = 0;
+  stopSiren();
   if (gasVisit?.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
@@ -1254,6 +1329,8 @@ function applyMenuCamera() {
 /** Attract / title street: city blocks + player parked on the left curb. */
 function setupMenuScene() {
   clearWorld();
+  stopSiren();
+  sirenOpeningT = 0;
   running = false;
   alive = false;
   intro = null;
@@ -1341,6 +1418,7 @@ function resetRunState() {
   transitioning = false;
   transitionFrom = null;
   transitionTo = null;
+  sirenOpeningT = 0;
 }
 
 /**
@@ -1370,6 +1448,9 @@ function startRun(opts = {}) {
   const toCam = gameplayCamPos(laneX, 0).clone();
   const toLook = gameplayCamLook(laneX, 0).clone();
 
+  // Unlock + start chase sirens immediately so the pull-out feels like a pursuit
+  beginChaseSiren();
+
   if (instant) {
     intro = null;
     running = true;
@@ -1378,6 +1459,7 @@ function startRun(opts = {}) {
     player.rotation.set(0, 0, 0);
     camera.position.copy(toCam);
     setCameraLook(toLook.x, toLook.y, toLook.z);
+    spawnOpeningChaseCop();
     return;
   }
 
@@ -1427,6 +1509,7 @@ function finishIntro() {
   intro = null;
   running = true;
   alive = true;
+  spawnOpeningChaseCop();
 }
 
 /**
@@ -1608,8 +1691,14 @@ document.body.addEventListener("touchmove", (e) => {
   }
 }, { passive: false });
 
-document.getElementById("btn-play").onclick = () => startRun();
-document.getElementById("btn-retry").onclick = () => startRun({ instant: true });
+document.getElementById("btn-play").onclick = () => {
+  unlockSirenAudio();
+  startRun();
+};
+document.getElementById("btn-retry").onclick = () => {
+  unlockSirenAudio();
+  startRun({ instant: true });
+};
 document.getElementById("btn-menu").onclick = () => {
   fromGameOver = false;
   setupMenuScene();
@@ -1903,6 +1992,27 @@ function tick(now) {
         }
         continue;
       }
+      if (t.userData.openingChase) {
+        // Shadow chase cop — stays behind; distance drives siren volume.
+        // Drop when a real bust pursuit takes over.
+        if (pursuit) {
+          activeTraffic.splice(i, 1);
+          returnTrafficCar(t);
+          continue;
+        }
+        if (gasVisit) {
+          t.position.z = Math.min(t.position.z, playerZ - 14);
+          continue;
+        }
+        const threat = heat / 100;
+        const zOff = THREE.MathUtils.lerp(28, 11, threat);
+        const targetZ = playerZ - zOff;
+        t.position.z = THREE.MathUtils.damp(t.position.z, targetZ, 1.35, dt);
+        const lx = currentLayout().xs[Math.min(lane, currentLayout().count - 1)];
+        t.position.x = THREE.MathUtils.damp(t.position.x, lx, 2.2, dt);
+        t.userData.lane = Math.min(lane, currentLayout().count - 1);
+        continue;
+      }
       if (t.userData.pursuit) {
         if (gasVisit) {
           // Hold pursuit behind the lot while pumping
@@ -2027,6 +2137,8 @@ function tick(now) {
     applyMenuCamera();
   }
 
+  updateSirenAudio(dt);
+
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
@@ -2045,6 +2157,8 @@ window.__endlessChase = {
     nearbyStation: !!nearbyStation,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
     transitioning, transitionQueue: transitionQueue.length,
+    policeDist: nearestPoliceDist(),
+    sirenOpeningT: +sirenOpeningT.toFixed(2),
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),
     playerYaw: +player.rotation.y.toFixed(3),
