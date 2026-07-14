@@ -40,7 +40,7 @@ export const CROSS_HAZARD_SPEED = 22;
 export const CROSS_MAX = 3;
 export const CROSS_SPAWN_INTERVAL = 1.15;
 
-/** Gas resource — drain, stations, pump UI */
+/** Gas resource — drain, stations, hold-to-fill */
 export const GAS_START_MIN = 35;
 export const GAS_START_MAX = 70;
 /** % drained per second at cruise speed (~18) */
@@ -58,10 +58,15 @@ export const GAS_INTERACT_RANGE = 16;
 /** HUD color tiers */
 export const GAS_COLOR_OK = 40;
 export const GAS_COLOR_LOW = 15;
-/** Pump fill presets (% of tank to add, or fill to full) */
-export const GAS_FILL_PRESETS = [25, 50];
-/** Small heat bump when pulling into a station */
-export const GAS_STOP_HEAT = 4;
+/** Hold-to-fill rates */
+export const GAS_HOLD_FILL_PER_SEC = 28;
+/** Heat rises while holding — long fills get busted */
+export const GAS_HOLD_HEAT_PER_SEC = 22;
+/** Pull-in / pull-out anim length (seconds) */
+export const GAS_PULL_DURATION = 0.75;
+/** Cop visual distance while pumping (far → near as heat rises) */
+export const GAS_COP_Z_FAR = 22;
+export const GAS_COP_Z_NEAR = 2.8;
 
 export const NES = {
   black: 0x000000,

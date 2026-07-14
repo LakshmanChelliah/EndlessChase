@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=13" />
+  <link rel="stylesheet" href="styles.css?v=14" />
 </head>
 <body>
   <div id="game-root">
@@ -46,6 +46,7 @@
         <div id="hud-light" class="light-hint hidden"></div>
         <div id="hud-turn" class="turn-cue hidden"></div>
         <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
+        <div id="hud-gas-hint" class="gas-hint hidden">Move closer to enter</div>
         <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
         <button type="button" id="hud-station-float" class="station-float hidden">Tap to fill up!</button>
       </section>
@@ -56,18 +57,13 @@
           <p id="pump-current" class="pump-current">FUEL 50%</p>
           <div class="pump-preview-bar" aria-hidden="true">
             <div id="pump-bar-now" class="pump-bar-now"></div>
-            <div id="pump-bar-add" class="pump-bar-add"></div>
           </div>
-          <p id="pump-preview" class="pump-preview">SELECT AMOUNT</p>
-          <div class="pump-amounts">
-            <button type="button" class="btn pump-amt" data-fill="25">+25%</button>
-            <button type="button" class="btn pump-amt" data-fill="50">+50%</button>
-            <button type="button" class="btn pump-amt primary" data-fill="max">FILL MAX</button>
+          <div class="pump-heat-row">
+            <span class="pump-heat-label">COPS</span>
+            <div class="pump-heat-bar"><div id="pump-heat-fill" class="pump-heat-fill"></div></div>
           </div>
-          <div class="pump-actions">
-            <button type="button" id="btn-pump-confirm" class="btn primary" disabled>CONFIRM</button>
-            <button type="button" id="btn-pump-leave" class="btn ghost">LEAVE</button>
-          </div>
+          <button type="button" id="btn-pump-hold" class="btn pump-hold primary">HOLD TO FILL</button>
+          <p id="pump-preview" class="pump-preview">RELEASE TO ESCAPE · HOLD TOO LONG = BUSTED</p>
         </div>
       </section>
 
@@ -106,6 +102,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=16"></script>
+  <script type="module" src="game.js?v=17"></script>
 </body>
 </html>
