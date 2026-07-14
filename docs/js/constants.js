@@ -60,7 +60,9 @@ export const GAS_COLOR_OK = 40;
 export const GAS_COLOR_LOW = 15;
 /** Hold-to-fill rates */
 export const GAS_HOLD_FILL_PER_SEC = 28;
-/** Heat rises while holding — long fills get busted */
+/** Heat keeps climbing the whole visit (pull-in → merge wait) */
+export const GAS_VISIT_HEAT_PER_SEC = 18;
+/** Extra heat while actively holding the pump */
 export const GAS_HOLD_HEAT_PER_SEC = 22;
 /** Pull-in / pull-out anim length (seconds) */
 export const GAS_PULL_DURATION = 0.75;

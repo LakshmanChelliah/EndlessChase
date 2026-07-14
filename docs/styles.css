@@ -390,28 +390,37 @@ html, body {
 .station-float {
   position: absolute;
   z-index: 5;
-  transform: translate(-50%, -130%);
-  min-width: min(70vw, 220px);
-  padding: 0.7rem 0.85rem;
+  min-width: min(42vw, 200px);
+  max-width: min(46vw, 220px);
+  padding: 0.7rem 0.75rem;
   background: rgba(0, 0, 0, 0.92);
   border: 4px solid var(--nes-yellow);
   color: var(--nes-yellow);
   font-family: inherit;
-  font-size: clamp(0.55rem, 2.8vw, 0.72rem);
+  font-size: clamp(0.5rem, 2.5vw, 0.68rem);
   line-height: 1.35;
   letter-spacing: 0.04em;
   text-shadow: 3px 3px 0 #000;
   cursor: pointer;
   pointer-events: auto;
-  animation: station-bob 0.85s ease-in-out infinite;
   box-shadow: 0 0 0 3px #000, 0 0 18px rgba(255, 236, 39, 0.35);
+  animation: station-bob 0.85s ease-in-out infinite;
+}
+
+.station-float.side-left {
+  transform: translate(0, -50%);
+  text-align: left;
+}
+
+.station-float.side-right {
+  transform: translate(-100%, -50%);
+  text-align: right;
 }
 
 .station-float.ready {
   border-color: var(--nes-green);
   color: var(--nes-green);
   box-shadow: 0 0 0 3px #000, 0 0 20px rgba(0, 228, 54, 0.45);
-  animation: station-pulse 0.7s ease-in-out infinite;
 }
 
 .station-float:active {
@@ -421,12 +430,7 @@ html, body {
 
 @keyframes station-bob {
   0%, 100% { translate: 0 0; }
-  50% { translate: 0 -8px; }
-}
-
-@keyframes station-pulse {
-  0%, 100% { transform: translate(-50%, -130%) scale(1); }
-  50% { transform: translate(-50%, -130%) scale(1.06); }
+  50% { translate: 0 -6px; }
 }
 
 .merge-btn {
