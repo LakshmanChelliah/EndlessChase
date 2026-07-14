@@ -73,3 +73,27 @@ export function pickMenuDecoCarId(rand = Math.random) {
   }
   return "mobil";
 }
+
+/**
+ * Distinct menu deco car ids (no duplicates), optionally excluding the player's car.
+ * @param {number} count
+ * @param {string[]} [excludeIds]
+ * @param {() => number} [rand]
+ */
+export function pickDistinctMenuDecoIds(count, excludeIds = [], rand = Math.random) {
+  const exclude = new Set(excludeIds);
+  const pool = CARS.filter((c) => c.menuDeco && !exclude.has(c.id)).map((c) => c.id);
+  // Fisher–Yates shuffle
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = (rand() * (i + 1)) | 0;
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+  const out = pool.slice(0, Math.min(count, pool.length));
+  // If we need more than unique pool allows, fill without matching neighbors
+  while (out.length < count && pool.length) {
+    out.push(pool[out.length % pool.length]);
+  }
+  return out;
+}

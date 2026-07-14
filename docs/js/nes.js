@@ -168,7 +168,104 @@ export function makeBarricade() {
  * far edge (+Z local) = widthEnd. PlaneGeometry is in XY before rotation.x = -π/2,
  * so after rotation local ±X is still position.x and geometry Y maps to world Z.
  */
-export function applyRoadTaper(seg, widthStart, widthEnd) {
+function clearTaperMarkGroup(seg) {
+  const g = seg.userData.taperMarkGroup;
+  if (!g) return;
+  seg.remove(g);
+  g.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+      else obj.material.dispose();
+    }
+  });
+  seg.userData.taperMarkGroup = null;
+}
+
+function clearTaperGround(seg) {
+  const g = seg.userData.taperGround;
+  if (!g) return;
+  seg.remove(g);
+  if (g.geometry) g.geometry.dispose();
+  if (g.material) g.material.dispose();
+  seg.userData.taperGround = null;
+}
+
+function setTaperDecorVisible(seg, visible) {
+  for (const child of seg.children) {
+    if (!child.userData) continue;
+    if (child.userData.isLaneMark || child.userData.isCurb) {
+      child.visible = visible;
+    }
+  }
+}
+
+/**
+ * Wide berm underlay so narrowing asphalt doesn't open a void to the clear color.
+ * Covers original road footprint + roadside margin for the full tile length.
+ */
+function addTaperGround(seg, widthStart, widthEnd) {
+  clearTaperGround(seg);
+  const base = seg.userData.baseWidth || layoutFor(seg.userData.biome).width;
+  const span = Math.max(widthStart, widthEnd, base) + 14;
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(span, SEG_LEN + 0.4),
+    basicColor(NES.forest)
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0.002;
+  ground.userData.isTaperGround = true;
+  ground.renderOrder = -1;
+  seg.add(ground);
+  seg.userData.taperGround = ground;
+}
+
+function addTaperLaneMarks(seg, widthStart, widthEnd, markT = 0.5) {
+  clearTaperMarkGroup(seg);
+  const group = new THREE.Group();
+  group.userData.isTaperMarkGroup = true;
+  const t = Math.min(1, Math.max(0, markT));
+  const halfStart = widthStart / 2;
+  const halfEnd = widthEnd / 2;
+  const avgHalf = (halfStart + halfEnd) / 2;
+
+  // Double yellow always at center
+  const ox = Math.min(0.18, Math.max(0.1, avgHalf * 0.035));
+  for (const side of [-ox, ox]) {
+    const line = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.04, SEG_LEN - 1),
+      basicColor(NES.yellow)
+    );
+    line.position.set(side, 0.045, 0);
+    line.userData.isTaperTempMark = true;
+    group.add(line);
+  }
+
+  // Outer white dashes lerp from city ±4 toward the narrowing edge, fade out late
+  if (t < 0.92) {
+    const outerFrom = 4.0;
+    const outerTo = Math.max(1.6, Math.min(halfStart, halfEnd) - 0.45);
+    const dashX = outerFrom + (outerTo - outerFrom) * t;
+    const step = t < 0.45 ? 4 : t < 0.75 ? 5.5 : 7;
+    const opacityBoost = 1 - t * 0.55;
+    for (const side of [-1, 1]) {
+      for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += step) {
+        const dash = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.04, 1.2 * opacityBoost),
+          basicColor(NES.white)
+        );
+        dash.position.set(side * dashX, 0.045, z);
+        dash.userData.isTaperTempMark = true;
+        group.add(dash);
+      }
+    }
+  }
+
+  seg.add(group);
+  seg.userData.taperMarkGroup = group;
+}
+
+export function applyRoadTaper(seg, widthStart, widthEnd, markT = null) {
   const road = seg.userData.roadMesh;
   if (!road || !road.geometry) return;
   const pos = road.geometry.attributes.position;
@@ -191,13 +288,17 @@ export function applyRoadTaper(seg, widthStart, widthEnd) {
   seg.userData.layoutWidth = Math.max(widthStart, widthEnd);
   seg.userData.tapered = true;
 
-  // Nudge curbs to the wider half so they don't float inside asphalt
-  const curbHalf = Math.max(halfStart, halfEnd) + 0.2;
-  for (const child of seg.children) {
-    if (child.userData && child.userData.isCurb) {
-      child.position.x = Math.sign(child.userData.curbSide || child.position.x || 1) * curbHalf;
-    }
-  }
+  // Fill vacated asphalt with berm so the navy void never shows through
+  addTaperGround(seg, widthStart, widthEnd);
+  // Hide baked full-width marks/curbs; temporary marks track the tapered asphalt
+  setTaperDecorVisible(seg, false);
+  const base = seg.userData.baseWidth || layoutFor(seg.userData.biome).width;
+  const midW = (widthStart + widthEnd) / 2;
+  const tEst =
+    markT != null
+      ? markT
+      : Math.min(1, Math.max(0, (base - midW) / Math.max(0.01, base - 10)));
+  addTaperLaneMarks(seg, widthStart, widthEnd, tEst);
 }
 
 /** Restore rectangular road after pool return. */
@@ -215,12 +316,66 @@ export function resetRoadTaper(seg) {
   road.geometry.computeBoundingSphere();
   seg.userData.layoutWidth = base;
   seg.userData.tapered = false;
+  clearTaperMarkGroup(seg);
+  clearTaperGround(seg);
+  setTaperDecorVisible(seg, true);
   for (const child of seg.children) {
     if (child.userData && child.userData.isCurb) {
       const side = child.userData.curbSide || Math.sign(child.position.x || 1);
       child.position.x = side * (half + 0.2);
+      child.visible = true;
     }
   }
+}
+
+/** Clear runtime mix scenery attached during transition spawn. */
+export function clearMixBiomeOverlay(seg) {
+  const g = seg.userData.mixGroup;
+  if (!g) return;
+  seg.remove(g);
+  g.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+      else obj.material.dispose();
+    }
+  });
+  seg.userData.mixGroup = null;
+}
+
+/**
+ * Attach temporary roadside hints of another biome during corridor tiles.
+ * Cleared on recycle via clearMixBiomeOverlay.
+ */
+export function applyMixBiomeOverlay(seg, mixBiome, tex) {
+  clearMixBiomeOverlay(seg);
+  if (!mixBiome || mixBiome === seg.userData.biome) return;
+  const half = (seg.userData.layoutWidth || seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
+  const group = new THREE.Group();
+  group.userData.isMixGroup = true;
+  const side = 1;
+  if (mixBiome === "rural" || mixBiome === "highway") {
+    const grass = new THREE.Mesh(new THREE.PlaneGeometry(8, SEG_LEN * 0.7), basicColor(NES.forest));
+    grass.rotation.x = -Math.PI / 2;
+    grass.position.set(side * (half + 5), 0.025, 0);
+    group.add(grass);
+    if (mixBiome === "rural") {
+      const house = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.2, 3.2), basic(tex.house));
+      house.position.set(side * (half + 5.5), 1.1, 2);
+      group.add(house);
+    }
+  } else if (mixBiome === "city") {
+    const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0x3a3d48));
+    walk.rotation.x = -Math.PI / 2;
+    walk.position.set(side * (half + 4), 0.02, 0);
+    group.add(walk);
+    const h = 5;
+    const b = new THREE.Mesh(new THREE.BoxGeometry(3, h, 4), basic(tex.building));
+    b.position.set(side * (half + 4), h / 2, 0);
+    group.add(b);
+  }
+  seg.add(group);
+  seg.userData.mixGroup = group;
 }
 
 function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
@@ -239,6 +394,7 @@ function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
       for (let z = z0; z < z1; z += 4) {
         const dash = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1.4), basicColor(NES.white));
         dash.position.set(mid, 0.04, z);
+        dash.userData.isLaneMark = true;
         root.add(dash);
       }
     }
@@ -248,6 +404,7 @@ function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
       for (const ox of [-0.18, 0.18]) {
         const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, Math.max(0.5, markLen - 1)), basicColor(NES.yellow));
         line.position.set(ox, 0.04, zc);
+        line.userData.isLaneMark = true;
         root.add(line);
       }
     }
@@ -259,6 +416,7 @@ function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
           for (let z = z0; z < z1; z += 4) {
             const dash = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1.4), basicColor(NES.white));
             dash.position.set(x, 0.04, z);
+            dash.userData.isLaneMark = true;
             root.add(dash);
           }
         }

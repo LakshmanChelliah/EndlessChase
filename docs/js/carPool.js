@@ -1,8 +1,8 @@
 /**
  * Pooled rent/return for civilian, police, and cross-traffic vehicles.
  */
-import { pickCivilianCarId } from "./cars.js?v=21";
-import { createVehicle } from "./vehicle.js?v=21";
+import { pickCivilianCarId } from "./cars.js?v=22";
+import { createVehicle, ensureBlinkers } from "./vehicle.js?v=22";
 
 /** @type {Record<string, import("three").Object3D[]>} */
 const civFree = Object.create(null);
@@ -23,6 +23,7 @@ export function rentCivilian(scene, carId = pickCivilianCarId()) {
     scene.add(car);
   }
   car.visible = true;
+  ensureBlinkers(car);
   return car;
 }
 
@@ -40,6 +41,7 @@ export function rentPolice(scene) {
     scene.add(car);
   }
   car.visible = true;
+  ensureBlinkers(car);
   return car;
 }
 

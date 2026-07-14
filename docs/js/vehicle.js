@@ -149,22 +149,23 @@ export function vehiclesReady() {
  */
 export function createVehicle(carId, opts = {}) {
   const proto = prototypes[carId] || prototypes.mobil;
+  let root;
   if (!proto) {
-    const fallback = new THREE.Group();
-    fallback.userData.carId = carId;
-    fallback.userData.kind = "car";
+    root = new THREE.Group();
+    root.userData.carId = carId;
+    root.userData.kind = "car";
     const box = new THREE.Mesh(
       new THREE.BoxGeometry(1.5, 0.55, 2.8),
       new THREE.MeshBasicMaterial({ color: 0x888888 })
     );
     box.position.y = 0.35;
-    fallback.add(box);
-    return fallback;
+    root.add(box);
+  } else {
+    root = proto.clone(true);
+    cloneMaterials(root);
+    root.userData.carId = carId;
+    root.userData.kind = "car";
   }
-  const root = proto.clone(true);
-  cloneMaterials(root);
-  root.userData.carId = carId;
-  root.userData.kind = "car";
 
   const doTint = opts.tint === true || typeof opts.tint === "number";
   if (doTint && carId !== "police") {
@@ -174,7 +175,30 @@ export function createVehicle(carId, opts = {}) {
     applyNpcTint(root, hex);
     root.userData.tint = hex;
   }
+
+  attachBlinkers(root);
   return root;
+}
+
+/** Tiny orange rear blinkers for NPC lane-merge signaling. */
+export function ensureBlinkers(root) {
+  if (root.userData.blinkerL) return;
+  const mk = (x) => {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 0.1, 0.2),
+      new THREE.MeshBasicMaterial({ color: 0xffa300 })
+    );
+    m.position.set(x, 0.55, -1.55);
+    m.visible = false;
+    root.add(m);
+    return m;
+  };
+  root.userData.blinkerL = mk(-0.72);
+  root.userData.blinkerR = mk(0.72);
+}
+
+function attachBlinkers(root) {
+  ensureBlinkers(root);
 }
 
 export function replacePlayerVehicle(scene, oldPlayer, carId) {

@@ -22,19 +22,18 @@ export function hash2(a, b) {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-const BIOME_IDS = ["city", "rural", "highway"];
-
-/** Weighted pick of next biome — distance biases highway later. */
-export function pickTurnBiomes(from, distance = 0, rng = Math.random) {
-  const others = BIOME_IDS.filter((b) => b !== from);
-  const roll = rng();
-  if (distance > 1200 && roll < 0.5) {
-    const hwy = others.includes("highway") ? "highway" : others[0];
-    const alt = others.find((b) => b !== hwy) || others[0];
-    return rng() < 0.5 ? { left: hwy, right: alt } : { left: alt, right: hwy };
-  }
-  if (roll < 0.5) return { left: others[0], right: others[1] };
-  return { left: others[1], right: others[0] };
+/**
+ * Playable turns are city ↔ suburbs (rural) only.
+ * Highway is deferred until a proper on-ramp / one-way flow exists.
+ * @param {string} from
+ * @param {number} [_distance]
+ * @param {() => number} [_rng]
+ */
+export function pickTurnBiomes(from, _distance = 0, _rng = Math.random) {
+  if (from === "city") return { left: "rural", right: "rural" };
+  if (from === "rural") return { left: "city", right: "city" };
+  // Escape hatch if somehow on highway
+  return { left: "city", right: "city" };
 }
 
 /**
@@ -221,6 +220,7 @@ export function buildTransitionPlan(fromBiome, toBiome) {
       toBiome,
       mixBiome: i >= taperSteps - 2 ? toBiome : null,
       layoutBiome,
+      markT: t1,
     });
   }
 

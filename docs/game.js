@@ -19,29 +19,40 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_NEAR, SIREN_FAR, SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=25";
+} from "./js/constants.js?v=26";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
 } from "./js/save.js?v=21";
-import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=21";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=21";
+import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=22";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=22";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=21";
+} from "./js/carPool.js?v=22";
 import { Pool } from "./js/pool.js?v=21";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-} from "./js/nes.js?v=21";
+  applyMixBiomeOverlay, clearMixBiomeOverlay,
+} from "./js/nes.js?v=22";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
-  nearestUsableLane,
-} from "./js/worldgen.js?v=21";
+  nearestUsableLane, getTransitionDef,
+} from "./js/worldgen.js?v=22";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
 } from "./js/siren.js?v=6";
+
+/** How far ahead NPCs scan for closed lanes; actual merge trigger is jittered per car. */
+const MERGE_LOOKAHEAD = 28;
+const MERGE_DIST_MIN = 18;
+const MERGE_DIST_MAX = 26;
+const MERGE_DELAY_MIN = 0.4;
+const MERGE_DELAY_MAX = 2.2;
+const ZIPPER_GAP = 7;
+const HEADWAY_GAP = 5.5;
+const CAR_HALF_LEN = 2.0;
 
 const save = loadSave();
 
@@ -190,6 +201,16 @@ scene.add(camera);
 const tex = createTextures();
 addSky(camera);
 
+// Permanent berm under the road so the navy void never reads as bare ground
+const worldGround = new THREE.Mesh(
+  new THREE.PlaneGeometry(90, 500),
+  new THREE.MeshBasicMaterial({ color: NES.forest })
+);
+worldGround.rotation.x = -Math.PI / 2;
+worldGround.position.set(0, -0.04, 80);
+worldGround.renderOrder = -2;
+scene.add(worldGround);
+
 // ---------- Menu / intro camera ----------
 /** City curb sits at ±8.2; park fully on the left sidewalk just outside it. */
 const MENU_PARK = { x: -10.25, z: 2.8, yaw: 0.06 };
@@ -311,6 +332,8 @@ let transitionQueue = [];
 let transitionFrom = null;
 let transitionTo = null;
 let transitioning = false;
+/** Closing lane indices for the active corridor (kept after queue drains). */
+let transitionCloseLanes = [];
 let menuTime = 0;
 let crossSpawnTimer = 0;
 
@@ -441,23 +464,30 @@ function remapLaneToLayout() {
   laneVel = 0;
 }
 
-function softRemapLane() {
-  const { layout, usable } = playerControlLayout();
-  lane = nearestUsableLane(layout, laneX, usable, true);
-  // Keep laneX; spring damp will ease toward layout.xs[lane]
-  laneVel *= 0.4;
-}
-
 function adoptBiomeFromSegment(seg) {
   if (!seg || !seg.userData.adoptBiome) return;
   const next = seg.userData.biome;
   if (!next || next === activeBiome) return;
   activeBiome = next;
-  softRemapLane();
+  // Do not auto-merge the player — only sync lane index if already on a valid center
+  syncPlayerLaneIndexIfAligned();
   if (!transitionQueue.length && transitioning && transitionTo === next) {
     transitioning = false;
     transitionFrom = null;
     transitionTo = null;
+    transitionCloseLanes = [];
+  }
+}
+
+/** Sync `lane` to a usable index only when laneX is already on that center (no auto-steer). */
+function syncPlayerLaneIndexIfAligned() {
+  const { layout, usable } = playerControlLayout();
+  if (usable.includes(lane) && lane < layout.count) return;
+  for (const i of usable) {
+    if (Math.abs(laneX - layout.xs[i]) < 0.75) {
+      lane = i;
+      return;
+    }
   }
 }
 
@@ -473,6 +503,314 @@ function clearAheadTrafficSoft() {
   }
 }
 
+function roadHalfForSegment(seg) {
+  if (!seg) return layoutFor(activeBiome).width / 2;
+  const wStart = seg.userData.widthStart;
+  const wEnd = seg.userData.widthEnd;
+  if (wStart != null && wEnd != null) return Math.min(wStart, wEnd) / 2;
+  if (seg.userData.layoutWidth) return seg.userData.layoutWidth / 2;
+  return layoutForSegment(seg).width / 2;
+}
+
+function clampTrafficX(x, seg) {
+  const half = Math.max(1.2, roadHalfForSegment(seg) - 0.6);
+  return THREE.MathUtils.clamp(x, -half, half);
+}
+
+/** Most restrictive usable-lane set along [fromZ, fromZ+range]. */
+function restrictiveUsableAhead(fromZ, range = 40) {
+  let best = null;
+  let bestCount = Infinity;
+  let bestSeg = getSegmentAt(fromZ);
+  for (let z = fromZ; z <= fromZ + range; z += SEG_LEN * 0.5) {
+    const seg = getSegmentAt(z);
+    if (!seg) continue;
+    const u = usableLanesForSegment(seg);
+    if (u.length < bestCount) {
+      bestCount = u.length;
+      best = u;
+      bestSeg = seg;
+    }
+  }
+  return { usable: best, seg: bestSeg };
+}
+
+function effectiveCloseLanes() {
+  if (transitionCloseLanes.length) return transitionCloseLanes;
+  if (transitionFrom && transitionTo) {
+    return getTransitionDef(transitionFrom, transitionTo).closeLaneIndices || [];
+  }
+  return [];
+}
+
+function trafficLaneOf(t) {
+  if (t.userData.mergeActive && t.userData.mergeLane != null) return t.userData.mergeLane;
+  return t.userData.lane;
+}
+
+/** Nearest same-dir car ahead in the same lane (or merging into it). */
+function findLeadCar(t) {
+  const dir = t.userData.dir || 1;
+  const myLane = trafficLaneOf(t);
+  let best = null;
+  let bestDist = Infinity;
+  for (const o of activeTraffic) {
+    if (o === t || o.userData.pursuit || o.userData.gasThreat) continue;
+    if ((o.userData.dir || 1) !== dir) continue;
+    if (trafficLaneOf(o) !== myLane) continue;
+    const dz = (o.position.z - t.position.z) * dir;
+    if (dz <= 0.4) continue;
+    if (dz < bestDist) {
+      bestDist = dz;
+      best = o;
+    }
+  }
+  return best ? { car: best, dist: bestDist } : null;
+}
+
+function laneWindowClear(laneIdx, z, dir, exclude, behind = 3, ahead = 7) {
+  for (const o of activeTraffic) {
+    if (o === exclude || o.userData.pursuit || o.userData.gasThreat) continue;
+    if ((o.userData.dir || 1) !== dir) continue;
+    if (trafficLaneOf(o) !== laneIdx) continue;
+    const dz = (o.position.z - z) * dir;
+    if (dz > -behind && dz < ahead) return false;
+  }
+  return true;
+}
+
+function applyHeadway(t, dt) {
+  const dir = t.userData.dir || 1;
+  if (dir !== 1 && dir !== -1) return;
+  const lead = findLeadCar(t);
+  const cruise = t.userData.cruiseSpeed || t.userData.speed || 8;
+  let target = cruise;
+  if (lead) {
+    const gap = lead.dist - CAR_HALF_LEN * 2;
+    if (gap < HEADWAY_GAP) {
+      const leadSp = lead.car.userData.speed || 0;
+      target = gap < 1.2 ? Math.min(leadSp * 0.5, 1.5) : Math.min(cruise, Math.max(0, leadSp + (gap - HEADWAY_GAP) * 1.6));
+    }
+  }
+  t.userData.speed = THREE.MathUtils.damp(t.userData.speed, target, 5, dt);
+}
+
+function pickMergeTarget(t, layout, openLanes) {
+  const dir = t.userData.dir || 1;
+  const sameDir = openLanes.filter((i) => layout.dirs[i] === dir);
+  const pool = sameDir.length ? sameDir : openLanes;
+  if (!pool.length) return null;
+  return nearestUsableLane(layout, t.position.x, pool, dir === 1);
+}
+
+/** Schedule a staggered merge (delay only — does not start slide yet). */
+function scheduleMerge(t, targetLane, layout) {
+  if (t.userData.mergeScheduled || t.userData.mergeActive) return;
+  t.userData.mergeScheduled = true;
+  t.userData.mergeTargetLane = targetLane;
+  t.userData.mergeTargetX = layout.xs[targetLane];
+  t.userData.mergeDelay = MERGE_DELAY_MIN + Math.random() * (MERGE_DELAY_MAX - MERGE_DELAY_MIN);
+  t.userData.mergeDist = MERGE_DIST_MIN + Math.random() * (MERGE_DIST_MAX - MERGE_DIST_MIN);
+  t.userData.mergeActive = false;
+  t.userData.mergeX = null;
+  t.userData.mergeLane = null;
+}
+
+function zipperAllowsStart(t) {
+  const dir = t.userData.dir || 1;
+  const target = t.userData.mergeTargetLane;
+  if (target == null) return false;
+  // Among cars ready to start (delay done), only the farthest-ahead may go
+  let best = t;
+  let bestKey = dir === 1 ? t.position.z : -t.position.z;
+  for (const o of activeTraffic) {
+    if (o === t || o.userData.pursuit || o.userData.gasThreat) continue;
+    if ((o.userData.dir || 1) !== dir) continue;
+    if (!o.userData.mergeScheduled || o.userData.mergeActive) continue;
+    if (o.userData.mergeTargetLane !== target) continue;
+    if ((o.userData.mergeDelay || 0) > 0) continue;
+    const key = dir === 1 ? o.position.z : -o.position.z;
+    if (key > bestKey) {
+      best = o;
+      bestKey = key;
+    }
+  }
+  if (best !== t) return false;
+  // Another car currently sliding into the same target must clear zipper gap first
+  for (const o of activeTraffic) {
+    if (o === t || o.userData.pursuit || o.userData.gasThreat) continue;
+    if ((o.userData.dir || 1) !== dir) continue;
+    if (o.userData.mergeActive && o.userData.mergeTargetLane === target) {
+      if (Math.abs(o.position.z - t.position.z) < ZIPPER_GAP) return false;
+    }
+  }
+  return true;
+}
+
+function setNpcBlinkers(t, side /* -1 left, 1 right, 0 off */) {
+  const L = t.userData.blinkerL;
+  const R = t.userData.blinkerR;
+  if (!L || !R) return;
+  if (side === 0) {
+    L.visible = false;
+    R.visible = false;
+    return;
+  }
+  const on = Math.floor(performance.now() / 140) % 2 === 0;
+  L.visible = side < 0 && on;
+  R.visible = side > 0 && on;
+}
+
+function clearMergeState(t) {
+  t.userData.mergeScheduled = false;
+  t.userData.mergeActive = false;
+  t.userData.mergeDelay = 0;
+  t.userData.mergeX = null;
+  t.userData.mergeLane = null;
+  t.userData.mergeTargetLane = null;
+  t.userData.mergeTargetX = null;
+  t.userData.needsCloseMerge = false;
+  setNpcBlinkers(t, 0);
+}
+
+/**
+ * Seed staggered merge schedules on nearby NPCs in closing lanes.
+ * Slide starts after random delay + zipper/gap checks (not instantly).
+ */
+function kickClosingLaneMerges(fromBiome, toBiome) {
+  const def = getTransitionDef(fromBiome, toBiome);
+  const closeOrder = def.closeLaneIndices || [];
+  if (!closeOrder.length) return;
+  const closeSet = new Set(closeOrder);
+  const fromLayout = layoutFor(fromBiome);
+  const openLanes = [...Array(fromLayout.count).keys()].filter((i) => !closeSet.has(i));
+  if (!openLanes.length) return;
+  for (const t of activeTraffic) {
+    if (t.userData.pursuit || t.userData.gasThreat) continue;
+    if (!closeSet.has(t.userData.lane)) continue;
+    if (t.position.z < playerZ - 5 || t.position.z > playerZ + 90) continue;
+    const target = pickMergeTarget(t, fromLayout, openLanes);
+    if (target == null || target === t.userData.lane) continue;
+    scheduleMerge(t, target, fromLayout);
+  }
+}
+
+function distToLaneClosure(t) {
+  const dir = t.userData.dir || 1;
+  const laneIdx = t.userData.lane;
+
+  // Already on a closed / invalid lane
+  const curr = getSegmentAt(t.position.z);
+  if (curr) {
+    const usable = usableLanesForSegment(curr);
+    const layout = layoutForSegment(curr);
+    if (laneIdx == null || laneIdx < 0 || laneIdx >= layout.count || !usable.includes(laneIdx)) {
+      return 0;
+    }
+  }
+
+  for (let d = 4; d <= MERGE_LOOKAHEAD + 8; d += 4) {
+    const seg = getSegmentAt(t.position.z + dir * d);
+    if (!seg) continue;
+    const usable = usableLanesForSegment(seg);
+    const layout = layoutForSegment(seg);
+    if (laneIdx == null || laneIdx < 0 || laneIdx >= layout.count || !usable.includes(laneIdx)) {
+      return d;
+    }
+  }
+  return Infinity;
+}
+
+/**
+ * Soft-merge NPC out of a closing lane: schedule → delay → zipper → gap check → slide.
+ */
+function updateNpcLaneMerge(t, dt) {
+  if (t.userData.pursuit || t.userData.gasThreat) return;
+  const dir = t.userData.dir || 1;
+
+  // Look-ahead: schedule when a closed lane is within jittered merge distance
+  if (!t.userData.mergeScheduled && !t.userData.mergeActive) {
+    const dist = distToLaneClosure(t);
+    const trigger =
+      t.userData.mergeDist ||
+      MERGE_DIST_MIN + Math.random() * (MERGE_DIST_MAX - MERGE_DIST_MIN);
+    t.userData.mergeDist = trigger;
+    if (dist <= trigger) {
+      const aheadSeg =
+        getSegmentAt(t.position.z + dir * Math.min(Math.max(dist, 4), MERGE_LOOKAHEAD)) ||
+        getSegmentAt(t.position.z);
+      const layout = aheadSeg
+        ? layoutForSegment(aheadSeg)
+        : transitionFrom
+          ? layoutFor(transitionFrom)
+          : currentLayout();
+      let usable = aheadSeg
+        ? usableLanesForSegment(aheadSeg)
+        : [...Array(layout.count).keys()];
+      const close = effectiveCloseLanes();
+      if (close.length) {
+        const open = usable.filter((i) => !close.includes(i));
+        if (open.length) usable = open;
+      } else {
+        // Prefer lanes that remain usable at the closed tile ahead
+        const closedSeg = getSegmentAt(t.position.z + dir * Math.max(dist, 4));
+        if (closedSeg) usable = usableLanesForSegment(closedSeg);
+      }
+      const target = pickMergeTarget(t, layout, usable);
+      if (target != null && target !== t.userData.lane) {
+        scheduleMerge(t, target, layout);
+      }
+    }
+  }
+
+  if (t.userData.mergeScheduled && !t.userData.mergeActive) {
+    const side = (t.userData.mergeTargetX ?? t.position.x) >= t.position.x ? 1 : -1;
+    setNpcBlinkers(t, side);
+    t.userData.mergeDelay = Math.max(0, (t.userData.mergeDelay || 0) - dt);
+    if (t.userData.mergeDelay <= 0 && zipperAllowsStart(t)) {
+      const target = t.userData.mergeTargetLane;
+      if (target != null && laneWindowClear(target, t.position.z, dir, t, 3, 7)) {
+        t.userData.mergeActive = true;
+        t.userData.mergeLane = target;
+        t.userData.mergeX = t.userData.mergeTargetX;
+      } else {
+        // Hold / slight slow while waiting for a hole
+        t.userData.speed = THREE.MathUtils.damp(
+          t.userData.speed,
+          Math.max(2, (t.userData.cruiseSpeed || 8) * 0.55),
+          4,
+          dt
+        );
+      }
+    }
+  }
+
+  if (!t.userData.mergeActive || t.userData.mergeX == null) return;
+
+  const side = t.userData.mergeX >= t.position.x ? 1 : -1;
+  setNpcBlinkers(t, side);
+  // Abort slide if target became blocked mid-merge and we're still mostly in old lane
+  if (!laneWindowClear(t.userData.mergeLane, t.position.z, dir, t, 2, 5)) {
+    if (Math.abs(t.position.x - t.userData.mergeX) > 1.2) {
+      t.userData.mergeActive = false;
+      t.userData.mergeX = null;
+      t.userData.mergeScheduled = true;
+      t.userData.mergeDelay = 0.35 + Math.random() * 0.5;
+      return;
+    }
+  }
+
+  t.position.x = THREE.MathUtils.damp(t.position.x, t.userData.mergeX, 4.2, dt);
+  const seg = getSegmentAt(t.position.z);
+  t.position.x = clampTrafficX(t.position.x, seg);
+
+  if (Math.abs(t.position.x - t.userData.mergeX) < 0.2) {
+    t.position.x = t.userData.mergeX;
+    if (t.userData.mergeLane != null) t.userData.lane = t.userData.mergeLane;
+    clearMergeState(t);
+  }
+}
+
 function beginBiomeTransition(toBiome) {
   if (transitioning && transitionTo === toBiome) return;
   const from = activeBiome;
@@ -480,6 +818,8 @@ function beginBiomeTransition(toBiome) {
   transitionTo = toBiome;
   transitionQueue = buildTransitionPlan(from, toBiome);
   transitioning = true;
+  const def = getTransitionDef(from, toBiome);
+  transitionCloseLanes = (def.closeLaneIndices || []).slice();
   turnCooldown = TURN_COOLDOWN_SEGS + transitionQueue.length + 2;
   intersectionCooldown = Math.max(intersectionCooldown, INTERSECTION_COOLDOWN_SEGS + 1);
   gasCooldown = Math.max(gasCooldown, 4);
@@ -487,7 +827,7 @@ function beginBiomeTransition(toBiome) {
   nearbyStation = null;
   hideStationFloat();
   clearAheadTrafficSoft();
-  softRemapLane();
+  kickClosingLaneMerges(from, toBiome);
   if (hudTurn) hudTurn.classList.add("hidden");
   if (hudLight) {
     hudLight.textContent = `→ ${biomeLabel(toBiome)}`;
@@ -502,6 +842,7 @@ function applyBiomeSwitch(biome) {
 }
 
 function recycleSegment(seg) {
+  clearMixBiomeOverlay(seg);
   resetRoadTaper(seg);
   stampSegmentDefaults(seg);
   seg.visible = false;
@@ -564,8 +905,17 @@ function spawnTransitionStep(plan) {
   // Do NOT flip activeBiome here — adoption is player-position based
   placeSegment(seg);
 
-  if (plan.widthStart != null && plan.widthEnd != null) {
-    applyRoadTaper(seg, plan.widthStart, plan.widthEnd);
+  if (
+    plan.widthStart != null &&
+    plan.widthEnd != null &&
+    (plan.phase === "taper" || Math.abs(plan.widthStart - plan.widthEnd) > 0.01)
+  ) {
+    applyRoadTaper(seg, plan.widthStart, plan.widthEnd, plan.markT);
+  }
+  if (plan.mixBiome) {
+    applyMixBiomeOverlay(seg, plan.mixBiome, tex);
+  } else {
+    clearMixBiomeOverlay(seg);
   }
   if (plan.closedLaneXs && plan.closedLaneXs.length) {
     spawnTransitionObstacles(seg, plan.closedLaneXs);
@@ -577,10 +927,7 @@ function spawnSegment() {
   if (transitionQueue.length) {
     const step = transitionQueue.shift();
     spawnTransitionStep(step);
-    if (!transitionQueue.length) {
-      // Queue drained; keep transitioning flag until player adopts enter tile
-      transitionFrom = null;
-    }
+    // Keep transitionFrom / transitionCloseLanes until player adopts enter tile
     return;
   }
 
@@ -642,6 +989,7 @@ function clearWorld() {
   transitioning = false;
   transitionFrom = null;
   transitionTo = null;
+  transitionCloseLanes = [];
   nearbyStation = null;
   endGasVisit({ resume: false, busted: false });
   hideStationFloat();
@@ -1266,13 +1614,29 @@ function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5
 function spawnTrafficCar() {
   // Prefer layout of the segment where the car will spawn (~40–70m ahead)
   const spawnZ = playerZ + 45;
-  const aheadSeg = getSegmentAt(spawnZ) || getSegmentAt(playerZ);
+  const { usable: restrictive, seg: restrictSeg } = restrictiveUsableAhead(spawnZ, 40);
+  const aheadSeg = restrictSeg || getSegmentAt(spawnZ) || getSegmentAt(playerZ);
   const layout = aheadSeg ? layoutForSegment(aheadSeg) : currentLayout();
-  const usable = aheadSeg ? usableLanesForSegment(aheadSeg) : [...Array(layout.count).keys()];
+  let usable = restrictive && restrictive.length
+    ? restrictive.slice()
+    : aheadSeg
+      ? usableLanesForSegment(aheadSeg)
+      : [...Array(layout.count).keys()];
+
+  // During biome corridor, never spawn into lanes that are closing ahead
+  const close = effectiveCloseLanes();
+  if (close.length) {
+    const open = usable.filter((i) => !close.includes(i));
+    if (open.length) usable = open;
+  }
+
   const oncomingIdx = [];
   const sameIdx = [];
   for (const i of usable) {
     if (i < 0 || i >= layout.count) continue;
+    // Also reject lanes whose X sits outside the tapered asphalt
+    const half = roadHalfForSegment(aheadSeg);
+    if (Math.abs(layout.xs[i]) > half - 0.4) continue;
     if (layout.dirs[i] === -1) oncomingIdx.push(i);
     else sameIdx.push(i);
   }
@@ -1286,38 +1650,44 @@ function spawnTrafficCar() {
   }
 
   // Avoid stacking same-dir cars in a red/yellow stop box
+  let zTry;
   if (!wantOncoming) {
     const ahead = findAheadIntersection(playerZ + 35, 55);
+    zTry = playerZ + 40 + Math.random() * 30;
     if (ahead && (ahead.userData.lightState === "red" || ahead.userData.lightState === "yellow")) {
       const stopZ = ahead.position.z - NPC_STOP_OFFSET;
-      // Spawn past the junction instead of in the stop queue box
-      const zTry = playerZ + 40 + Math.random() * 30;
-      if (Math.abs(zTry - stopZ) < 8) {
-        // skip this spawn tick
-        return;
-      }
+      if (Math.abs(zTry - stopZ) < 8) return;
     }
+  } else {
+    zTry = playerZ + 50 + Math.random() * 40;
+  }
+
+  // Headway: don't spawn on top of same-lane traffic
+  for (const o of activeTraffic) {
+    if (o.userData.pursuit || o.userData.gasThreat) continue;
+    if (trafficLaneOf(o) !== tLane) continue;
+    if (Math.abs(o.position.z - zTry) < HEADWAY_GAP + 1.5) return;
   }
 
   const police = !wantOncoming && Math.random() < 0.12;
   const car = police ? rentPolice(scene) : rentCivilian(scene);
   const dir = layout.dirs[tLane];
+  let x = clampTrafficX(layout.xs[tLane], aheadSeg);
+  car.position.set(x, 0, zTry);
+  car.rotation.y = dir === -1 ? Math.PI : 0;
   if (dir === -1) {
-    car.position.set(layout.xs[tLane], 0, playerZ + 50 + Math.random() * 40);
-    car.rotation.y = Math.PI;
     car.userData.speed = 14 + Math.random() * 8;
-    car.userData.cruiseSpeed = car.userData.speed;
   } else {
-    car.position.set(layout.xs[tLane], 0, playerZ + 40 + Math.random() * 30);
-    car.rotation.y = 0;
     car.userData.speed = police ? speed * 0.9 : 6 + Math.random() * 6;
-    car.userData.cruiseSpeed = car.userData.speed;
   }
+  car.userData.cruiseSpeed = car.userData.speed;
   car.userData.police = police;
   car.userData.pursuit = false;
   car.userData.dir = dir;
   car.userData.lane = tLane;
   car.userData.stopped = false;
+  clearMergeState(car);
+  car.userData.mergeDist = MERGE_DIST_MIN + Math.random() * (MERGE_DIST_MAX - MERGE_DIST_MIN);
   activeTraffic.push(car);
 }
 
@@ -1397,24 +1767,31 @@ function setupMenuScene() {
     spawnIndex++;
   }
 
-  // Quiet parked deco cars further along the same curb
-  const decoZs = [15, 27];
-  for (let i = 0; i < decoZs.length; i++) {
-    const deco = rentCivilian(scene, pickMenuDecoCarId());
-    deco.position.set(MENU_PARK.x - 0.15 * i, 0, decoZs[i]);
-    deco.rotation.y = (i === 0 ? 0.04 : -0.03);
-    deco.userData.police = false;
-    deco.userData.pursuit = false;
-    deco.userData.dir = 1;
-    deco.userData.speed = 0;
-    deco.userData.lane = -1;
-    activeTraffic.push(deco);
-  }
-
+  spawnCurbDecoCars();
   syncPlayerCar();
   parkPlayerCurbside();
   applyMenuCamera();
   menuTime = 0;
+}
+
+/** Parked curb cars on the title street — kept through intro until they scroll out of view. */
+function spawnCurbDecoCars() {
+  const decoZs = [15, 27];
+  const decoIds = pickDistinctMenuDecoIds(decoZs.length, [save.selectedCar]);
+  for (let i = 0; i < decoZs.length; i++) {
+    const deco = rentCivilian(scene, decoIds[i] || "coupe");
+    deco.position.set(MENU_PARK.x - 0.15 * i, 0, decoZs[i]);
+    deco.rotation.y = i === 0 ? 0.04 : -0.03;
+    deco.userData.police = false;
+    deco.userData.pursuit = false;
+    deco.userData.dir = 1;
+    deco.userData.speed = 0;
+    deco.userData.cruiseSpeed = 0;
+    deco.userData.lane = -1;
+    deco.userData.curbParked = true;
+    clearMergeState(deco);
+    activeTraffic.push(deco);
+  }
 }
 
 function resetRunState() {
@@ -1429,7 +1806,7 @@ function resetRunState() {
   runCoins = 0;
   boostTimer = 0;
   boostMul = 1;
-  nextSpawnZ = 0;
+  nextSpawnZ = -2 * SEG_LEN;
   spawnIndex = 0;
   braking = false;
   brakeTimer = 0;
@@ -1454,6 +1831,7 @@ function resetRunState() {
   transitioning = false;
   transitionFrom = null;
   transitionTo = null;
+  transitionCloseLanes = [];
   sirenOpeningT = 0;
   sirenSmoothVol = 0;
 }
@@ -1470,6 +1848,8 @@ function startRun(opts = {}) {
   resetRunState();
   syncPlayerCar();
   for (let i = 0; i < 10; i++) spawnSegment();
+  // Keep title-street curb cars through the pull-out until the camera leaves them behind
+  spawnCurbDecoCars();
 
   showPanel("hud");
   showPumpPanel(false);
@@ -1873,12 +2253,13 @@ function tick(now) {
 
     const { seg: playerSeg, layout, usable } = playerControlLayout();
     adoptBiomeFromSegment(playerSeg);
-    // If current lane closed under us, soft-push to nearest open lane
-    if (!usable.includes(lane)) {
-      lane = nearestUsableLane(layout, laneX, usable, true);
+    // Player never auto-merges. Closed lanes keep their X so pylons can wreck them.
+    // Swipe is the only way onto an open lane.
+    let targetX = laneX;
+    if (lane >= 0 && lane < layout.count) {
+      targetX = layout.xs[lane];
     }
     const smooth = THREE.MathUtils.lerp(0.22, 0.11, Math.min(1, (handlingFactor(save) - 1) / 0.5));
-    const targetX = layout.xs[Math.min(Math.max(0, lane), layout.count - 1)];
     const omega = 2 / Math.max(0.05, smooth);
     const x = omega * dt;
     const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
@@ -1900,7 +2281,9 @@ function tick(now) {
     player.rotation.set(laneRoll * 0.15, turnYaw, laneRoll);
 
     if (hudLaneWarn) {
-      hudLaneWarn.classList.toggle("hidden", layout.dirs[lane] !== -1);
+      const oncoming = lane >= 0 && lane < layout.count && layout.dirs[lane] === -1;
+      const closed = !usable.includes(lane);
+      hudLaneWarn.classList.toggle("hidden", !oncoming && !closed);
     }
 
     if (boostTimer > 0) {
@@ -1912,6 +2295,7 @@ function tick(now) {
     camera.position.copy(gameplayCamPos(laneX, playerZ));
     const look = gameplayCamLook(laneX, playerZ);
     setCameraLook(look.x, look.y, look.z);
+    worldGround.position.z = playerZ + 80;
   }
 
   // World keeps simulating while driving OR stopped at a pump (NPCs still move)
@@ -2036,6 +2420,14 @@ function tick(now) {
         }
         continue;
       }
+      if (t.userData.curbParked) {
+        // Stay put on the curb until behind the chase cam
+        if (t.position.z < playerZ - 25) {
+          activeTraffic.splice(i, 1);
+          returnTrafficCar(t);
+        }
+        continue;
+      }
       if (t.userData.openingChase) {
         // Visual trailing cop only — does not drive siren audio.
         // Hold a steady far gap so braking / speed never yank volume.
@@ -2070,6 +2462,7 @@ function tick(now) {
         continue;
       }
       const dir = t.userData.dir || 1;
+      let lightControlled = false;
       if (dir === 1) {
         const cruise = t.userData.cruiseSpeed || t.userData.speed || 8;
         const ix = findAheadIntersection(t.position.z - 1, 28);
@@ -2080,13 +2473,18 @@ function tick(now) {
             const target = distToStop < 1.2 ? 0 : Math.min(cruise, Math.max(0, distToStop * 1.8));
             t.userData.speed = THREE.MathUtils.damp(t.userData.speed, target, 6, dt);
             t.userData.stopped = t.userData.speed < 0.4;
+            lightControlled = true;
           }
         } else if (t.userData.stopped || t.userData.speed < cruise * 0.95) {
           t.userData.speed = THREE.MathUtils.damp(t.userData.speed, cruise, 3, dt);
           if (t.userData.speed > cruise * 0.85) t.userData.stopped = false;
         }
       }
+      if (!lightControlled) applyHeadway(t, dt);
+      updateNpcLaneMerge(t, dt);
       t.position.z += (dir === -1 ? -t.userData.speed : t.userData.speed) * dt;
+      // Keep on asphalt if road narrowed under the car
+      t.position.x = clampTrafficX(t.position.x, getSegmentAt(t.position.z));
       if (t.position.z < playerZ - 25 || t.position.z > playerZ + 100) {
         activeTraffic.splice(i, 1);
         returnTrafficCar(t);
@@ -2172,12 +2570,14 @@ function tick(now) {
     }
   } else if (intro) {
     updateIntro(dt);
+    worldGround.position.z = playerZ + 80;
   } else if (!running) {
     menuTime += dt;
     // Idle curb pose — tiny sway, no spin
     player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
     player.rotation.y = MENU_PARK.yaw + Math.sin(menuTime * 0.7) * 0.04;
     applyMenuCamera();
+    worldGround.position.z = 80;
   }
 
   updateSirenAudio(dt);
@@ -2193,6 +2593,7 @@ requestAnimationFrame(tick);
 window.__endlessChase = {
   startRun,
   setupMenuScene,
+  beginBiomeTransition,
   getSave: () => ({ ...save, unlocked: [...save.unlocked], cars: { ...save.cars } }),
   getPlayer: () => player,
   getState: () => ({
@@ -2213,6 +2614,46 @@ window.__endlessChase = {
   }),
   getSegmentAt,
   buildTransitionPlan,
+  getTraffic: () => activeTraffic.map((t) => ({
+    x: +t.position.x.toFixed(2),
+    z: +t.position.z.toFixed(1),
+    lane: t.userData.lane,
+    mergeX: t.userData.mergeX ?? null,
+    mergeLane: t.userData.mergeLane ?? null,
+    mergeScheduled: !!t.userData.mergeScheduled,
+    mergeActive: !!t.userData.mergeActive,
+    mergeDelay: t.userData.mergeDelay ?? null,
+    dir: t.userData.dir,
+    pursuit: !!t.userData.pursuit,
+  })),
+  /** Debug: shove non-pursuit traffic into a lane, then optionally kick merges. */
+  debugPutTrafficInLane: (laneIndex) => {
+    const layout = currentLayout();
+    const x = layout.xs[Math.min(Math.max(0, laneIndex), layout.count - 1)];
+    let n = 0;
+    for (const t of activeTraffic) {
+      if (t.userData.pursuit || t.userData.gasThreat) continue;
+      clearMergeState(t);
+      t.userData.lane = laneIndex;
+      t.userData.dir = layout.dirs[laneIndex] || 1;
+      t.position.x = x;
+      n++;
+    }
+    return n;
+  },
+  getTransitionSegments: () => activeSegments
+    .filter((s) => s.userData.transitionPhase)
+    .map((s) => ({
+      phase: s.userData.transitionPhase,
+      biome: s.userData.biome,
+      usable: s.userData.usableLanes,
+      closed: s.userData.closedLaneXs,
+      tapered: !!s.userData.tapered,
+      mix: !!s.userData.mixGroup,
+      taperMarks: !!s.userData.taperMarkGroup,
+      ground: !!s.userData.taperGround,
+      z: +s.position.z.toFixed(1),
+    })),
   getCross: () => activeCross.map((c) => ({
     x: +c.position.x.toFixed(2),
     z: +c.position.z.toFixed(2),

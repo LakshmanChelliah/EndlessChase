@@ -161,7 +161,7 @@ export function layoutFor(biome) {
 }
 
 export function biomeLabel(b) {
-  if (b === "rural") return "RURAL";
+  if (b === "rural") return "SUBURBS";
   if (b === "highway") return "HWY";
   return "CITY";
 }
