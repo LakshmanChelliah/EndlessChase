@@ -40,9 +40,9 @@ export const CROSS_HAZARD_SPEED = 22;
 export const CROSS_MAX = 3;
 export const CROSS_SPAWN_INTERVAL = 1.15;
 
-/** Gas resource — drain, stations, tap-to-fill */
-export const GAS_START_MIN = 35;
-export const GAS_START_MAX = 70;
+/** Gas resource — drain, stations, hold-to-fill */
+export const GAS_START_MIN = 88;
+export const GAS_START_MAX = 96;
 /** % drained per second at cruise speed (~18) */
 export const GAS_DRAIN_PER_SEC = 1.55;
 export const GAS_DRAIN_BOOST_MUL = 1.7;
@@ -51,15 +51,22 @@ export const GAS_DRAIN_BRAKE_MUL = 0.35;
 export const GAS_EMPTY_SPEED_MUL = 0.32;
 /** Minimum straight segments between gas stations */
 export const GAS_STATION_COOLDOWN_SEGS = 18;
-/** Decision window while approaching a station (seconds) */
-export const GAS_STATION_WINDOW = 1.35;
-/** Show station cue when this far ahead (meters) */
-export const GAS_HUD_AHEAD = 22;
-export const GAS_FILL_PER_TAP = 9;
-export const GAS_FILL_MIN_TIME = 1.55;
-/** Heat added when stopping / lingering at the pump */
-export const GAS_STOP_HEAT = 5;
-export const GAS_LATE_HEAT = 10;
+/** Show / allow tap when station is this far ahead (meters) */
+export const GAS_HUD_AHEAD = 28;
+/** Interact range — tap station while within this distance */
+export const GAS_INTERACT_RANGE = 16;
+/** HUD color tiers */
+export const GAS_COLOR_OK = 40;
+export const GAS_COLOR_LOW = 15;
+/** Hold-to-fill rates */
+export const GAS_HOLD_FILL_PER_SEC = 28;
+/** Heat rises while holding — long fills get busted */
+export const GAS_HOLD_HEAT_PER_SEC = 22;
+/** Pull-in / pull-out anim length (seconds) */
+export const GAS_PULL_DURATION = 0.75;
+/** Cop visual distance while pumping (far → near as heat rises) */
+export const GAS_COP_Z_FAR = 22;
+export const GAS_COP_Z_NEAR = 2.8;
 
 export const NES = {
   black: 0x000000,
@@ -147,9 +154,10 @@ export function poolKey(biome, kind) {
  * Rural is safest; city is hottest.
  * @param {"city"|"rural"|"highway"} biome
  * @param {number} heat 0–100
+ * @deprecated pump UI no longer uses a police timer; kept for debug
  */
 export function gasPoliceWindow(biome, heat) {
   const base = biome === "rural" ? 3.7 : biome === "highway" ? 3.1 : 2.75;
   const heatFactor = 1 - Math.min(1, heat / 100) * 0.48;
-  return Math.max(GAS_FILL_MIN_TIME, base * heatFactor);
+  return Math.max(1.55, base * heatFactor);
 }

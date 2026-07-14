@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=13" />
+  <link rel="stylesheet" href="styles.css?v=16" />
 </head>
 <body>
   <div id="game-root">
@@ -23,7 +23,7 @@
     <div id="ui">
       <section id="panel-menu" class="panel">
         <h1 class="brand">Endless <span>Chase</span></h1>
-        <p class="tag">SWIPE TO STEER · DOWN TO BRAKE · TAP GAS STOPS · TAKE TURNS</p>
+        <p class="tag">SWIPE TO STEER · TAP STATIONS TO REFUEL · TAKE TURNS</p>
         <button type="button" id="btn-play" class="btn primary">Start Engine</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
       </section>
@@ -33,26 +33,51 @@
           <span id="hud-distance">0 m</span>
           <span id="hud-coins">$0</span>
         </div>
-        <div id="hud-heat" class="heat-bar" aria-label="Police heat">
-          <div id="hud-heat-fill" class="heat-fill"></div>
+
+        <div id="hud-heat" class="police-bar" aria-label="Police proximity">
+          <div class="police-siren police-siren-l" aria-hidden="true"></div>
+          <div class="police-track">
+            <div id="hud-heat-fill" class="police-fill"></div>
+          </div>
+          <div class="police-siren police-siren-r" aria-hidden="true"></div>
         </div>
-        <div id="hud-gas" class="gas-bar" aria-label="Gas">
-          <div id="hud-gas-fill" class="gas-fill"></div>
-        </div>
+
         <div id="hud-boost" class="boost hidden">BOOST</div>
         <div id="hud-light" class="light-hint hidden"></div>
-        <div id="hud-station" class="station-cue hidden"></div>
         <div id="hud-turn" class="turn-cue hidden"></div>
         <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
-        <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
-        <div id="hud-fill" class="fill-overlay hidden" aria-live="polite">
-          <div id="hud-fill-title" class="fill-title">GAS STOP</div>
-          <div id="hud-fill-timer" class="fill-timer">3.0</div>
-          <div class="fill-gas-bar" aria-label="Fill progress">
-            <div id="hud-fill-gas" class="fill-gas-fill"></div>
+        <div id="hud-gas-hint" class="gas-hint hidden">Move closer to enter</div>
+
+        <div id="hud-cluster" class="gauge-cluster" aria-label="Gauges">
+          <div id="hud-gas-block" class="gas-gauge ok" aria-label="Fuel">
+            <div class="fuel-icon" aria-hidden="true">
+              <span class="fuel-nozzle"></span>
+              <span class="fuel-body"></span>
+              <span class="fuel-base"></span>
+            </div>
+            <div id="hud-gas" class="gas-bar">
+              <div id="hud-gas-fill" class="gas-fill"></div>
+            </div>
           </div>
-          <div class="fill-hint">TAP TO FILL</div>
-          <div class="fill-leave">SWIPE UP TO LEAVE</div>
+          <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
+        </div>
+
+        <button type="button" id="hud-station-float" class="station-float hidden">Tap to fill up!</button>
+      </section>
+
+      <section id="panel-pump" class="panel pump-panel hidden" aria-modal="true" role="dialog" aria-labelledby="pump-title">
+        <div class="pump-shell">
+          <h2 id="pump-title" class="pump-title">GAS PUMP</h2>
+          <p id="pump-current" class="pump-current">FUEL 50%</p>
+          <div class="pump-preview-bar" aria-hidden="true">
+            <div id="pump-bar-now" class="pump-bar-now"></div>
+          </div>
+          <div class="pump-heat-row">
+            <span class="pump-heat-label">COPS</span>
+            <div class="pump-heat-bar"><div id="pump-heat-fill" class="pump-heat-fill"></div></div>
+          </div>
+          <button type="button" id="btn-pump-hold" class="btn pump-hold primary">HOLD TO FILL</button>
+          <p id="pump-preview" class="pump-preview">RELEASE TO ESCAPE · HOLD TOO LONG = BUSTED</p>
         </div>
       </section>
 
@@ -97,6 +122,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=24"></script>
+  <script type="module" src="game.js?v=25"></script>
 </body>
 </html>
