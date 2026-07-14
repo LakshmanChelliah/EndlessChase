@@ -1,4 +1,7 @@
-/** Simple rent/return object pool. */
+/**
+ * Generic rent/return object pool for non-vehicle scene objects (coins, FX).
+ * Prefer carPool.js for GLB traffic — it resets role flags on recycle.
+ */
 export class Pool {
   constructor(factory, prewarm = 0) {
     this.factory = factory;

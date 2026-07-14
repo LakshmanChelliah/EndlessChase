@@ -6,7 +6,7 @@
 
 - **320×180** internal render, nearest-neighbor upscale (`image-rendering: pixelated`)
 - **MeshBasicMaterial** (unlit) + pixel atlases — no realtime shadows, no PBR
-- Procedural CC0 textures in [`docs/assets/nes/`](assets/nes/) (regenerate with `node scripts/gen-nes-textures.mjs`)
+- Procedural CC0 textures in [`docs/assets/nes/`](../docs/assets/nes/) (regenerate with `node scripts/gen-nes-textures.mjs`)
 
 ## Palette (8-bit constrained)
 
@@ -62,4 +62,4 @@ photoreal, GTA, PBR, ray tracing, smooth gradients, high-poly, cinematic bloom, 
 
 ## Attribution
 
-Procedural textures: CC0 (see `assets/nes/ATTRIBUTION.txt`). Press Start 2P via Google Fonts.
+Procedural textures: CC0 (see `docs/assets/nes/ATTRIBUTION.txt`). Press Start 2P via Google Fonts.

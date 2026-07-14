@@ -1,8 +1,11 @@
 /**
- * Pooled rent/return for civilian, police, and cross-traffic vehicles.
+ * Traffic vehicle pools — rent/return civilians, police, and cross-traffic.
+ *
+ * Critical: resetTrafficRoleFlags() on every return/reuse so chase, gas-threat,
+ * curb-parked, and cross roles never leak into the next life (frozen / no collide).
  */
-import { pickCivilianCarId } from "./cars.js?v=22";
-import { createVehicle, ensureBlinkers } from "./vehicle.js?v=22";
+import { pickCivilianCarId } from "./cars.js?v=23";
+import { createVehicle, ensureBlinkers } from "./vehicle.js?v=23";
 
 /** @type {Record<string, import("three").Object3D[]>} */
 const civFree = Object.create(null);

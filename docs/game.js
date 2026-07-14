@@ -1,7 +1,13 @@
 /**
- * Endless Chase — Retro NES WebGL client (modular)
- * 4-lane city (2 opposing), rural 2-way, highway 2 one-way.
- * Brake / heat bust / prompted turn biomes.
+ * Endless Chase — NES WebGL client bootstrap + run loop.
+ *
+ * Entry: imported from index.html. Wires Three.js scene, HUD panels, input,
+ * worldgen segments, pooled traffic, heat/gas/siren, and garage meta.
+ *
+ * Flow: loadSave → preload vehicles → menu → startRun → rAF tick
+ *   (steer / brake → advance world → traffic AI → collisions → HUD).
+ * Biomes: city 4-lane (2 opposing), rural 2-way, highway 2 one-way.
+ * Debug: window.__endlessChase. Persist via save.js (localStorage).
  */
 import * as THREE from "three";
 import {
@@ -19,30 +25,30 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=27";
+} from "./js/constants.js?v=28";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=21";
-import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=22";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=22";
+} from "./js/save.js?v=22";
+import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=23";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=23";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=23";
-import { Pool } from "./js/pool.js?v=21";
+} from "./js/carPool.js?v=24";
+import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
-} from "./js/nes.js?v=23";
+} from "./js/nes.js?v=24";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=22";
+} from "./js/worldgen.js?v=23";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=7";
+} from "./js/siren.js?v=8";
 
 /** How far ahead NPCs scan for closed lanes; actual merge trigger is jittered per car. */
 const MERGE_LOOKAHEAD = 28;

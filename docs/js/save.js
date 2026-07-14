@@ -1,5 +1,12 @@
-import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=21";
-import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=21";
+/**
+ * localStorage persistence for coins, unlocked cars, and per-car upgrades.
+ *
+ * Flow: loadSave() → migrate/normalize → gameplay mutates → writeSave().
+ * Invariants: version ≥ 2 shape; starter car always unlocked; levels clamped
+ * to MAX_UPGRADE. v1 flat upgrades migrate into per-car maps.
+ */
+import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=28";
+import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=23";
 
 function emptyCarLevels() {
   return { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0 };

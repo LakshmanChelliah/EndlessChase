@@ -1,8 +1,11 @@
 /**
- * Seeded procedural world generation — "seemingly random" but structured.
- * Decisions hash off segment index so the road feels varied without true chaos.
+ * Seeded procedural world generation — seemingly random, structurally fair.
+ *
+ * Decisions hash off segment index (mulberry32 / hash2) so biomes, intersections,
+ * and gas spacing stay varied without true chaos. Turn offers are city ↔ rural;
+ * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=21";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=28";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {

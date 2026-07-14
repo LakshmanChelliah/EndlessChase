@@ -1,8 +1,9 @@
 /**
- * Procedural police siren via Web Audio API.
- * Alternating hi/lo yelp — volume driven by police distance.
+ * Procedural police siren (Web Audio API) — alternating hi/lo yelp.
  *
- * Unlock must happen inside a user gesture (Play / Retry tap).
+ * Flow: unlockSirenAudio() inside Play/Retry gesture → startSiren() →
+ * setSirenVolume() from heat bar (see SIREN_* in constants.js).
+ * Invariant: AudioContext must be created/resumed in a user gesture (iOS).
  */
 
 let ctx = null;

@@ -1,9 +1,13 @@
 /**
- * NES pixel meshes + road segment factory.
+ * NES visual layer — nearest-filter textures, unlit meshes, road segment factory.
+ *
+ * Purpose: build biome tiles (road, curbs, buildings, lights, gas props) and
+ * atmosphere overlays without PBR. Textures load from ASSET (constants.js).
+ * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=27";
-import { pickTurnBiomes } from "./worldgen.js?v=21";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=28";
+import { pickTurnBiomes } from "./worldgen.js?v=23";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
