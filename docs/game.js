@@ -3046,4 +3046,22 @@ window.__endlessChase = {
       cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
     };
   },
+  /** Test helper: strip civ traffic / pylons / cross traffic so corridor logic can be asserted. */
+  debugClearHazards: () => {
+    let traffic = 0;
+    for (let i = activeTraffic.length - 1; i >= 0; i--) {
+      const t = activeTraffic[i];
+      if (t.userData.pursuit) continue;
+      activeTraffic.splice(i, 1);
+      returnTrafficCar(t);
+      traffic++;
+    }
+    while (activeObstacles.length) returnObstacle(activeObstacles.pop());
+    while (activeCross.length) {
+      const c = activeCross.pop();
+      returnTrafficCar(c);
+    }
+    heat = 0;
+    return { traffic, obstaclesCleared: true };
+  },
 };
