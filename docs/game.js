@@ -1087,7 +1087,8 @@ function randomStartGas() {
 function hideStationFloat() {
   if (hudStationFloat) {
     hudStationFloat.classList.add("hidden");
-    hudStationFloat.classList.remove("ready", "side-left", "side-right");
+    hudStationFloat.style.left = "";
+    hudStationFloat.style.top = "";
   }
 }
 
@@ -1111,25 +1112,23 @@ function showGasHint(msg = "Move closer to enter") {
   gasHintTimer = 1.4;
 }
 
+/** Static FILL UP TANK CTA — only in the curb lane while alongside an open station. */
 function updateStationFloat(seg) {
-  if (!hudStationFloat || !seg?.userData.gasGroup || gasVisit) {
+  if (!hudStationFloat || !seg || gasVisit || seg.userData.gasResolved) {
     hideStationFloat();
     return;
   }
-  const side = seg.userData.gasSide < 0 ? -1 : 1;
-  const stage = document.getElementById("game-stage") || canvas.parentElement;
-  const rect = stage.getBoundingClientRect();
-  // Stable HUD anchor on the station's roadside — avoid jittery 3D projection flips
-  const x = side < 0 ? rect.width * 0.20 : rect.width * 0.80;
-  const y = rect.height * 0.40;
-  hudStationFloat.textContent = "TAP TO FILL UP!";
-  hudStationFloat.style.left = `${x}px`;
-  hudStationFloat.style.top = `${y}px`;
-  hudStationFloat.classList.toggle("side-left", side < 0);
-  hudStationFloat.classList.toggle("side-right", side > 0);
-  const ok = playerInStationLane(seg);
-  hudStationFloat.classList.toggle("ready", ok);
-  hudStationFloat.style.opacity = "1";
+  const dz = seg.position.z - playerZ;
+  // Hide once past the lot or still too far ahead
+  if (dz < -2 || Math.abs(dz) > GAS_INTERACT_RANGE) {
+    hideStationFloat();
+    return;
+  }
+  if (!playerInStationLane(seg)) {
+    hideStationFloat();
+    return;
+  }
+  hudStationFloat.textContent = "FILL UP TANK";
   hudStationFloat.classList.remove("hidden");
 }
 
@@ -2312,8 +2311,13 @@ function tick(now) {
 
       if (seg.userData.gasStation && !seg.userData.gasResolved && !gasVisit) {
         const aheadDz = seg.position.z - playerZ;
-        if (aheadDz < -8) {
+        // Passed the station without stopping — dismiss prompt and lock it out
+        if (aheadDz < -2) {
           seg.userData.gasResolved = true;
+          if (nearbyStation === seg) {
+            nearbyStation = null;
+            hideStationFloat();
+          }
         }
       }
 
@@ -2534,11 +2538,8 @@ function tick(now) {
     if (!gasVisit) {
       const station = findInteractableStation();
       nearbyStation = station || null;
-      if (nearbyStation && Math.abs(nearbyStation.position.z - playerZ) <= GAS_INTERACT_RANGE) {
-        updateStationFloat(nearbyStation);
-      } else {
-        hideStationFloat();
-      }
+      if (nearbyStation) updateStationFloat(nearbyStation);
+      else hideStationFloat();
     } else {
       hideStationFloat();
     }
