@@ -381,6 +381,8 @@ let intro = null;
 let activeBiome = "city";
 let lane = 2;
 let laneX = 0;
+/** Swipe/reset/gas-chosen X only — never retargeted by biome layout changes. */
+let laneTargetX = 0;
 let laneVel = 0;
 let playerZ = 0;
 let speed = 0;
@@ -586,13 +588,6 @@ function spawnTransitionObstacles(seg, closedLaneXs) {
   }
 }
 
-function remapLaneToLayout() {
-  const { layout, usable } = playerControlLayout();
-  lane = nearestUsableLane(layout, laneX, usable, true);
-  laneX = layout.xs[lane];
-  laneVel = 0;
-}
-
 function adoptBiomeFromSegment(seg) {
   if (!seg || !seg.userData.adoptBiome) return;
   const next = seg.userData.biome;
@@ -609,11 +604,23 @@ function adoptBiomeFromSegment(seg) {
   }
 }
 
-/** Sync `lane` to a usable index only when laneX is already on that center (no auto-steer). */
+/**
+ * Sync `lane` to a layout index only when laneX is already on that center.
+ * Never moves laneX / laneTargetX — lane indices are not portable across biomes
+ * (city lane 1 ≠ rural lane 1), so index validity alone must not retarget the spring.
+ */
 function syncPlayerLaneIndexIfAligned() {
   const { layout, usable } = playerControlLayout();
-  if (usable.includes(lane) && lane < layout.count) return;
+  if (lane >= 0 && lane < layout.count && Math.abs(laneX - layout.xs[lane]) < 0.75) {
+    return;
+  }
   for (const i of usable) {
+    if (i >= 0 && i < layout.count && Math.abs(laneX - layout.xs[i]) < 0.75) {
+      lane = i;
+      return;
+    }
+  }
+  for (let i = 0; i < layout.count; i++) {
     if (Math.abs(laneX - layout.xs[i]) < 0.75) {
       lane = i;
       return;
@@ -1456,6 +1463,7 @@ function beginPullOut() {
   const layout = layoutForSegment(gasVisit.seg);
   lane = gasVisit.requiredLane;
   gasVisit.outX = layout.xs[Math.min(Math.max(0, gasVisit.requiredLane), layout.count - 1)];
+  laneTargetX = gasVisit.outX;
   gasVisit.outZ = playerZ + 4.5;
 }
 
@@ -1590,6 +1598,7 @@ function updateGasVisit(dt) {
     applyStationCamera(gasVisit.side, gasVisit.lotX, playerZ, 1 - u);
     if (u >= 1) {
       lane = gasVisit.requiredLane;
+      laneTargetX = gasVisit.outX;
       turnYaw = 0;
       player.rotation.set(0, 0, 0);
       endGasVisit({ resume: true, busted: false });
@@ -1945,6 +1954,7 @@ function resetRunState() {
   const layout = layoutFor(activeBiome);
   lane = layout.defaultLane;
   laneX = layout.xs[lane];
+  laneTargetX = laneX;
   laneVel = 0;
   playerZ = 0;
   speed = 12;
@@ -2071,6 +2081,7 @@ function finishIntro() {
   const pz = Math.max(0, intro.p3z);
   playerZ = pz;
   laneX = intro.laneX;
+  laneTargetX = laneX;
   player.position.set(laneX, 0, pz);
   player.rotation.set(0, 0, 0);
   camera.position.copy(gameplayCamPos(laneX, pz));
@@ -2157,6 +2168,7 @@ function onSwipe(dir) {
     while (next >= 0 && next < layout.count && !usable.includes(next)) next += delta;
     if (next >= 0 && next < layout.count && usable.includes(next) && next !== lane) {
       lane = next;
+      laneTargetX = layout.xs[lane];
       // Stronger yaw kick into the lane change
       turnYawVel = -delta * TURN_YAW * 3.4;
       triggerShake(0.08, 0.1);
@@ -2536,12 +2548,12 @@ function tick(now) {
 
     const { seg: playerSeg, layout, usable } = playerControlLayout();
     adoptBiomeFromSegment(playerSeg);
-    // Player never auto-merges. Closed lanes keep their X so pylons can wreck them.
-    // Swipe is the only way onto an open lane.
-    let targetX = laneX;
-    if (lane >= 0 && lane < layout.count) {
-      targetX = layout.xs[lane];
-    }
+    // Rebind lane index to physical X after layoutBiome flips — never retarget laneTargetX.
+    syncPlayerLaneIndexIfAligned();
+    // Player never auto-merges. Spring only toward swipe/reset/gas targets so a biome
+    // enter tile cannot yank them across the road (e.g. city lane 1 → rural oncoming).
+    // Closed / orphaned Xs keep their target so pylons can wreck them.
+    const targetX = laneTargetX;
     const smooth = THREE.MathUtils.lerp(0.22, 0.11, Math.min(1, (handlingFactor(save) - 1) / 0.5));
     const omega = 2 / Math.max(0.05, smooth);
     const x = omega * dt;
@@ -2564,8 +2576,10 @@ function tick(now) {
     player.rotation.set(laneRoll * 0.35, turnYaw, laneRoll);
 
     if (hudLaneWarn) {
-      const oncoming = lane >= 0 && lane < layout.count && layout.dirs[lane] === -1;
-      const closed = !usable.includes(lane);
+      const onCenter =
+        lane >= 0 && lane < layout.count && Math.abs(laneX - layout.xs[lane]) < 0.75;
+      const oncoming = onCenter && layout.dirs[lane] === -1;
+      const closed = !onCenter || !usable.includes(lane);
       const warn = oncoming || closed;
       if (hudLaneWarn.classList.contains("hidden") && warn) {
         hudLaneWarn.classList.remove("hidden");
@@ -2950,7 +2964,8 @@ window.__endlessChase = {
   getSave: () => ({ ...save, unlocked: [...save.unlocked], cars: { ...save.cars } }),
   getPlayer: () => player,
   getState: () => ({
-    running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, gas, braking, coins: save.coins,
+    running, alive, intro: !!intro, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
+    biome: activeBiome, heat, gas, braking, coins: save.coins,
     nearbyStation: !!nearbyStation,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
     transitioning, transitionQueue: transitionQueue.length,
@@ -3030,5 +3045,23 @@ window.__endlessChase = {
       segZ: seg.position.z,
       cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
     };
+  },
+  /** Test helper: strip civ traffic / pylons / cross traffic so corridor logic can be asserted. */
+  debugClearHazards: () => {
+    let traffic = 0;
+    for (let i = activeTraffic.length - 1; i >= 0; i--) {
+      const t = activeTraffic[i];
+      if (t.userData.pursuit) continue;
+      activeTraffic.splice(i, 1);
+      returnTrafficCar(t);
+      traffic++;
+    }
+    while (activeObstacles.length) returnObstacle(activeObstacles.pop());
+    while (activeCross.length) {
+      const c = activeCross.pop();
+      returnTrafficCar(c);
+    }
+    heat = 0;
+    return { traffic, obstaclesCleared: true };
   },
 };
