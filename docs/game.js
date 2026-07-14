@@ -15,32 +15,32 @@ import {
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
   GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
   GAS_COLOR_OK, GAS_COLOR_LOW,
-  GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
+  GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_NEAR, SIREN_FAR, SIREN_AMBIENT, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=20";
+} from "./js/constants.js?v=21";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=20";
-import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=20";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=20";
+} from "./js/save.js?v=21";
+import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=21";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=21";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=20";
-import { Pool } from "./js/pool.js?v=20";
+} from "./js/carPool.js?v=21";
+import { Pool } from "./js/pool.js?v=21";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-} from "./js/nes.js?v=20";
+} from "./js/nes.js?v=21";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=20";
+} from "./js/worldgen.js?v=21";
 import {
   unlockSirenAudio, startSiren, stopSiren, setSirenVolume, sirenLevelFromProximity,
-} from "./js/siren.js?v=1";
+} from "./js/siren.js?v=2";
 
 const save = loadSave();
 
@@ -852,20 +852,25 @@ function spawnGasThreatCop() {
 function tickGasVisitThreat(dt) {
   if (!gasVisit) return false;
   const holding = gasVisit.phase === "pumping" && gasVisit.holding;
-  const rate = holding ? GAS_HOLD_HEAT_PER_SEC : GAS_VISIT_HEAT_PER_SEC;
+  const waiting = gasVisit.phase === "waitClear";
+  let rate = GAS_VISIT_HEAT_PER_SEC;
+  if (holding) rate = GAS_HOLD_HEAT_PER_SEC;
+  else if (waiting) rate = GAS_MERGE_HEAT_PER_SEC;
   heat = Math.min(100, heat + rate * dt);
 
   const threat = heat / 100;
   const zOff = THREE.MathUtils.lerp(GAS_COP_Z_FAR, GAS_COP_Z_NEAR, threat);
   if (gasVisit.cop) {
     const targetZ = playerZ - zOff;
+    // Creep slower while waiting to merge so the player can find a gap
+    const catchUp = holding ? 5 : waiting ? 1.1 : 2.4;
     gasVisit.cop.position.z = THREE.MathUtils.damp(
       gasVisit.cop.position.z,
       targetZ,
-      holding ? 5 : 2.4,
+      catchUp,
       dt
     );
-    gasVisit.cop.position.x = THREE.MathUtils.damp(gasVisit.cop.position.x, laneX, 3, dt);
+    gasVisit.cop.position.x = THREE.MathUtils.damp(gasVisit.cop.position.x, laneX, waiting ? 1.6 : 3, dt);
   }
 
   updateHeatUI();
