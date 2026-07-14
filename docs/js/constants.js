@@ -70,6 +70,16 @@ export const GAS_CAM_PAN = 4.2;
 export const GAS_COP_Z_FAR = 22;
 export const GAS_COP_Z_NEAR = 2.8;
 
+/** Police siren — distance → volume (meters) */
+export const SIREN_NEAR = 4;
+export const SIREN_FAR = 48;
+/** Baseline chase ambience while a run is active (0–1) */
+export const SIREN_AMBIENT = 0.2;
+/** Opening wail when gameplay begins — establishes the chase */
+export const SIREN_OPENING = 0.78;
+/** Seconds for the opening boost to fade into ambient/distance */
+export const SIREN_OPENING_FADE = 5.5;
+
 export const NES = {
   black: 0x000000,
   navy: 0x1d2b53,
