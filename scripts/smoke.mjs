@@ -56,15 +56,17 @@ const sy = box.y + box.height * 0.55;
 const lanePreSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
 await page.mouse.move(sx, sy);
 await page.mouse.down();
-// Drag slowly over ~600ms past MIN_SWIPE (40px)
+// Drag left slowly over ~600ms (inverted: left swipe → higher lane index)
 for (let i = 1; i <= 12; i++) {
-  await page.mouse.move(sx + i * 8, sy);
+  await page.mouse.move(sx - i * 8, sy);
   await page.waitForTimeout(50);
 }
 await page.mouse.up();
 await page.waitForTimeout(350);
 const lanePostSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
-if (lanePostSlow === lanePreSlow) throw new Error("slow swipe did not change lane");
+if (lanePostSlow === lanePreSlow) {
+  throw new Error(`slow swipe did not change lane (was ${lanePreSlow})`);
+}
 
 const distanceText = await page.textContent("#hud-distance");
 if (!/\d+\s*m/.test(distanceText || "")) throw new Error("distance HUD missing: " + distanceText);
