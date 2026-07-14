@@ -359,6 +359,14 @@ html, body {
   margin-bottom: 0.45rem;
 }
 
+.gas-hint {
+  margin-top: 0.35rem;
+  color: var(--nes-orange);
+  font-size: 0.42rem;
+  line-height: 1.45;
+  text-shadow: 2px 2px 0 #000;
+}
+
 .pump-bar-now {
   position: absolute;
   inset: 0 auto 0 0;
@@ -366,42 +374,56 @@ html, body {
   background: var(--nes-green);
 }
 
-.pump-bar-add {
-  position: absolute;
-  inset: 0 auto 0 0;
+.pump-heat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.55rem 0 0.75rem;
+}
+
+.pump-heat-label {
+  font-size: 0.4rem;
+  color: var(--nes-red);
+  flex: 0 0 auto;
+}
+
+.pump-heat-bar {
+  flex: 1;
+  height: 10px;
+  background: #000;
+  border: 2px solid var(--nes-red);
+  overflow: hidden;
+}
+
+.pump-heat-fill {
+  height: 100%;
   width: 0%;
-  background: var(--nes-yellow);
-  opacity: 0.85;
-  mix-blend-mode: screen;
+  background: var(--nes-red);
+}
+
+.pump-hold {
+  min-height: 3.2rem;
+  font-size: 0.7rem;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-select: none;
+}
+
+.pump-hold.holding {
+  background: var(--nes-green);
+  color: var(--nes-black);
+  border-color: var(--nes-white);
 }
 
 .pump-preview {
-  margin: 0 0 0.7rem;
-  font-size: 0.45rem;
+  margin: 0.55rem 0 0;
+  font-size: 0.38rem;
   color: var(--nes-gray);
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
-.pump-amounts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.45rem;
-  margin-bottom: 0.7rem;
-}
-
-.pump-amounts .pump-amt[data-fill="max"] {
-  grid-column: 1 / -1;
-}
-
-.pump-amt.selected {
-  outline: 3px solid var(--nes-green);
-  outline-offset: 1px;
-}
-
-.pump-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+.pump-preview.hot {
+  color: var(--nes-red);
 }
 
 .turn-cue {

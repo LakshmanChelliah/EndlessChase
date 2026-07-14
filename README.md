@@ -32,7 +32,7 @@ Swipe / A·D for lanes (inverted); swipe down to brake, swipe up to speed up.
 - **Swipe down** / **S** — brake and stay slow until **swipe up** / **W** / Space  
 - Turn cues — swipe L/R onto an on-ramp to switch biomes  
 - Red light fast — NOS + heat + cross traffic; brake through red to stay cooler  
-- Gas stations — random roadside pumps (L/R); tap the float / building to open the gas pump UI and pick +25% / +50% / FILL MAX  
+- Gas stations — must be in the curb lane; pull in, hold to fill while cops close in; release to escape or get busted  
 - Play / Retry / Garage — UI  
 
 ## Art
