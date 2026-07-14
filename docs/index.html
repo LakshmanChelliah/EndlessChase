@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=15" />
+  <link rel="stylesheet" href="styles.css?v=16" />
 </head>
 <body>
   <div id="game-root">
@@ -93,6 +93,11 @@
       <section id="panel-upgrades" class="panel hidden">
         <h2>Garage</h2>
         <p id="up-coins">CASH $0</p>
+        <p id="up-car-name" class="garage-car-name">Mobil</p>
+        <div id="car-list" class="car-list" role="list"></div>
+        <div class="garage-actions">
+          <button type="button" id="btn-car-action" class="btn small">Select</button>
+        </div>
         <div class="upgrade-row">
           <span id="up-speed-label">SPEED</span>
           <button type="button" id="btn-up-speed" class="btn small">Buy</button>
@@ -112,10 +117,11 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
     }
   }
   </script>
-  <script type="module" src="game.js?v=18"></script>
+  <script type="module" src="game.js?v=25"></script>
 </body>
 </html>

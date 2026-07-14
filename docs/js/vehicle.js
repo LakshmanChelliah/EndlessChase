@@ -1,0 +1,189 @@
+/**
+ * GLTF car loading, normalize (scale / ground / yaw), clone + NPC body tint.
+ */
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { CARS, glbUrl, NPC_TINTS } from "./cars.js";
+
+/** Slightly larger than the old NES footprint for readable 3D meshes. */
+const TARGET_LEN = 3.7;
+const TARGET_WIDTH = 1.95;
+
+/**
+ * Per-model yaw so headlights face +Z. Only list ids that need a non-zero offset.
+ * @type {Record<string, number>}
+ */
+export const YAW_OFFSET = {};
+
+/** @type {Record<string, THREE.Group>} */
+const prototypes = {};
+let ready = false;
+
+function toUnlitMaterials(root) {
+  root.traverse((obj) => {
+    if (!obj.isMesh) return;
+    const srcList = Array.isArray(obj.material) ? obj.material : [obj.material];
+    const next = srcList.map((src) => {
+      if (!src) return new THREE.MeshBasicMaterial({ color: 0x888888 });
+      const mat = new THREE.MeshBasicMaterial({
+        color: src.color ? src.color.clone() : new THREE.Color(0xffffff),
+        map: src.map || null,
+        transparent: !!src.transparent,
+        opacity: src.opacity != null ? src.opacity : 1,
+        side: src.side != null ? src.side : THREE.FrontSide,
+        alphaTest: src.alphaTest || 0,
+      });
+      if (src.emissive && src.emissive.getHex() > 0) {
+        mat.color.lerp(src.emissive, 0.35);
+      }
+      return mat;
+    });
+    obj.material = Array.isArray(obj.material) ? next : next[0];
+    obj.castShadow = false;
+    obj.receiveShadow = false;
+  });
+}
+
+function cloneMaterials(root) {
+  root.traverse((obj) => {
+    if (!obj.isMesh) return;
+    if (Array.isArray(obj.material)) {
+      obj.material = obj.material.map((m) => m.clone());
+    } else if (obj.material) {
+      obj.material = obj.material.clone();
+    }
+  });
+}
+
+/**
+ * Tint likely body materials. Skips glass, wheels, trim, and emissive lights.
+ */
+export function applyNpcTint(root, hex) {
+  const tint = new THREE.Color(hex);
+  root.traverse((obj) => {
+    if (!obj.isMesh) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const mat of mats) {
+      if (!mat || !mat.color) continue;
+      if (mat.emissive && mat.emissive.getHex() > 0x111111) continue;
+      const c = mat.color;
+      const max = Math.max(c.r, c.g, c.b);
+      const min = Math.min(c.r, c.g, c.b);
+      const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      const sat = max - min;
+      if (lum < 0.08 || lum > 0.85) continue;
+      if (sat < 0.04 && lum > 0.35) continue;
+      if (lum < 0.22 && sat < 0.08) continue;
+      mat.color.copy(tint);
+    }
+  });
+}
+
+function normalizeModel(scene, carId) {
+  const wrap = new THREE.Group();
+  wrap.name = `car_${carId}`;
+
+  const model = scene.clone(true);
+  toUnlitMaterials(model);
+  wrap.add(model);
+
+  const yaw = YAW_OFFSET[carId] ?? 0;
+  model.rotation.y = yaw;
+  model.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(wrap);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+
+  let scale = TARGET_LEN / Math.max(0.001, size.z);
+  const widthAfter = size.x * scale;
+  if (widthAfter > TARGET_WIDTH * 1.15) {
+    scale *= (TARGET_WIDTH * 1.15) / widthAfter;
+  }
+  wrap.scale.setScalar(scale);
+
+  wrap.updateMatrixWorld(true);
+  const box2 = new THREE.Box3().setFromObject(wrap);
+  const c2 = new THREE.Vector3();
+  box2.getCenter(c2);
+  model.position.x -= c2.x / scale;
+  model.position.z -= c2.z / scale;
+  model.position.y -= box2.min.y / scale;
+
+  wrap.userData.carId = carId;
+  wrap.userData.kind = "car";
+  wrap.userData.yawOffset = yaw;
+  return wrap;
+}
+
+/** @returns {Promise<void>} */
+export async function preloadVehicles() {
+  if (ready) return;
+  const loader = new GLTFLoader();
+  await Promise.all(
+    CARS.map(
+      (c) =>
+        new Promise((resolve, reject) => {
+          loader.load(
+            glbUrl(c.id),
+            (gltf) => {
+              prototypes[c.id] = normalizeModel(gltf.scene, c.id);
+              resolve();
+            },
+            undefined,
+            (err) => reject(err || new Error(`Failed to load ${c.id}`))
+          );
+        })
+    )
+  );
+  ready = true;
+}
+
+export function vehiclesReady() {
+  return ready;
+}
+
+/**
+ * @param {string} carId
+ * @param {{ tint?: boolean|number }} [opts]
+ */
+export function createVehicle(carId, opts = {}) {
+  const proto = prototypes[carId] || prototypes.mobil;
+  if (!proto) {
+    const fallback = new THREE.Group();
+    fallback.userData.carId = carId;
+    fallback.userData.kind = "car";
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 0.55, 2.8),
+      new THREE.MeshBasicMaterial({ color: 0x888888 })
+    );
+    box.position.y = 0.35;
+    fallback.add(box);
+    return fallback;
+  }
+  const root = proto.clone(true);
+  cloneMaterials(root);
+  root.userData.carId = carId;
+  root.userData.kind = "car";
+
+  const doTint = opts.tint === true || typeof opts.tint === "number";
+  if (doTint && carId !== "police") {
+    const hex = typeof opts.tint === "number"
+      ? opts.tint
+      : NPC_TINTS[(Math.random() * NPC_TINTS.length) | 0];
+    applyNpcTint(root, hex);
+    root.userData.tint = hex;
+  }
+  return root;
+}
+
+export function replacePlayerVehicle(scene, oldPlayer, carId) {
+  const next = createVehicle(carId, { tint: false });
+  if (oldPlayer) {
+    next.position.copy(oldPlayer.position);
+    next.rotation.copy(oldPlayer.rotation);
+    scene.remove(oldPlayer);
+  }
+  scene.add(next);
+  return next;
+}

@@ -18,19 +18,25 @@ import {
   GAS_HOLD_FILL_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=18";
+} from "./js/constants.js?v=25";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
-} from "./js/save.js?v=18";
-import { Pool } from "./js/pool.js?v=18";
+  tryBuyCar, selectCar, isUnlocked,
+} from "./js/save.js?v=25";
+import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=25";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=25";
 import {
-  createTextures, addSky, makeCar, makeTruck, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
+  rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
+} from "./js/carPool.js?v=25";
+import { Pool } from "./js/pool.js?v=25";
+import {
+  createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-} from "./js/nes.js?v=18";
+} from "./js/nes.js?v=25";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=18";
+} from "./js/worldgen.js?v=25";
 
 const save = loadSave();
 
@@ -65,12 +71,18 @@ const goTitle = document.getElementById("go-title");
 const goScore = document.getElementById("go-score");
 const goCoins = document.getElementById("go-coins");
 const upCoins = document.getElementById("up-coins");
+const upCarName = document.getElementById("up-car-name");
+const carListEl = document.getElementById("car-list");
+const btnCarAction = document.getElementById("btn-car-action");
 const upSpeedLabel = document.getElementById("up-speed-label");
 const upAccelLabel = document.getElementById("up-accel-label");
 const upHandlingLabel = document.getElementById("up-handling-label");
 const btnUpSpeed = document.getElementById("btn-up-speed");
 const btnUpAccel = document.getElementById("btn-up-accel");
 const btnUpHandling = document.getElementById("btn-up-handling");
+
+/** Garage browse highlight (may differ from equipped selectedCar while shopping). */
+let garageFocusId = save.selectedCar;
 
 function showPanel(name) {
   for (const k of Object.keys(panels)) {
@@ -87,11 +99,69 @@ function showPumpPanel(show) {
 
 function refreshUpgradesUI() {
   upCoins.textContent = `CASH $${save.coins}`;
+  if (!garageFocusId) garageFocusId = save.selectedCar;
+  const focus = getCar(garageFocusId);
+  if (upCarName) upCarName.textContent = focus.name;
+
+  if (carListEl && !carListEl.dataset.built) {
+    carListEl.innerHTML = "";
+    for (const c of BUYABLE_CARS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "car-card";
+      btn.dataset.carId = c.id;
+      btn.setAttribute("role", "listitem");
+      btn.innerHTML = `<img src="${previewUrl(c.id)}" alt="${c.name}" loading="lazy" /><span class="car-card-label">${c.name}</span>`;
+      btn.onclick = () => {
+        garageFocusId = c.id;
+        refreshUpgradesUI();
+      };
+      carListEl.appendChild(btn);
+    }
+    carListEl.dataset.built = "1";
+  }
+
+  if (carListEl) {
+    for (const btn of carListEl.querySelectorAll(".car-card")) {
+      const id = btn.dataset.carId;
+      const unlocked = isUnlocked(save, id);
+      const def = getCar(id);
+      btn.classList.toggle("selected", id === garageFocusId);
+      btn.classList.toggle("locked", !unlocked);
+      const label = btn.querySelector(".car-card-label");
+      if (label) {
+        if (!unlocked) {
+          label.innerHTML = `${def.name}<br><span class="car-card-cost">$${def.cost}</span>`;
+        } else if (id === save.selectedCar) {
+          label.textContent = `${def.name} ★`;
+        } else {
+          label.textContent = def.name;
+        }
+      }
+    }
+  }
+
+  const unlockedFocus = isUnlocked(save, garageFocusId);
+  if (btnCarAction) {
+    if (!unlockedFocus) {
+      const cost = focus.cost;
+      btnCarAction.textContent = save.coins >= cost ? `Buy $${cost}` : `Need $${cost}`;
+      btnCarAction.disabled = save.coins < cost;
+    } else if (garageFocusId === save.selectedCar) {
+      btnCarAction.textContent = "Equipped";
+      btnCarAction.disabled = true;
+    } else {
+      btnCarAction.textContent = "Select";
+      btnCarAction.disabled = false;
+    }
+  }
+
+  const levels = save.cars[garageFocusId] || { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0 };
   const bind = (labelEl, btn, title, key) => {
-    const level = save[key];
+    const level = levels[key] | 0;
     const cost = costFor(level);
     labelEl.textContent = `${title} ${level}/${MAX_UPGRADE}` + (cost < 0 ? " MAX" : ` $${cost}`);
-    btn.disabled = cost < 0 || save.coins < cost;
+    btn.disabled = !unlockedFocus || cost < 0 || save.coins < cost;
   };
   bind(upSpeedLabel, btnUpSpeed, "SPEED", "topSpeedLevel");
   bind(upAccelLabel, btnUpAccel, "ACCEL", "accelerationLevel");
@@ -231,8 +301,15 @@ const activeCoins = [];
 const activeCross = [];
 const activeObstacles = [];
 
-const player = makeCar(tex.player);
+await preloadVehicles();
+
+/** @type {THREE.Group} */
+let player = createVehicle(save.selectedCar, { tint: false });
 scene.add(player);
+
+function syncPlayerCar() {
+  player = replacePlayerVehicle(scene, player, save.selectedCar);
+}
 
 function segFactory(biome, kind) {
   const opts = { distance };
@@ -263,14 +340,6 @@ const segmentPool = {
   highwayG: new Pool(() => segFactory("highway", "G"), 1),
 };
 
-const civTex = [tex.civA, tex.civB, tex.civC];
-const carPool = new Pool(() => {
-  const c = makeCar(civTex[(Math.random() * civTex.length) | 0]);
-  scene.add(c);
-  return c;
-}, 10);
-const policePool = new Pool(() => { const c = makeCar(tex.police); scene.add(c); return c; }, 3);
-const crossPool = new Pool(() => { const c = makeTruck(tex); scene.add(c); return c; }, 4);
 const coinPool = new Pool(() => { const c = makeCoin(tex); scene.add(c); return c; }, 10);
 const conePool = new Pool(() => { const o = makeCone(); scene.add(o); return o; }, 24);
 const barricadePool = new Pool(() => { const o = makeBarricade(); scene.add(o); return o; }, 12);
@@ -380,7 +449,7 @@ function clearAheadTrafficSoft() {
     if (t.userData.pursuit) continue;
     if (t.position.z > playerZ + 55) {
       activeTraffic.splice(i, 1);
-      (t.userData.police ? policePool : carPool).return(t);
+      returnTrafficCar(t);
     }
   }
 }
@@ -544,7 +613,7 @@ function clearWorld() {
   while (activeSegments.length) recycleSegment(activeSegments.pop());
   while (activeTraffic.length) {
     const t = activeTraffic.pop();
-    (t.userData.police ? policePool : carPool).return(t);
+    returnTrafficCar(t);
   }
   while (activeCross.length) returnCross(activeCross.pop());
   while (activeCoins.length) coinPool.return(activeCoins.pop());
@@ -937,7 +1006,7 @@ function resumeThrottle() {
 function spawnPursuit() {
   if (pursuit) return;
   const layout = currentLayout();
-  const car = policePool.rent();
+  const car = rentPolice(scene);
   const tLane = Math.min(lane, layout.count - 1);
   car.position.set(layout.xs[tLane], 0, playerZ - 18);
   car.rotation.y = 0;
@@ -993,25 +1062,19 @@ function findNearbyRedIntersection() {
 function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5 } = {}) {
   if (activeCross.length >= CROSS_MAX && !hazard) return null;
   if (activeCross.length >= CROSS_MAX + 1) return null;
-  const useTruck = hazard || Math.random() < 0.35;
-  const car = useTruck ? crossPool.rent() : carPool.rent();
+  const car = rentCross(scene);
   const speed = hazard ? CROSS_HAZARD_SPEED : CROSS_SPEED * (0.85 + Math.random() * 0.3);
   const laneZ = seg.position.z + (Math.random() - 0.5) * 3.2;
   const startX = fromLeft ? -CROSS_SPAWN_X : CROSS_SPAWN_X;
   car.position.set(startX, 0, laneZ);
   car.rotation.y = fromLeft ? Math.PI / 2 : -Math.PI / 2;
   car.userData.vx = fromLeft ? speed : -speed;
-  car.userData.crossKind = useTruck ? "truck" : "car";
+  car.userData.crossKind = "van";
   car.userData.hazard = hazard;
   car.userData.police = false;
   car.userData.pursuit = false;
   activeCross.push(car);
   return car;
-}
-
-function returnCross(car) {
-  if (car.userData.crossKind === "truck") crossPool.return(car);
-  else carPool.return(car);
 }
 
 function spawnTrafficCar() {
@@ -1051,7 +1114,7 @@ function spawnTrafficCar() {
   }
 
   const police = !wantOncoming && Math.random() < 0.12;
-  const car = (police ? policePool : carPool).rent();
+  const car = police ? rentPolice(scene) : rentCivilian(scene);
   const dir = layout.dirs[tLane];
   if (dir === -1) {
     car.position.set(layout.xs[tLane], 0, playerZ + 50 + Math.random() * 40);
@@ -1144,7 +1207,7 @@ function setupMenuScene() {
   // Quiet parked deco cars further along the same curb
   const decoZs = [15, 27];
   for (let i = 0; i < decoZs.length; i++) {
-    const deco = carPool.rent();
+    const deco = rentCivilian(scene, pickMenuDecoCarId());
     deco.position.set(MENU_PARK.x - 0.15 * i, 0, decoZs[i]);
     deco.rotation.y = (i === 0 ? 0.04 : -0.03);
     deco.userData.police = false;
@@ -1155,6 +1218,7 @@ function setupMenuScene() {
     activeTraffic.push(deco);
   }
 
+  syncPlayerCar();
   parkPlayerCurbside();
   applyMenuCamera();
   menuTime = 0;
@@ -1209,6 +1273,7 @@ function startRun(opts = {}) {
 
   clearWorld();
   resetRunState();
+  syncPlayerCar();
   for (let i = 0; i < 10; i++) spawnSegment();
 
   showPanel("hud");
@@ -1345,7 +1410,11 @@ function onSwipe(dir) {
     let next = lane + delta;
     // Walk toward the swipe until we hit a usable lane; block if none
     while (next >= 0 && next < layout.count && !usable.includes(next)) next += delta;
-    if (next >= 0 && next < layout.count && usable.includes(next)) lane = next;
+    if (next >= 0 && next < layout.count && usable.includes(next) && next !== lane) {
+      lane = next;
+      // Mild yaw kick into the lane change
+      turnYawVel = -delta * TURN_YAW * 2.2;
+    }
   }
   if (dir === "down") startBrake();
   if (dir === "up") resumeThrottle();
@@ -1452,10 +1521,16 @@ document.getElementById("btn-menu").onclick = () => {
   showPanel("menu");
 };
 document.getElementById("btn-upgrades-menu").onclick = () => {
-  fromGameOver = false; refreshUpgradesUI(); showPanel("upgrades");
+  fromGameOver = false;
+  garageFocusId = save.selectedCar;
+  refreshUpgradesUI();
+  showPanel("upgrades");
 };
 document.getElementById("btn-upgrades-go").onclick = () => {
-  fromGameOver = true; refreshUpgradesUI(); showPanel("upgrades");
+  fromGameOver = true;
+  garageFocusId = save.selectedCar;
+  refreshUpgradesUI();
+  showPanel("upgrades");
 };
 document.getElementById("btn-up-back").onclick = () => {
   if (fromGameOver) showPanel("gameover");
@@ -1464,9 +1539,28 @@ document.getElementById("btn-up-back").onclick = () => {
     showPanel("menu");
   }
 };
-btnUpSpeed.onclick = () => { if (tryUpgrade(save, "topSpeedLevel")) refreshUpgradesUI(); };
-btnUpAccel.onclick = () => { if (tryUpgrade(save, "accelerationLevel")) refreshUpgradesUI(); };
-btnUpHandling.onclick = () => { if (tryUpgrade(save, "handlingLevel")) refreshUpgradesUI(); };
+btnUpSpeed.onclick = () => {
+  if (tryUpgrade(save, "topSpeedLevel", garageFocusId)) refreshUpgradesUI();
+};
+btnUpAccel.onclick = () => {
+  if (tryUpgrade(save, "accelerationLevel", garageFocusId)) refreshUpgradesUI();
+};
+btnUpHandling.onclick = () => {
+  if (tryUpgrade(save, "handlingLevel", garageFocusId)) refreshUpgradesUI();
+};
+if (btnCarAction) {
+  btnCarAction.onclick = () => {
+    if (!isUnlocked(save, garageFocusId)) {
+      if (tryBuyCar(save, garageFocusId)) {
+        syncPlayerCar();
+        refreshUpgradesUI();
+      }
+    } else if (selectCar(save, garageFocusId)) {
+      syncPlayerCar();
+      refreshUpgradesUI();
+    }
+  };
+}
 
 function layoutCanvas() {
   // Always render as portrait (9:16). If the phone is landscape, letterbox
@@ -1557,7 +1651,7 @@ function tick(now) {
     if (!usable.includes(lane)) {
       lane = nearestUsableLane(layout, laneX, usable, true);
     }
-    const smooth = THREE.MathUtils.lerp(0.18, 0.08, Math.min(1, (handlingFactor(save) - 1) / 0.5));
+    const smooth = THREE.MathUtils.lerp(0.22, 0.11, Math.min(1, (handlingFactor(save) - 1) / 0.5));
     const targetX = layout.xs[Math.min(Math.max(0, lane), layout.count - 1)];
     const omega = 2 / Math.max(0.05, smooth);
     const x = omega * dt;
@@ -1567,12 +1661,17 @@ function tick(now) {
     laneVel = (laneVel - omega * temp) * exp;
     laneX = targetX + (change + temp) * exp;
 
+    // Subtle steer yaw with lateral motion, then settle straight
+    const laneYawTarget = THREE.MathUtils.clamp(laneVel * 0.02, -TURN_YAW * 0.45, TURN_YAW * 0.45);
     turnYaw += turnYawVel * dt;
-    turnYaw = THREE.MathUtils.damp(turnYaw, 0, 3.5, dt);
-    turnYawVel = THREE.MathUtils.damp(turnYawVel, 0, 5, dt);
+    turnYaw = THREE.MathUtils.damp(turnYaw, laneYawTarget, 9, dt);
+    turnYawVel = THREE.MathUtils.damp(turnYawVel, 0, 8, dt);
 
-    player.position.set(Math.round(laneX * 8) / 8, 0, playerZ);
-    player.rotation.y = turnYaw;
+    // Light bank — keep wheels planted
+    const laneRoll = THREE.MathUtils.clamp(-laneVel * 0.022, -0.1, 0.1);
+
+    player.position.set(laneX, 0, playerZ);
+    player.rotation.set(laneRoll * 0.15, turnYaw, laneRoll);
 
     if (hudLaneWarn) {
       hudLaneWarn.classList.toggle("hidden", layout.dirs[lane] !== -1);
@@ -1744,7 +1843,7 @@ function tick(now) {
       t.position.z += (dir === -1 ? -t.userData.speed : t.userData.speed) * dt;
       if (t.position.z < playerZ - 25 || t.position.z > playerZ + 100) {
         activeTraffic.splice(i, 1);
-        (t.userData.police ? policePool : carPool).return(t);
+        returnTrafficCar(t);
         continue;
       }
       if (!gasVisit && Math.abs(t.position.z - playerZ) < 2.2 && Math.abs(t.position.x - laneX) < 1.35) {
@@ -1846,7 +1945,8 @@ requestAnimationFrame(tick);
 window.__endlessChase = {
   startRun,
   setupMenuScene,
-  getSave: () => ({ ...save }),
+  getSave: () => ({ ...save, unlocked: [...save.unlocked], cars: { ...save.cars } }),
+  getPlayer: () => player,
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, biome: activeBiome, heat, gas, braking, coins: save.coins,
     nearbyStation: !!nearbyStation,
@@ -1855,6 +1955,7 @@ window.__endlessChase = {
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),
     playerYaw: +player.rotation.y.toFixed(3),
+    carId: player.userData.carId,
   }),
   getSegmentAt,
   buildTransitionPlan,
