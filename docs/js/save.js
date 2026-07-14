@@ -1,5 +1,5 @@
-import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js";
-import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js";
+import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=19";
+import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=19";
 
 function emptyCarLevels() {
   return { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0 };

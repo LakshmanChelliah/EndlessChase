@@ -18,25 +18,25 @@ import {
   GAS_HOLD_FILL_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js";
+} from "./js/constants.js?v=19";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js";
-import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js";
+} from "./js/save.js?v=19";
+import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=19";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=19";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js";
-import { Pool } from "./js/pool.js";
+} from "./js/carPool.js?v=19";
+import { Pool } from "./js/pool.js?v=19";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-} from "./js/nes.js";
+} from "./js/nes.js?v=19";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js";
+} from "./js/worldgen.js?v=19";
 
 const save = loadSave();
 
