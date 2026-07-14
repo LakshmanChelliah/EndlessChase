@@ -1,6 +1,8 @@
 /**
- * Smoke test for Endless Chase UI checklist (local or Pages URL).
- * Usage: node scripts/smoke.mjs [baseUrl]
+ * Playwright smoke for Endless Chase (local serve or live Pages URL).
+ * Covers boot → Play → lane input (keyboard + slow swipe) → garage path.
+ * Usage: node tests/smoke.mjs [baseUrl]
+ * Expect: server already up for local runs (`npm run serve`).
  */
 import { chromium } from "playwright";
 

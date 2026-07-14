@@ -1,6 +1,6 @@
 # Endless Chase — UI Test Checklist
 
-## Local (`npx serve docs`)
+## Local (`npm run serve`)
 
 - [ ] Page loads; NES CRT look; no blank hang
 - [ ] **Play** starts run; HUD shows distance/coins/heat/**gas**
@@ -18,7 +18,8 @@
 - [ ] Empty tank forces coast → heat / bust; gas text/bar turns red below 15%
 - [ ] Coins + Garage upgrades persist across reload
 - [ ] Red fast → BOOST + heat; red while braking → RED SLOW
-- [ ] Modules load (`docs/js/*.js`) with no console errors
+- [ ] Modules load (`docs/js/*.js` via `game.js`) with no console errors
+- [ ] Smoke: with server up, `npm run smoke` prints `SMOKE_OK`
 
 ## Live GitHub Pages
 

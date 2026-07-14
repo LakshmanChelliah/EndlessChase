@@ -4,6 +4,10 @@ using UnityEngine.UI;
 
 namespace EndlessChase.UI
 {
+    /// <summary>
+    /// Garage UI — binds coin balance and top-speed / accel / handling upgrade rows
+    /// to <see cref="UpgradeManager"/> purchase attempts.
+    /// </summary>
     public sealed class UpgradePanel : MonoBehaviour
     {
         [SerializeField] Text _coinsText;

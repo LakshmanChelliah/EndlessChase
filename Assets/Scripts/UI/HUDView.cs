@@ -3,6 +3,10 @@ using UnityEngine.UI;
 
 namespace EndlessChase.UI
 {
+    /// <summary>
+    /// Run HUD bindings — distance, coins, boost flag, light hint, game-over scores.
+    /// Presentation only; GameUIController owns panel flow.
+    /// </summary>
     public sealed class HUDView : MonoBehaviour
     {
         [SerializeField] Text _distanceText;

@@ -1,3 +1,8 @@
+/**
+ * Endless Chase — NES / CRT presentation layer.
+ * Full-viewport shell, pixel upscale, panel HUD, pump + garage chrome.
+ * Palette tokens mirror docs/js/constants.js NES colors.
+ */
 :root {
   --nes-navy: #1d2b53;
   --nes-black: #000000;

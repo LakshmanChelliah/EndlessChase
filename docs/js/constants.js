@@ -1,11 +1,23 @@
-/** Shared tunables + biome lane layouts for Endless Chase (NES client). */
+/**
+ * Endless Chase — shared tunables, biome lane layouts, and asset path roots.
+ *
+ * Single source of truth for paths used by nes.js / cars.js loaders:
+ *   ASSET      → docs/assets/nes/   (procedural pixel atlases)
+ *   CARS_ASSET → docs/assets/cars/  (GLB + garage previews)
+ *
+ * Invariants: SEG_LEN matches Unity LevelManager.SegmentLength (20m);
+ * SAVE_KEY must stay stable across releases or migrate in save.js.
+ */
 export const SEG_LEN = 20;
 export const SAVE_KEY = "EndlessChase.Save.v1";
 export const MAX_UPGRADE = 5;
 export const COSTS = [50, 100, 200, 400, 800];
 export const NES_W = 320;
 export const NES_H = 180;
+/** Relative to the Pages / docs/ site root */
 export const ASSET = "assets/nes";
+/** Relative to the Pages / docs/ site root */
+export const CARS_ASSET = "assets/cars";
 
 export const BRAKE_DURATION = 0.85;
 export const BRAKE_SPEED_MUL = 0.4;

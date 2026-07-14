@@ -42,6 +42,11 @@ namespace EndlessChase.Meta
         }
     }
 
+    /// <summary>
+    /// Singleton persistence hub. Loads/saves <see cref="SaveData"/> through an
+    /// <see cref="ISaveBackend"/> (PlayerPrefs on WebGL → IndexedDB-safe storage).
+    /// Must exist before UpgradeManager mutates currency (see GameBootstrap).
+    /// </summary>
     public sealed class SaveService : MonoBehaviour
     {
         public const string SaveKey = "EndlessChase.Save.v1";

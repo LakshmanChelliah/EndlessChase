@@ -9,6 +9,10 @@ namespace EndlessChase.Level
         Highway = 2
     }
 
+    /// <summary>
+    /// Scriptable biome config: straight/intersection pool ids, spawn chances,
+    /// traffic density. Consumed by LevelManager when picking the next segment.
+    /// </summary>
     [CreateAssetMenu(fileName = "BiomeDefinition", menuName = "EndlessChase/Biome Definition")]
     public sealed class BiomeDefinition : ScriptableObject
     {

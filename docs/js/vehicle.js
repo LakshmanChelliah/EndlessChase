@@ -1,9 +1,13 @@
 /**
- * GLTF car loading, normalize (scale / ground / yaw), clone + NPC body tint.
+ * GLTF vehicle pipeline — preload prototypes, normalize footprint, clone + tint.
+ *
+ * Flow: preloadVehicles() → createVehicle(id) clones a prototype → optional
+ * NPC body tint / blinkers. Paths via glbUrl() → CARS_ASSET.
+ * Invariant: headlights face +Z after YAW_OFFSET; MeshBasic (unlit) materials.
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { CARS, glbUrl, NPC_TINTS } from "./cars.js?v=21";
+import { CARS, glbUrl, NPC_TINTS } from "./cars.js?v=23";
 
 /** Slightly larger than the old NES footprint for readable 3D meshes. */
 const TARGET_LEN = 3.7;

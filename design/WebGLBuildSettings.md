@@ -46,4 +46,4 @@ Select `EndlessChase` WebGL template (touch-action / overscroll guards).
 
 ## Without Unity Editor
 
-`docs/` Three.js client approximates Fake GTA materials (MeshStandard + golden-hour lights) for Pages CI until a Unity WebGL binary is produced.
+The shipped `docs/` Three.js client is NES/unlit-first (see [ArtBible.md](ArtBible.md)). Unity Mobile PBR settings above apply when producing a Unity WebGL binary for Pages.
