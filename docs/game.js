@@ -15,7 +15,7 @@ import {
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
   GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
   GAS_COLOR_OK, GAS_COLOR_LOW,
-  GAS_HOLD_FILL_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION,
+  GAS_HOLD_FILL_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   layoutFor, biomeLabel, poolKey,
 } from "./js/constants.js";
@@ -59,6 +59,7 @@ const hudGasBlock = document.getElementById("hud-gas-block");
 const hudGasFill = document.getElementById("hud-gas-fill");
 const hudGasHint = document.getElementById("hud-gas-hint");
 const hudStationFloat = document.getElementById("hud-station-float");
+const hudMergeBtn = document.getElementById("hud-merge-btn");
 const hudTurn = document.getElementById("hud-turn");
 const hudLaneWarn = document.getElementById("hud-lane-warn");
 const hudSpeed = document.getElementById("hud-speed");
@@ -202,6 +203,13 @@ function gameplayCamPos(lx, pz, out = _tmpV) {
 function gameplayCamLook(lx, pz, out = _tmpV2) {
   return out.set(lx * 0.05, 1.0, pz + 14);
 }
+/** Camera panned toward a roadside gas station (side: -1 left, +1 right). */
+function stationCamPos(lx, pz, side, out = _tmpV) {
+  return out.set(lx * 0.08 + side * GAS_CAM_PAN, 7.6, pz - 11);
+}
+function stationCamLook(lotX, pz, out = _tmpV2) {
+  return out.set(lotX * 0.72, 1.4, pz + 5);
+}
 function setCameraLook(x, y, z) {
   _camLook.set(x, y, z);
   camera.lookAt(_camLook);
@@ -264,10 +272,11 @@ let turnActive = null;
 /** @type {null | { seg: object }} */
 let nearbyStation = null;
 /**
- * Gas visit state machine: pullIn → pumping → pullOut (or bust).
+ * Gas visit state machine: pullIn → pumping → waitClear → pullOut (or bust).
  * @type {null | {
- *   phase: "pullIn"|"pumping"|"pullOut",
+ *   phase: "pullIn"|"pumping"|"waitClear"|"pullOut",
  *   seg: object,
+ *   side: 1|-1,
  *   requiredLane: number,
  *   fromX: number, fromZ: number, fromYaw: number,
  *   lotX: number, lotZ: number,
@@ -275,6 +284,7 @@ let nearbyStation = null;
  *   t: number, duration: number,
  *   holding: boolean,
  *   cop: object|null,
+ *   camPan: number,
  * }}
  */
 let gasVisit = null;
@@ -651,7 +661,18 @@ function randomStartGas() {
 }
 
 function hideStationFloat() {
-  if (hudStationFloat) hudStationFloat.classList.add("hidden");
+  if (hudStationFloat) {
+    hudStationFloat.classList.add("hidden");
+    hudStationFloat.classList.remove("ready");
+  }
+}
+
+function hideMergeBtn() {
+  if (hudMergeBtn) hudMergeBtn.classList.add("hidden");
+}
+
+function showMergeBtn() {
+  if (hudMergeBtn) hudMergeBtn.classList.remove("hidden");
 }
 
 function hideGasHint() {
@@ -683,11 +704,12 @@ function updateStationFloat(seg) {
   const rect = stage.getBoundingClientRect();
   const x = (world.x * 0.5 + 0.5) * rect.width;
   const y = (-world.y * 0.5 + 0.5) * rect.height;
+  hudStationFloat.textContent = "TAP TO FILL UP!";
   hudStationFloat.style.left = `${x}px`;
   hudStationFloat.style.top = `${y}px`;
-  // Dim float when in wrong lane
   const ok = playerInStationLane(seg);
-  hudStationFloat.style.opacity = ok ? "1" : "0.55";
+  hudStationFloat.classList.toggle("ready", ok);
+  hudStationFloat.style.opacity = "1";
   hudStationFloat.classList.remove("hidden");
 }
 
@@ -732,10 +754,22 @@ function stationLotX(seg) {
   return side * (half + (seg.userData.biome === "city" ? 6.2 : 5.4));
 }
 
+function applyStationCamera(side, lotX, pz, blend = 1) {
+  const panSide = side < 0 ? -1 : 1;
+  const defPos = gameplayCamPos(laneX, pz, new THREE.Vector3());
+  const stPos = stationCamPos(laneX, pz, panSide, new THREE.Vector3());
+  const defLook = gameplayCamLook(laneX, pz, new THREE.Vector3());
+  const stLook = stationCamLook(lotX, pz, new THREE.Vector3());
+  camera.position.lerpVectors(defPos, stPos, blend);
+  _camLook.lerpVectors(defLook, stLook, blend);
+  camera.lookAt(_camLook);
+}
+
 function beginGasVisit(seg) {
   if (gasVisit || !seg || !alive) return;
   nearbyStation = null;
   hideStationFloat();
+  hideMergeBtn();
   hideGasHint();
   seg.userData.gasResolved = true;
 
@@ -743,10 +777,12 @@ function beginGasVisit(seg) {
   const layout = layoutForSegment(seg);
   const lotX = stationLotX(seg);
   const lotZ = seg.position.z;
+  const side = seg.userData.gasSide < 0 ? -1 : 1;
 
   gasVisit = {
     phase: "pullIn",
     seg,
+    side,
     requiredLane,
     fromX: laneX,
     fromZ: playerZ,
@@ -759,6 +795,7 @@ function beginGasVisit(seg) {
     duration: GAS_PULL_DURATION,
     holding: false,
     cop: null,
+    camPan: 0,
   };
   speed = 0;
   braking = true;
@@ -772,7 +809,7 @@ function startPumpingPhase() {
   gasVisit.holding = false;
   gasVisit.t = 0;
   // Threat cop approaches from behind while you hold
-  const car = policePool.rent();
+  const car = rentPolice(scene);
   car.position.set(gasVisit.lotX * 0.35, 0, playerZ - GAS_COP_Z_FAR);
   car.rotation.y = 0;
   car.userData.police = true;
@@ -783,6 +820,24 @@ function startPumpingPhase() {
   activeTraffic.push(car);
   gasVisit.cop = car;
   showPumpPanel(true);
+  hideMergeBtn();
+  updatePumpHoldUI();
+}
+
+/** After pumping: wait for player to choose when traffic is clear. */
+function enterWaitClear() {
+  if (!gasVisit || gasVisit.phase === "waitClear" || gasVisit.phase === "pullOut") return;
+  setPumpHolding(false);
+  showPumpPanel(false);
+  if (gasVisit.cop) {
+    const idx = activeTraffic.indexOf(gasVisit.cop);
+    if (idx >= 0) activeTraffic.splice(idx, 1);
+    returnTrafficCar(gasVisit.cop);
+    gasVisit.cop = null;
+  }
+  gasVisit.phase = "waitClear";
+  gasVisit.holding = false;
+  showMergeBtn();
   updatePumpHoldUI();
 }
 
@@ -790,11 +845,11 @@ function beginPullOut() {
   if (!gasVisit || gasVisit.phase === "pullOut") return;
   setPumpHolding(false);
   showPumpPanel(false);
-  // Return threat cop to pool unless we're about to bust
+  hideMergeBtn();
   if (gasVisit.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
-    policePool.return(gasVisit.cop);
+    returnTrafficCar(gasVisit.cop);
     gasVisit.cop = null;
   }
   gasVisit.phase = "pullOut";
@@ -813,11 +868,12 @@ function endGasVisit({ resume = true, busted = false } = {}) {
   if (gasVisit?.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
-    policePool.return(gasVisit.cop);
+    returnTrafficCar(gasVisit.cop);
   }
   const was = !!gasVisit;
   gasVisit = null;
   showPumpPanel(false);
+  hideMergeBtn();
   if (btnPumpHold) btnPumpHold.classList.remove("holding");
   if (busted) {
     heat = 100;
@@ -862,7 +918,7 @@ function updatePumpHoldUI() {
     pumpPreview.classList.toggle("hot", heat >= 70);
     if (heat >= 85) pumpPreview.textContent = "COPS CLOSING IN — RELEASE!";
     else if (gasVisit?.holding) pumpPreview.textContent = "FILLING… DANGER RISING";
-    else pumpPreview.textContent = "HOLD TO FILL · RELEASE TO ESCAPE";
+    else pumpPreview.textContent = "HOLD TO FILL · RELEASE TO MERGE";
   }
   updateGasUI();
   updateHeatUI();
@@ -881,9 +937,8 @@ function updateGasVisit(dt) {
     turnYaw = THREE.MathUtils.lerp(gasVisit.fromYaw, yawTarget * 0.65, u);
     player.position.set(laneX, 0, playerZ);
     player.rotation.set(0, turnYaw, turnYaw * -0.15);
-    camera.position.copy(gameplayCamPos(laneX, playerZ));
-    const look = gameplayCamLook(laneX, playerZ);
-    setCameraLook(look.x, look.y, look.z);
+    gasVisit.camPan = u;
+    applyStationCamera(gasVisit.side, gasVisit.lotX, playerZ, u);
     if (u >= 1) {
       turnYaw = 0;
       lane = gasVisit.requiredLane;
@@ -895,9 +950,8 @@ function updateGasVisit(dt) {
   if (gasVisit.phase === "pumping") {
     player.position.set(laneX, 0, playerZ);
     player.rotation.set(0, 0, 0);
-    camera.position.copy(gameplayCamPos(laneX * 0.6, playerZ));
-    const look = gameplayCamLook(laneX * 0.6, playerZ);
-    setCameraLook(look.x, look.y, look.z);
+    gasVisit.camPan = 1;
+    applyStationCamera(gasVisit.side, gasVisit.lotX, playerZ, 1);
 
     if (gasVisit.holding) {
       gas = Math.min(100, gas + GAS_HOLD_FILL_PER_SEC * dt);
@@ -921,9 +975,18 @@ function updateGasVisit(dt) {
     }
     if (gas >= 100) {
       gas = 100;
-      beginPullOut();
+      enterWaitClear();
       return;
     }
+    return;
+  }
+
+  if (gasVisit.phase === "waitClear") {
+    // Parked at the pump — heat paused so you can wait for a gap
+    player.position.set(laneX, 0, playerZ);
+    player.rotation.set(0, 0, 0);
+    gasVisit.camPan = 1;
+    applyStationCamera(gasVisit.side, gasVisit.lotX, playerZ, 1);
     return;
   }
 
@@ -939,9 +1002,8 @@ function updateGasVisit(dt) {
     speed = THREE.MathUtils.lerp(0, 12 * topSpeedFactor(save), u);
     player.position.set(laneX, 0, playerZ);
     player.rotation.set(0, turnYaw, turnYaw * -0.08);
-    camera.position.copy(gameplayCamPos(laneX, playerZ));
-    const look = gameplayCamLook(laneX, playerZ);
-    setCameraLook(look.x, look.y, look.z);
+    gasVisit.camPan = 1 - u;
+    applyStationCamera(gasVisit.side, gasVisit.lotX, playerZ, 1 - u);
     if (u >= 1) {
       lane = gasVisit.requiredLane;
       turnYaw = 0;
@@ -1143,10 +1205,11 @@ function endRun(reason) {
   if (gasVisit?.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
-    policePool.return(gasVisit.cop);
+    returnTrafficCar(gasVisit.cop);
   }
   gasVisit = null;
   showPumpPanel(false);
+  hideMergeBtn();
   nearbyStation = null;
   hideStationFloat();
   hideGasHint();
@@ -1459,6 +1522,13 @@ window.addEventListener("keydown", (e) => {
     }
     return;
   }
+  if (gasVisit?.phase === "waitClear") {
+    if (e.key === " " || e.key === "Enter" || e.key === "w" || e.key === "ArrowUp") {
+      e.preventDefault();
+      beginPullOut();
+    }
+    return;
+  }
   if (gasVisit) return;
   if (e.key === "a" || e.key === "ArrowLeft") onSwipe("left");
   if (e.key === "d" || e.key === "ArrowRight") onSwipe("right");
@@ -1470,7 +1540,7 @@ window.addEventListener("keyup", (e) => {
   if (gasVisit?.phase === "pumping" && (e.key === " " || e.key === "f" || e.key === "F")) {
     if (gasVisit.holding) {
       setPumpHolding(false);
-      beginPullOut();
+      enterWaitClear();
     }
     return;
   }
@@ -1486,6 +1556,14 @@ if (hudStationFloat) {
   });
 }
 
+if (hudMergeBtn) {
+  hudMergeBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (gasVisit?.phase === "waitClear") beginPullOut();
+  });
+}
+
 function bindPumpHold(el) {
   if (!el) return;
   const down = (e) => {
@@ -1496,7 +1574,7 @@ function bindPumpHold(el) {
     e.preventDefault();
     if (gasVisit?.phase === "pumping" && gasVisit.holding) {
       setPumpHolding(false);
-      beginPullOut();
+      enterWaitClear();
     }
   };
   el.addEventListener("mousedown", down);
@@ -1804,7 +1882,7 @@ function tick(now) {
         // Threat cop is driven by updateGasVisit; just cull if orphaned
         if (!gasVisit) {
           activeTraffic.splice(i, 1);
-          policePool.return(t);
+          returnTrafficCar(t);
         }
         continue;
       }

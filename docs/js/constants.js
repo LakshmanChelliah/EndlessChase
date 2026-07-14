@@ -64,6 +64,8 @@ export const GAS_HOLD_FILL_PER_SEC = 28;
 export const GAS_HOLD_HEAT_PER_SEC = 22;
 /** Pull-in / pull-out anim length (seconds) */
 export const GAS_PULL_DURATION = 0.75;
+/** Camera pan toward station side while visiting (world X offset) */
+export const GAS_CAM_PAN = 4.2;
 /** Cop visual distance while pumping (far → near as heat rises) */
 export const GAS_COP_Z_FAR = 22;
 export const GAS_COP_Z_NEAR = 2.8;
