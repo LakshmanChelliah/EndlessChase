@@ -1,8 +1,8 @@
 /**
  * Pooled rent/return for civilian, police, and cross-traffic vehicles.
  */
-import { pickCivilianCarId } from "./cars.js?v=19";
-import { createVehicle } from "./vehicle.js?v=19";
+import { pickCivilianCarId } from "./cars.js?v=20";
+import { createVehicle } from "./vehicle.js?v=20";
 
 /** @type {Record<string, import("three").Object3D[]>} */
 const civFree = Object.create(null);
