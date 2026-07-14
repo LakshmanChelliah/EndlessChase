@@ -17,9 +17,9 @@ import {
   GAS_COLOR_OK, GAS_COLOR_LOW,
   GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
-  SIREN_NEAR, SIREN_FAR, SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
+  SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=25";
+} from "./js/constants.js?v=26";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -41,7 +41,7 @@ import {
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=6";
+} from "./js/siren.js?v=7";
 
 const save = loadSave();
 
@@ -655,35 +655,9 @@ function updateHeatUI() {
 }
 
 /**
- * Distance to the nearest siren-driving chase cop (pursuit / gas threat).
- * Opening shadow cops and ambient traffic police are ignored so braking
- * / speed changes cannot yank the volume.
- */
-function nearestPoliceDist() {
-  let best = null;
-  for (const t of activeTraffic) {
-    const u = t.userData;
-    if (!u?.police) continue;
-    if (!(u.pursuit || u.gasThreat)) continue;
-    const dx = t.position.x - laneX;
-    const dz = t.position.z - playerZ;
-    const d = Math.hypot(dx, dz);
-    if (best == null || d < best) best = d;
-  }
-  return best;
-}
-
-/** 0–1 fill of the distance scale (0 = far, 1 = near), for debug / HUD parity. */
-function policeDistanceBarFill(dist = nearestPoliceDist()) {
-  if (dist == null || !Number.isFinite(dist)) return 0;
-  const fill = 1 - (dist - SIREN_NEAR) / Math.max(0.001, SIREN_FAR - SIREN_NEAR);
-  return Math.max(0, Math.min(1, fill));
-}
-
-/**
- * Siren volume from real police distance only (not brake / heat / speed).
- * Loud opening at start; afterward silent until distance fill ≥ ~60%,
- * then louder as cops close in.
+ * Siren volume tracks the HUD police distance bar immediately:
+ * silent below 60% fill, on at 60%, louder as the bar climbs.
+ * Opening cue still plays at run start.
  * @param {number} dt
  */
 function updateSirenAudio(dt) {
@@ -700,18 +674,19 @@ function updateSirenAudio(dt) {
   resumeSirenAudio();
   startSiren();
 
-  const dist = nearestPoliceDist();
+  // Exact same value that drives the police distance bar width
+  const bar = Math.max(0, Math.min(1, heat / 100));
   const target = sirenLevelFromProximity(
-    { dist, opening },
+    { bar, opening },
     {
-      near: SIREN_NEAR,
-      far: SIREN_FAR,
       onset: SIREN_ONSET,
       volNear: SIREN_VOL_NEAR,
       volOnset: SIREN_VOL_ONSET,
     },
   );
-  sirenSmoothVol = THREE.MathUtils.damp(sirenSmoothVol, target, 4.5, dt);
+  // Fast attack when the bar crosses 60% so sirens kick in right away
+  const damp = target > sirenSmoothVol ? 14 : 6;
+  sirenSmoothVol = THREE.MathUtils.damp(sirenSmoothVol, target, damp, dt);
   setSirenVolume(sirenSmoothVol);
 }
 
@@ -726,8 +701,7 @@ function beginChaseSiren() {
 }
 
 /**
- * Spawn a trailing police car behind the player so distance-based sirens
- * have a real source at the start of a run (not a bust pursuit).
+ * Spawn a trailing police car behind the player (visual chase presence).
  */
 function spawnOpeningChaseCop() {
   const layout = currentLayout();
@@ -2200,9 +2174,7 @@ window.__endlessChase = {
     nearbyStation: !!nearbyStation,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
     transitioning, transitionQueue: transitionQueue.length,
-    policeDist: nearestPoliceDist(),
-    policeBar: +(policeDistanceBarFill() * 100).toFixed(1),
-    heat: +heat.toFixed(1),
+    policeBar: +heat.toFixed(1),
     sirenOpeningT: +sirenOpeningT.toFixed(2),
     sirenVol: +sirenSmoothVol.toFixed(3),
     siren: getSirenDebug(),
