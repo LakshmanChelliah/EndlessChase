@@ -12,6 +12,29 @@ const policeFree = [];
 const crossFree = [];
 
 /**
+ * Clear role/behavior flags left over from a previous life in the pool.
+ * Without this, recycled curb deco / chase / gas-threat cars stay frozen
+ * (and skip collision) when reused as normal traffic.
+ * @param {import("three").Object3D} car
+ */
+export function resetTrafficRoleFlags(car) {
+  const u = car.userData;
+  u.curbParked = false;
+  u.openingChase = false;
+  u.gasThreat = false;
+  u.pursuit = false;
+  u.stopped = false;
+  u.police = false;
+  u.hazard = false;
+  u.crossKind = null;
+  u.vx = 0;
+  u.dir = 1;
+  u.lane = 0;
+  u.speed = 0;
+  u.cruiseSpeed = 0;
+}
+
+/**
  * @param {import("three").Scene} scene
  * @param {string} [carId]
  */
@@ -23,12 +46,14 @@ export function rentCivilian(scene, carId = pickCivilianCarId()) {
     scene.add(car);
   }
   car.visible = true;
+  resetTrafficRoleFlags(car);
   ensureBlinkers(car);
   return car;
 }
 
 export function returnCivilian(car) {
   car.visible = false;
+  resetTrafficRoleFlags(car);
   const id = car.userData.carId || "coupe";
   (civFree[id] || (civFree[id] = [])).push(car);
 }
@@ -41,12 +66,17 @@ export function rentPolice(scene) {
     scene.add(car);
   }
   car.visible = true;
+  resetTrafficRoleFlags(car);
+  // Police pool cars are always police-skinned; role flags still start clean.
+  car.userData.police = true;
   ensureBlinkers(car);
   return car;
 }
 
 export function returnPolice(car) {
   car.visible = false;
+  resetTrafficRoleFlags(car);
+  car.userData.police = true;
   policeFree.push(car);
 }
 
@@ -58,15 +88,18 @@ export function rentCross(scene) {
     scene.add(car);
   }
   car.visible = true;
+  resetTrafficRoleFlags(car);
   return car;
 }
 
 export function returnCross(car) {
   car.visible = false;
+  resetTrafficRoleFlags(car);
   crossFree.push(car);
 }
 
 export function returnTrafficCar(t) {
-  if (t.userData.police) returnPolice(t);
+  // Prefer carId so routing stays correct even if role flags were cleared.
+  if (t.userData.carId === "police" || t.userData.police) returnPolice(t);
   else returnCivilian(t);
 }

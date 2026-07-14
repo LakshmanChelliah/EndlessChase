@@ -28,7 +28,7 @@ import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/
 import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=22";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=22";
+} from "./js/carPool.js?v=23";
 import { Pool } from "./js/pool.js?v=21";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
@@ -1060,6 +1060,8 @@ function spawnOpeningChaseCop() {
   car.rotation.y = 0;
   car.userData.police = true;
   car.userData.pursuit = false;
+  car.userData.gasThreat = false;
+  car.userData.curbParked = false;
   car.userData.openingChase = true;
   car.userData.dir = 1;
   car.userData.speed = Math.max(8, speed * 0.92);
@@ -1191,6 +1193,8 @@ function spawnGasThreatCop() {
   car.rotation.y = 0;
   car.userData.police = true;
   car.userData.pursuit = false;
+  car.userData.openingChase = false;
+  car.userData.curbParked = false;
   car.userData.gasThreat = true;
   car.userData.dir = 1;
   car.userData.speed = 0;
@@ -1518,6 +1522,9 @@ function spawnPursuit() {
   car.position.set(layout.xs[tLane], 0, playerZ - 18);
   car.rotation.y = 0;
   car.userData.police = true;
+  car.userData.openingChase = false;
+  car.userData.gasThreat = false;
+  car.userData.curbParked = false;
   car.userData.pursuit = true;
   car.userData.dir = 1;
   car.userData.speed = speed + 2;
@@ -1655,7 +1662,12 @@ function spawnTrafficCar() {
   }
   car.userData.cruiseSpeed = car.userData.speed;
   car.userData.police = police;
+  // Role flags must be cleared — pool reuse can leave curbParked / chase /
+  // gasThreat set, which freezes the car and skips player collision.
   car.userData.pursuit = false;
+  car.userData.curbParked = false;
+  car.userData.openingChase = false;
+  car.userData.gasThreat = false;
   car.userData.dir = dir;
   car.userData.lane = tLane;
   car.userData.stopped = false;
