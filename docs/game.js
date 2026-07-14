@@ -15,33 +15,33 @@ import {
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
   GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
   GAS_COLOR_OK, GAS_COLOR_LOW,
-  GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
+  GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
-  SIREN_NEAR, SIREN_FAR, SIREN_AMBIENT, SIREN_OPENING, SIREN_OPENING_FADE,
+  SIREN_NEAR, SIREN_FAR, SIREN_VOL_NEAR, SIREN_VOL_FAR, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=21";
+} from "./js/constants.js?v=22";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=20";
-import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=20";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=20";
+} from "./js/save.js?v=21";
+import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=21";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=21";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=20";
-import { Pool } from "./js/pool.js?v=20";
+} from "./js/carPool.js?v=21";
+import { Pool } from "./js/pool.js?v=21";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-} from "./js/nes.js?v=20";
+} from "./js/nes.js?v=21";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=20";
+} from "./js/worldgen.js?v=21";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=2";
+} from "./js/siren.js?v=3";
 
 const save = loadSave();
 
@@ -301,6 +301,8 @@ let pursuit = null;
 let bustPending = false;
 /** Seconds remaining for the opening chase siren boost (0 = faded) */
 let sirenOpeningT = 0;
+/** Smoothed siren level so volume tracks distance without frame jitter */
+let sirenSmoothVol = 0;
 let keysBrake = false;
 let touchStart = null;
 let last = performance.now();
@@ -652,11 +654,16 @@ function updateHeatUI() {
   if (hudHeat) hudHeat.classList.toggle("hot", heat >= 70);
 }
 
-/** Nearest police car distance in meters, or null if none. */
+/**
+ * Distance to the nearest chase cop (opening / pursuit / gas threat).
+ * Ignores ambient traffic police so random spawns don't yank the volume.
+ */
 function nearestPoliceDist() {
   let best = null;
   for (const t of activeTraffic) {
-    if (!t.userData?.police) continue;
+    const u = t.userData;
+    if (!u?.police) continue;
+    if (!(u.openingChase || u.pursuit || u.gasThreat)) continue;
     const dx = t.position.x - laneX;
     const dz = t.position.z - playerZ;
     const d = Math.hypot(dx, dz);
@@ -666,28 +673,37 @@ function nearestPoliceDist() {
 }
 
 /**
- * Keep the siren looping while a run is alive; volume from cop distance + heat + opening.
+ * Siren volume = cop distance (near loud / far quiet), plus a loud opening cue.
  * @param {number} dt
  */
 function updateSirenAudio(dt) {
   if (!alive || (!running && !gasVisit && !intro)) {
     stopSiren();
+    sirenSmoothVol = 0;
     return;
   }
   if (sirenOpeningT > 0) sirenOpeningT = Math.max(0, sirenOpeningT - dt);
+  // Ease opening from full → 0 over the fade window
   const opening = sirenOpeningT > 0
-    ? (sirenOpeningT / SIREN_OPENING_FADE) * SIREN_OPENING
+    ? SIREN_OPENING * (sirenOpeningT / SIREN_OPENING_FADE)
     : 0;
-  // Keep AudioContext alive — browsers can re-suspend in background tabs
+
   resumeSirenAudio();
   startSiren();
-  const level = sirenLevelFromProximity({
-    dist: nearestPoliceDist(),
-    heat,
-    opening,
-    ambient: (running || gasVisit || intro) ? SIREN_AMBIENT : 0,
-  }, { near: SIREN_NEAR, far: SIREN_FAR });
-  setSirenVolume(level);
+
+  const dist = nearestPoliceDist();
+  const target = sirenLevelFromProximity(
+    { dist, opening },
+    {
+      near: SIREN_NEAR,
+      far: SIREN_FAR,
+      volNear: SIREN_VOL_NEAR,
+      volFar: SIREN_VOL_FAR,
+    },
+  );
+  // Smooth toward target so distance changes feel continuous, not jumpy
+  sirenSmoothVol = THREE.MathUtils.damp(sirenSmoothVol, target, 4.5, dt);
+  setSirenVolume(sirenSmoothVol);
 }
 
 /** Begin chase audio — called when gameplay (or intro) starts. */
@@ -695,6 +711,7 @@ function beginChaseSiren() {
   unlockSirenAudio();
   resumeSirenAudio();
   sirenOpeningT = SIREN_OPENING_FADE;
+  sirenSmoothVol = SIREN_OPENING;
   startSiren();
   setSirenVolume(SIREN_OPENING);
 }
@@ -855,20 +872,25 @@ function spawnGasThreatCop() {
 function tickGasVisitThreat(dt) {
   if (!gasVisit) return false;
   const holding = gasVisit.phase === "pumping" && gasVisit.holding;
-  const rate = holding ? GAS_HOLD_HEAT_PER_SEC : GAS_VISIT_HEAT_PER_SEC;
+  const waiting = gasVisit.phase === "waitClear";
+  let rate = GAS_VISIT_HEAT_PER_SEC;
+  if (holding) rate = GAS_HOLD_HEAT_PER_SEC;
+  else if (waiting) rate = GAS_MERGE_HEAT_PER_SEC;
   heat = Math.min(100, heat + rate * dt);
 
   const threat = heat / 100;
   const zOff = THREE.MathUtils.lerp(GAS_COP_Z_FAR, GAS_COP_Z_NEAR, threat);
   if (gasVisit.cop) {
     const targetZ = playerZ - zOff;
+    // Creep slower while waiting to merge so the player can find a gap
+    const catchUp = holding ? 5 : waiting ? 1.1 : 2.4;
     gasVisit.cop.position.z = THREE.MathUtils.damp(
       gasVisit.cop.position.z,
       targetZ,
-      holding ? 5 : 2.4,
+      catchUp,
       dt
     );
-    gasVisit.cop.position.x = THREE.MathUtils.damp(gasVisit.cop.position.x, laneX, 3, dt);
+    gasVisit.cop.position.x = THREE.MathUtils.damp(gasVisit.cop.position.x, laneX, waiting ? 1.6 : 3, dt);
   }
 
   updateHeatUI();
@@ -1297,6 +1319,7 @@ function endRun(reason) {
   intro = null;
   sirenOpeningT = 0;
   stopSiren();
+  sirenSmoothVol = 0;
   if (gasVisit?.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
@@ -1334,6 +1357,7 @@ function setupMenuScene() {
   clearWorld();
   stopSiren();
   sirenOpeningT = 0;
+  sirenSmoothVol = 0;
   running = false;
   alive = false;
   intro = null;
@@ -1422,6 +1446,7 @@ function resetRunState() {
   transitionFrom = null;
   transitionTo = null;
   sirenOpeningT = 0;
+  sirenSmoothVol = 0;
 }
 
 /**
@@ -2014,10 +2039,15 @@ function tick(now) {
           t.position.z = Math.min(t.position.z, playerZ - 14);
           continue;
         }
-        const threat = heat / 100;
-        const zOff = THREE.MathUtils.lerp(28, 11, threat);
+        // Gap tracks escape speed (not heat): slow → cops close in (louder),
+        // fast → they fall back (quieter). Stable follow so volume isn't jumpy.
+        const zOff = THREE.MathUtils.clamp(
+          THREE.MathUtils.lerp(12, 34, (speed - 6) / 16),
+          12,
+          34,
+        );
         const targetZ = playerZ - zOff;
-        t.position.z = THREE.MathUtils.damp(t.position.z, targetZ, 1.35, dt);
+        t.position.z = THREE.MathUtils.damp(t.position.z, targetZ, 2.2, dt);
         const lx = currentLayout().xs[Math.min(lane, currentLayout().count - 1)];
         t.position.x = THREE.MathUtils.damp(t.position.x, lx, 2.2, dt);
         t.userData.lane = Math.min(lane, currentLayout().count - 1);
@@ -2169,6 +2199,7 @@ window.__endlessChase = {
     transitioning, transitionQueue: transitionQueue.length,
     policeDist: nearestPoliceDist(),
     sirenOpeningT: +sirenOpeningT.toFixed(2),
+    sirenVol: +sirenSmoothVol.toFixed(3),
     siren: getSirenDebug(),
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),

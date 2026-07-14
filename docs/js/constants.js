@@ -60,8 +60,10 @@ export const GAS_COLOR_OK = 40;
 export const GAS_COLOR_LOW = 15;
 /** Hold-to-fill rates */
 export const GAS_HOLD_FILL_PER_SEC = 28;
-/** Heat keeps climbing the whole visit (pull-in → merge wait) */
+/** Heat keeps climbing the whole visit (pull-in / pumping idle) */
 export const GAS_VISIT_HEAT_PER_SEC = 18;
+/** Slower heat while waiting to merge — time to find a gap */
+export const GAS_MERGE_HEAT_PER_SEC = 5.5;
 /** Extra heat while actively holding the pump */
 export const GAS_HOLD_HEAT_PER_SEC = 22;
 /** Pull-in / pull-out anim length (seconds) */
@@ -72,15 +74,17 @@ export const GAS_CAM_PAN = 4.2;
 export const GAS_COP_Z_FAR = 22;
 export const GAS_COP_Z_NEAR = 2.8;
 
-/** Police siren — distance → volume (meters) */
-export const SIREN_NEAR = 4;
-export const SIREN_FAR = 48;
-/** Baseline chase ambience while a run is active (0–1) */
-export const SIREN_AMBIENT = 0.35;
-/** Opening wail when gameplay begins — establishes the chase */
-export const SIREN_OPENING = 0.95;
-/** Seconds for the opening boost to fade into ambient/distance */
-export const SIREN_OPENING_FADE = 6.5;
+/** Police siren — distance → volume (meters). Near = loud, far = quiet. */
+export const SIREN_NEAR = 5;
+export const SIREN_FAR = 42;
+/** Loudness at SIREN_NEAR (0–1) */
+export const SIREN_VOL_NEAR = 0.95;
+/** Loudness at SIREN_FAR / beyond (0–1) — quiet, not silent */
+export const SIREN_VOL_FAR = 0.08;
+/** Opening sirens when gameplay begins — fairly loud, then distance takes over */
+export const SIREN_OPENING = 0.88;
+/** Seconds for the opening boost to fade into pure distance volume */
+export const SIREN_OPENING_FADE = 4.0;
 
 export const NES = {
   black: 0x000000,

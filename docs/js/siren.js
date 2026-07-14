@@ -1,6 +1,6 @@
 /**
  * Procedural police siren via Web Audio API.
- * Alternating hi/lo yelp — volume driven by distance / heat.
+ * Alternating hi/lo yelp — volume driven by police distance.
  *
  * Unlock must happen inside a user gesture (Play / Retry tap).
  */
@@ -204,21 +204,30 @@ export function getSirenDebug() {
 }
 
 /**
- * Map nearest-cop distance + heat + opening boost → 0–1 volume.
- * @param {{ dist: number|null, heat: number, opening: number, ambient?: number }} p
- * @param {{ near?: number, far?: number }} [cfg]
+ * Volume from cop distance only (+ optional opening boost at run start).
+ * Heat / ambient are intentionally ignored so loudness tracks proximity.
+ *
+ * @param {{ dist: number|null, opening?: number }} p
+ * @param {{ near?: number, far?: number, volNear?: number, volFar?: number }} [cfg]
  */
 export function sirenLevelFromProximity(p, cfg = {}) {
-  const near = cfg.near ?? 4;
-  const far = cfg.far ?? 48;
-  const ambient = p.ambient ?? 0;
-  const heatVol = Math.max(0, Math.min(1, (p.heat || 0) / 100));
-  let distVol = 0;
-  if (p.dist != null && Number.isFinite(p.dist)) {
-    const t = (p.dist - near) / Math.max(0.001, far - near);
-    distVol = 1 - Math.max(0, Math.min(1, t));
-    distVol = distVol * distVol * (3 - 2 * distVol);
-  }
+  const near = cfg.near ?? 5;
+  const far = cfg.far ?? 42;
+  const volNear = cfg.volNear ?? 0.95;
+  const volFar = cfg.volFar ?? 0.08;
   const opening = Math.max(0, Math.min(1, p.opening || 0));
-  return Math.max(ambient, distVol, heatVol * 0.92, opening);
+
+  let distVol = volFar;
+  if (p.dist != null && Number.isFinite(p.dist)) {
+    // Linear: closer → louder. Beyond FAR stays at volFar; inside NEAR caps at volNear.
+    const t = (p.dist - near) / Math.max(0.001, far - near);
+    const u = Math.max(0, Math.min(1, t)); // 0 at near, 1 at far
+    distVol = volNear + (volFar - volNear) * u;
+  } else if (opening <= 0) {
+    // No cops and no opening cue → silent
+    distVol = 0;
+  }
+
+  // Opening can only raise volume (never fight a closer cop)
+  return Math.max(distVol, opening);
 }
