@@ -2,7 +2,7 @@
  * NES pixel meshes + road segment factory.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, layoutFor } from "./constants.js?v=21";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=27";
 import { pickTurnBiomes } from "./worldgen.js?v=21";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
@@ -53,18 +53,7 @@ export function addSky(camera) {
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
-  const g = ctx.createLinearGradient(0, 0, 0, h);
-  // Pure night/navy → muted purple. No orange/yellow horizon band.
-  g.addColorStop(0, "#0f1730");
-  g.addColorStop(0.45, "#1d2b53");
-  g.addColorStop(0.82, "#3a4570");
-  g.addColorStop(1, "#5a6588");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = "#fff1e8";
-  for (const [x, y] of [[1, 2], [3, 5], [0, 8], [2, 11], [1, 14]]) {
-    ctx.fillRect(x, y, 1, 1);
-  }
+  paintSkyCanvas(ctx, w, h, BIOME_ATMOS.city);
 
   const map = new THREE.CanvasTexture(canvas);
   map.magFilter = THREE.NearestFilter;
@@ -84,8 +73,52 @@ export function addSky(camera) {
   sky.name = "sky";
   sky.frustumCulled = false;
   sky.renderOrder = -10;
+  sky.userData.canvas = canvas;
+  sky.userData.ctx = ctx;
+  sky.userData.map = map;
+  sky.userData.biome = "city";
   camera.add(sky);
   return sky;
+}
+
+function paintSkyCanvas(ctx, w, h, atmos) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  const stops = atmos.sky;
+  g.addColorStop(0, stops[0]);
+  g.addColorStop(0.45, stops[1]);
+  g.addColorStop(0.82, stops[2]);
+  g.addColorStop(1, stops[3]);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = atmos.stars || "#fff1e8";
+  for (const [x, y] of [[1, 2], [3, 5], [0, 8], [2, 11], [1, 14], [3, 17], [0, 20]]) {
+    ctx.fillRect(x, y, 1, 1);
+  }
+}
+
+/**
+ * Swap fog / clear / sky / ground colors when the active biome changes.
+ * @param {THREE.Scene} scene
+ * @param {THREE.Mesh} sky
+ * @param {THREE.Mesh} ground
+ * @param {string} biome
+ * @param {THREE.WebGLRenderer} [renderer]
+ */
+export function applyBiomeAtmosphere(scene, sky, ground, biome, renderer) {
+  const atmos = BIOME_ATMOS[biome] || BIOME_ATMOS.city;
+  if (scene.fog) {
+    scene.fog.color.setHex(atmos.fog);
+    scene.fog.near = atmos.fogNear;
+    scene.fog.far = atmos.fogFar;
+  }
+  if (scene.background) scene.background.setHex(atmos.clear);
+  if (renderer) renderer.setClearColor(atmos.clear);
+  if (ground?.material) ground.material.color.setHex(atmos.ground);
+  if (sky?.userData?.ctx && sky.userData.biome !== biome) {
+    paintSkyCanvas(sky.userData.ctx, sky.userData.canvas.width, sky.userData.canvas.height, atmos);
+    sky.userData.map.needsUpdate = true;
+    sky.userData.biome = biome;
+  }
 }
 
 export function makeCar(spriteTex) {
@@ -568,7 +601,7 @@ function makeSignalHead(poleX, poleZ, facing) {
     bulb.position.set(poleX, y, poleZ + facing * 0.48);
     bulb.name = name;
     const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.2, 2.2),
+      new THREE.PlaneGeometry(2.8, 2.8),
       new THREE.MeshBasicMaterial({
         color: NES.white,
         transparent: true,
@@ -645,14 +678,19 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
       group.add(post);
     }
   }
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.35, 9.2), basicColor(NES.red));
-  roof.position.set(side * padX, postH + 0.1, 0);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.45, 9.2), basicColor(NES.red));
+  roof.position.set(side * padX, postH + 0.15, 0);
   roof.userData.gasHit = true;
   group.add(roof);
-  const trim = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.18, 9.4), basicColor(NES.yellow));
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.22, 9.6), basicColor(NES.yellow));
   trim.position.set(side * padX, postH - 0.05, 0);
   trim.userData.gasHit = true;
   group.add(trim);
+  // Bright canopy edge so stations read from chase-cam distance
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.12, 9.8), basicColor(NES.white));
+  lip.position.set(side * padX, postH + 0.4, 0);
+  lip.userData.gasHit = true;
+  group.add(lip);
 
   // Pumps — sit toward the road curb from the lot center
   for (const oz of [-2.2, 0.4, 2.8]) {
@@ -675,10 +713,23 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   booth.position.set(side * padX + side * 2.2, 1.2, -1.5);
   booth.userData.gasHit = true;
   group.add(booth);
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 0.2), basicColor(NES.green));
-  sign.position.set(side * padX + side * 2.2, 2.9, -1.5);
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.1, 0.22), basicColor(NES.green));
+  sign.position.set(side * padX + side * 2.2, 3.05, -1.5);
   sign.userData.gasHit = true;
   group.add(sign);
+  const signGlow = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 1.6),
+    new THREE.MeshBasicMaterial({
+      color: NES.green,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  signGlow.position.set(side * padX + side * 2.2, 3.05, -1.35);
+  signGlow.userData.gasHit = true;
+  group.add(signGlow);
 
   // Price board pole near curb
   const pole = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.6, 0.2), basicColor(NES.curb));
@@ -782,6 +833,25 @@ export function makeSegment(tex, biome, opts = {}) {
           house.position.set(houseX, 1.3, pad.position.z);
           root.add(house);
         }
+        // Fence posts + tree silhouettes for rural read
+        if (rnd() > 0.35) {
+          for (let f = 0; f < 3; f++) {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), basicColor(0x5a4030));
+            post.position.set(side * (half + 1.6), 0.35, zc - patchLen * 0.3 + f * 2.2);
+            root.add(post);
+          }
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 5.2), basicColor(0x6a5040));
+          rail.position.set(side * (half + 1.6), 0.55, zc);
+          root.add(rail);
+        }
+        if (rnd() > 0.4) {
+          const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.4, 0.35), basicColor(0x3a2a18));
+          trunk.position.set(side * (bermCenter + 3.2), 0.7, zc + (rnd() - 0.5) * 3);
+          root.add(trunk);
+          const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.6), basicColor(0x006038));
+          canopy.position.set(trunk.position.x, 1.9, trunk.position.z);
+          root.add(canopy);
+        }
       }
     }
   } else if (propBiome === "highway") {
@@ -791,6 +861,18 @@ export function makeSegment(tex, biome, opts = {}) {
         const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, patchLen), basicColor(0xc2c3c7));
         rail.position.set(side * (half + 0.5), 0.4, zc);
         root.add(rail);
+        // Light poles along the berm
+        if (rnd() > 0.25) {
+          const pole = new THREE.Mesh(new THREE.BoxGeometry(0.18, 4.2, 0.18), basicColor(NES.curb));
+          pole.position.set(side * (half + 1.4), 2.1, zc);
+          root.add(pole);
+          const arm = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.12), basicColor(NES.curb));
+          arm.position.set(side * (half + 0.85), 4.05, zc);
+          root.add(arm);
+          const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.2, 0.35), basicColor(NES.yellow));
+          lamp.position.set(side * (half + 0.35), 3.95, zc);
+          root.add(lamp);
+        }
       }
     }
     // Larger rectangular overhead sign — shown sparsely via spawnIndex
@@ -826,6 +908,22 @@ export function makeSegment(tex, biome, opts = {}) {
         const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, h1, Math.min(5.5, patchLen - 0.5)), basic(tex.building));
         b1.position.set(side * (walkCenter - 0.5), h1 / 2, zc);
         root.add(b1);
+        // Lit window strips — neon NES blocks on the facade
+        const winRows = Math.max(2, (h1 / 1.6) | 0);
+        for (let r = 0; r < winRows; r++) {
+          if (rnd() < 0.35) continue;
+          const lit = rnd() > 0.45;
+          const win = new THREE.Mesh(
+            new THREE.BoxGeometry(2.2, 0.35, 0.08),
+            basicColor(lit ? NES.yellow : 0x2a2a38)
+          );
+          win.position.set(
+            side * (walkCenter - 0.5) - side * 1.85,
+            1.1 + r * 1.45,
+            zc
+          );
+          root.add(win);
+        }
         if (!intersection && rnd() > 0.3) {
           const h2 = 4 + (rnd() * 3) | 0;
           const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.0, h2, 4.5), basic(tex.building));
@@ -942,9 +1040,9 @@ export function updateLightVisual(seg) {
       const glow = g.getObjectByName(name + "Glow");
       if (glow) {
         glow.material.color.setHex(on ? lit[key] : dim);
-        glow.material.opacity = on ? 0.55 : 0;
+        glow.material.opacity = on ? 0.7 : 0;
         glow.visible = on;
-        if (on) glow.scale.set(1, 1, 1);
+        if (on) glow.scale.set(1.15, 1.15, 1);
       }
     }
   }
@@ -960,7 +1058,7 @@ export function pulseLightGlow(seg, timeSec) {
   const g = seg.userData.lightGroup;
   if (!g) return;
   const s = seg.userData.lightState;
-  const pulse = 1 + 0.12 * Math.sin(timeSec * 8);
+  const pulse = 1.15 + 0.22 * Math.sin(timeSec * 10);
   const names =
     s === "red" ? ["bulbRedGlow", "bulbRedBGlow"]
       : s === "yellow" ? ["bulbYellowGlow", "bulbYellowBGlow"]
@@ -969,6 +1067,25 @@ export function pulseLightGlow(seg, timeSec) {
     const glow = g.getObjectByName(name);
     if (!glow) continue;
     glow.scale.set(pulse, pulse, 1);
-    glow.material.opacity = 0.45 + 0.2 * Math.sin(timeSec * 8);
+    glow.material.opacity = 0.55 + 0.28 * Math.sin(timeSec * 10);
   }
+}
+
+/** Sparse dust quads near closed-lane cones during taper merges. */
+export function makeDustMote() {
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.55, 0.55),
+    new THREE.MeshBasicMaterial({
+      color: 0x83769c,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.userData.kind = "dust";
+  mesh.userData.hitHalfX = 0;
+  mesh.userData.hitHalfZ = 0;
+  return mesh;
 }

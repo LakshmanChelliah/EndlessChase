@@ -11,13 +11,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=22" />
+  <link rel="stylesheet" href="styles.css?v=23" />
 </head>
 <body>
   <div id="game-root">
     <div id="game-stage">
       <canvas id="c" width="144" height="256"></canvas>
     </div>
+
+    <div id="fx-flash" class="fx-flash" aria-hidden="true"></div>
+    <div id="fx-heat-vignette" class="fx-heat-vignette" aria-hidden="true"></div>
+    <div id="fx-speedlines" class="fx-speedlines hidden" aria-hidden="true"></div>
 
     <div id="ui">
       <section id="panel-menu" class="panel">
@@ -66,7 +70,7 @@
       </section>
 
       <section id="panel-pump" class="panel pump-panel hidden" aria-modal="true" role="dialog" aria-labelledby="pump-title">
-        <div class="pump-shell">
+        <div class="pump-shell" id="pump-shell">
           <h2 id="pump-title" class="pump-title">GAS PUMP</h2>
           <p id="pump-current" class="pump-current">FUEL 50%</p>
           <div class="pump-preview-bar" aria-hidden="true">
@@ -85,7 +89,7 @@
         <h2 id="go-title">Busted!</h2>
         <p id="go-score">0 m</p>
         <p id="go-coins">+$0</p>
-        <button type="button" id="btn-retry" class="btn primary">Retry</button>
+        <button type="button" id="btn-retry" class="btn primary" disabled>Retry</button>
         <button type="button" id="btn-upgrades-go" class="btn">Garage</button>
         <button type="button" id="btn-menu" class="btn ghost">Menu</button>
       </section>
@@ -99,15 +103,24 @@
           <button type="button" id="btn-car-action" class="btn small">Select</button>
         </div>
         <div class="upgrade-row">
-          <span id="up-speed-label">SPEED</span>
+          <div class="upgrade-meta">
+            <span id="up-speed-label">SPEED</span>
+            <div id="up-speed-pips" class="upgrade-pips" aria-hidden="true"></div>
+          </div>
           <button type="button" id="btn-up-speed" class="btn small">Buy</button>
         </div>
         <div class="upgrade-row">
-          <span id="up-accel-label">ACCEL</span>
+          <div class="upgrade-meta">
+            <span id="up-accel-label">ACCEL</span>
+            <div id="up-accel-pips" class="upgrade-pips" aria-hidden="true"></div>
+          </div>
           <button type="button" id="btn-up-accel" class="btn small">Buy</button>
         </div>
         <div class="upgrade-row">
-          <span id="up-handling-label">HANDL</span>
+          <div class="upgrade-meta">
+            <span id="up-handling-label">HANDL</span>
+            <div id="up-handling-pips" class="upgrade-pips" aria-hidden="true"></div>
+          </div>
           <button type="button" id="btn-up-handling" class="btn small">Buy</button>
         </div>
         <button type="button" id="btn-up-back" class="btn ghost">Back</button>
@@ -122,6 +135,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=39"></script>
+  <script type="module" src="game.js?v=40"></script>
 </body>
 </html>

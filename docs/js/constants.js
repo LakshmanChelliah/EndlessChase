@@ -104,6 +104,37 @@ export const NES = {
   forest: 0x008751,
 };
 
+/** Per-biome fog / sky / ground — keeps NES palette, differentiates stretches. */
+export const BIOME_ATMOS = {
+  city: {
+    fog: 0x1d2b53,
+    fogNear: 35,
+    fogFar: 95,
+    clear: 0x1d2b53,
+    ground: 0x008751,
+    sky: ["#0f1730", "#1d2b53", "#3a4570", "#5a6588"],
+    stars: "#fff1e8",
+  },
+  rural: {
+    fog: 0x143028,
+    fogNear: 40,
+    fogFar: 105,
+    clear: 0x143028,
+    ground: 0x0a5a30,
+    sky: ["#101820", "#1a3040", "#2a4840", "#3d6050"],
+    stars: "#fff1e8",
+  },
+  highway: {
+    fog: 0x222830,
+    fogNear: 48,
+    fogFar: 115,
+    clear: 0x222830,
+    ground: 0x2a3a28,
+    sky: ["#0a0e18", "#161c28", "#2a3040", "#4a5060"],
+    stars: "#c2c3c7",
+  },
+};
+
 /** @typedef {"city"|"rural"|"highway"} Biome */
 
 /**
