@@ -204,36 +204,28 @@ export function getSirenDebug() {
 }
 
 /**
- * Volume from cop proximity (+ optional opening boost at run start).
+ * Volume from the HUD police distance bar (+ optional opening boost).
  *
- * Proximity 0 = at/beyond FAR, 1 = at/inside NEAR.
- * After the opening cue, sirens stay off until proximity >= onset (~40%),
- * then ramp louder as cops close in.
+ * `bar` is heat/100 (0–1), same fill as the police proximity meter.
+ * After the opening cue, sirens stay off until bar >= onset (~40%),
+ * then ramp louder as the bar climbs toward 100%.
  *
- * @param {{ dist: number|null, opening?: number }} p
- * @param {{ near?: number, far?: number, onset?: number, volNear?: number, volOnset?: number }} [cfg]
+ * @param {{ bar?: number, opening?: number }} p
+ * @param {{ onset?: number, volNear?: number, volOnset?: number }} [cfg]
  */
 export function sirenLevelFromProximity(p, cfg = {}) {
-  const near = cfg.near ?? 5;
-  const far = cfg.far ?? 42;
   const onset = cfg.onset ?? 0.4;
   const volNear = cfg.volNear ?? 0.95;
   const volOnset = cfg.volOnset ?? 0.22;
   const opening = Math.max(0, Math.min(1, p.opening || 0));
+  const bar = Math.max(0, Math.min(1, p.bar ?? 0));
 
-  let distVol = 0;
-  if (p.dist != null && Number.isFinite(p.dist)) {
-    // 0 at FAR (or beyond), 1 at NEAR (or closer)
-    const proximity = 1 - (p.dist - near) / Math.max(0.001, far - near);
-    const prox = Math.max(0, Math.min(1, proximity));
-    if (prox >= onset) {
-      // Map onset→1 onto volOnset→volNear
-      const u = (prox - onset) / Math.max(0.001, 1 - onset);
-      distVol = volOnset + (volNear - volOnset) * Math.max(0, Math.min(1, u));
-    }
-    // else: still too far — keep silent (opening may still play)
+  let barVol = 0;
+  if (bar >= onset) {
+    const u = (bar - onset) / Math.max(0.001, 1 - onset);
+    barVol = volOnset + (volNear - volOnset) * Math.max(0, Math.min(1, u));
   }
 
   // Opening can only raise volume (establishes the chase at run start)
-  return Math.max(distVol, opening);
+  return Math.max(barVol, opening);
 }
