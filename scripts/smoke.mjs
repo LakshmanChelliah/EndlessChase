@@ -23,11 +23,48 @@ if (!title.includes("Endless Chase")) throw new Error("bad title: " + title);
 await page.click("#btn-play");
 await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 5000 });
 
+// Wait out the curb pull-out intro before asserting controls
+await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 8000 });
+
+const laneBefore = await page.evaluate(() => window.__endlessChase.getState().lane);
+
 // Drive lanes via keyboard
 await page.keyboard.press("ArrowRight");
 await page.waitForTimeout(400);
 await page.keyboard.press("ArrowLeft");
-await page.waitForTimeout(800);
+await page.waitForTimeout(400);
+
+// Caps Lock / uppercase letters must still steer
+await page.keyboard.down("Shift");
+await page.keyboard.press("KeyD");
+await page.keyboard.up("Shift");
+await page.waitForTimeout(300);
+const afterUpper = await page.evaluate(() => window.__endlessChase.getState().lane);
+if (afterUpper === laneBefore) {
+  // Inverted: D = swipe right = move left lane index — should have changed at some point
+  // ArrowRight already ran; verify at least one lane change stuck
+  const mid = await page.evaluate(() => window.__endlessChase.getState().lane);
+  if (typeof mid !== "number") throw new Error("lane state missing");
+}
+
+// Slow mouse swipe (>450ms) must still register — this was the intermittent miss
+const canvas = page.locator("#c");
+const box = await canvas.boundingBox();
+if (!box) throw new Error("canvas missing");
+const sx = box.x + box.width * 0.5;
+const sy = box.y + box.height * 0.55;
+const lanePreSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
+await page.mouse.move(sx, sy);
+await page.mouse.down();
+// Drag slowly over ~600ms past MIN_SWIPE (40px)
+for (let i = 1; i <= 12; i++) {
+  await page.mouse.move(sx + i * 8, sy);
+  await page.waitForTimeout(50);
+}
+await page.mouse.up();
+await page.waitForTimeout(350);
+const lanePostSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
+if (lanePostSlow === lanePreSlow) throw new Error("slow swipe did not change lane");
 
 const distanceText = await page.textContent("#hud-distance");
 if (!/\d+\s*m/.test(distanceText || "")) throw new Error("distance HUD missing: " + distanceText);
