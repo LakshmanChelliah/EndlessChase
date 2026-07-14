@@ -2,8 +2,8 @@
  * NES pixel meshes + road segment factory.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, layoutFor } from "./constants.js";
-import { pickTurnBiomes } from "./worldgen.js";
+import { ASSET, SEG_LEN, NES, layoutFor } from "./constants.js?v=19";
+import { pickTurnBiomes } from "./worldgen.js?v=19";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {

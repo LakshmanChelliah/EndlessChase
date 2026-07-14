@@ -3,7 +3,7 @@
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { CARS, glbUrl, NPC_TINTS } from "./cars.js";
+import { CARS, glbUrl, NPC_TINTS } from "./cars.js?v=19";
 
 /** Slightly larger than the old NES footprint for readable 3D meshes. */
 const TARGET_LEN = 3.7;
