@@ -32,6 +32,10 @@ export const LIGHT_RED = 3.0;
 export const LIGHT_HUD_AHEAD = 18;
 /** Same-dir NPCs stop this far before intersection center */
 export const NPC_STOP_OFFSET = 3;
+/** Minimum Z gap (meters) between NPC cars in the same lane */
+export const TRAFFIC_MIN_GAP = 10;
+/** Hard floor — cars may not get closer than this in the same lane */
+export const TRAFFIC_BUMPER_GAP = 3.5;
 
 /** Cross-street traffic — spawn far so approach is visible */
 export const CROSS_SPAWN_X = 28;

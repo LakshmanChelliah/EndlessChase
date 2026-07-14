@@ -11,6 +11,7 @@ import {
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
+  TRAFFIC_MIN_GAP, TRAFFIC_BUMPER_GAP,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
   GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
@@ -19,7 +20,7 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_NEAR, SIREN_FAR, SIREN_AMBIENT, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=21";
+} from "./js/constants.js?v=22";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -1234,6 +1235,44 @@ function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5
   return car;
 }
 
+/** Scripted cops (follow / bust / gas) are not lane traffic for spacing. */
+function isScriptedCop(t) {
+  return !!(t.userData?.openingChase || t.userData?.pursuit || t.userData?.gasThreat);
+}
+
+/** True if another same-lane, same-dir NPC is within minGap of z. */
+function laneOccupiedNear(tLane, dir, z, minGap) {
+  for (const t of activeTraffic) {
+    if (isScriptedCop(t)) continue;
+    if (t.userData.lane !== tLane) continue;
+    if ((t.userData.dir || 1) !== dir) continue;
+    if (Math.abs(t.position.z - z) < minGap) return true;
+  }
+  return false;
+}
+
+/**
+ * Nearest car ahead in the same lane (in travel direction).
+ * Same-dir: higher Z. Oncoming: lower Z.
+ */
+function findLeadCar(car) {
+  const dir = car.userData.dir || 1;
+  const laneIdx = car.userData.lane;
+  let lead = null;
+  let bestGap = Infinity;
+  for (const o of activeTraffic) {
+    if (o === car || isScriptedCop(o)) continue;
+    if (o.userData.lane !== laneIdx) continue;
+    if ((o.userData.dir || 1) !== dir) continue;
+    const gap = dir === 1 ? o.position.z - car.position.z : car.position.z - o.position.z;
+    if (gap > 0.05 && gap < bestGap) {
+      bestGap = gap;
+      lead = o;
+    }
+  }
+  return lead ? { lead, gap: bestGap } : null;
+}
+
 function spawnTrafficCar() {
   // Prefer layout of the segment where the car will spawn (~40–70m ahead)
   const spawnZ = playerZ + 45;
@@ -1256,35 +1295,41 @@ function spawnTrafficCar() {
     tLane = poolLanes[(tLane + 1) % poolLanes.length];
   }
 
+  const dir = layout.dirs[tLane];
+  const z = dir === -1
+    ? playerZ + 50 + Math.random() * 40
+    : playerZ + 40 + Math.random() * 30;
+
   // Avoid stacking same-dir cars in a red/yellow stop box
   if (!wantOncoming) {
     const ahead = findAheadIntersection(playerZ + 35, 55);
     if (ahead && (ahead.userData.lightState === "red" || ahead.userData.lightState === "yellow")) {
       const stopZ = ahead.position.z - NPC_STOP_OFFSET;
-      // Spawn past the junction instead of in the stop queue box
-      const zTry = playerZ + 40 + Math.random() * 30;
-      if (Math.abs(zTry - stopZ) < 8) {
+      if (Math.abs(z - stopZ) < 8) {
         // skip this spawn tick
         return;
       }
     }
   }
 
-  const police = !wantOncoming && Math.random() < 0.12;
-  const car = police ? rentPolice(scene) : rentCivilian(scene);
-  const dir = layout.dirs[tLane];
+  // Keep longitudinal spacing — skip spawn if lane is already occupied nearby
+  if (laneOccupiedNear(tLane, dir, z, TRAFFIC_MIN_GAP)) return;
+
+  // Only scripted cops (opening chase / pursuit / gas) appear on the road —
+  // never random police in regular traffic.
+  const car = rentCivilian(scene);
   if (dir === -1) {
-    car.position.set(layout.xs[tLane], 0, playerZ + 50 + Math.random() * 40);
+    car.position.set(layout.xs[tLane], 0, z);
     car.rotation.y = Math.PI;
     car.userData.speed = 14 + Math.random() * 8;
     car.userData.cruiseSpeed = car.userData.speed;
   } else {
-    car.position.set(layout.xs[tLane], 0, playerZ + 40 + Math.random() * 30);
+    car.position.set(layout.xs[tLane], 0, z);
     car.rotation.y = 0;
-    car.userData.speed = police ? speed * 0.9 : 6 + Math.random() * 6;
+    car.userData.speed = 6 + Math.random() * 6;
     car.userData.cruiseSpeed = car.userData.speed;
   }
-  car.userData.police = police;
+  car.userData.police = false;
   car.userData.pursuit = false;
   car.userData.dir = dir;
   car.userData.lane = tLane;
@@ -2032,8 +2077,8 @@ function tick(now) {
         continue;
       }
       const dir = t.userData.dir || 1;
+      const cruise = t.userData.cruiseSpeed || t.userData.speed || 8;
       if (dir === 1) {
-        const cruise = t.userData.cruiseSpeed || t.userData.speed || 8;
         const ix = findAheadIntersection(t.position.z - 1, 28);
         if (ix && (ix.userData.lightState === "red" || ix.userData.lightState === "yellow")) {
           const stopZ = ix.position.z - NPC_STOP_OFFSET;
@@ -2047,8 +2092,39 @@ function tick(now) {
           t.userData.speed = THREE.MathUtils.damp(t.userData.speed, cruise, 3, dt);
           if (t.userData.speed > cruise * 0.85) t.userData.stopped = false;
         }
+      } else if (t.userData.speed < cruise * 0.95) {
+        // Oncoming cars recover cruise after spacing slowdowns
+        t.userData.speed = THREE.MathUtils.damp(t.userData.speed, cruise, 3, dt);
       }
+
+      // Follow-the-leader: ease off when closing on the car ahead in-lane
+      const follow = findLeadCar(t);
+      if (follow && follow.gap < TRAFFIC_MIN_GAP) {
+        const leadSpd = follow.lead.userData.speed || 0;
+        const room = Math.max(0, (follow.gap - TRAFFIC_BUMPER_GAP) / (TRAFFIC_MIN_GAP - TRAFFIC_BUMPER_GAP));
+        const cap = leadSpd * room;
+        if (t.userData.speed > cap) {
+          t.userData.speed = THREE.MathUtils.damp(t.userData.speed, cap, 8, dt);
+        }
+        if (follow.gap < TRAFFIC_BUMPER_GAP + 0.5) {
+          t.userData.speed = Math.min(t.userData.speed, Math.max(0, leadSpd * 0.15));
+          t.userData.stopped = t.userData.speed < 0.4;
+        }
+      }
+
       t.position.z += (dir === -1 ? -t.userData.speed : t.userData.speed) * dt;
+
+      // Hard clamp so cars never occupy the same space
+      if (follow) {
+        if (dir === 1 && t.position.z > follow.lead.position.z - TRAFFIC_BUMPER_GAP) {
+          t.position.z = follow.lead.position.z - TRAFFIC_BUMPER_GAP;
+          t.userData.speed = Math.min(t.userData.speed, follow.lead.userData.speed || 0);
+        } else if (dir === -1 && t.position.z < follow.lead.position.z + TRAFFIC_BUMPER_GAP) {
+          t.position.z = follow.lead.position.z + TRAFFIC_BUMPER_GAP;
+          t.userData.speed = Math.min(t.userData.speed, follow.lead.userData.speed || 0);
+        }
+      }
+
       if (t.position.z < playerZ - 25 || t.position.z > playerZ + 100) {
         activeTraffic.splice(i, 1);
         returnTrafficCar(t);
