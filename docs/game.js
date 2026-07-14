@@ -19,7 +19,7 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_NEAR, SIREN_FAR, SIREN_AMBIENT, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=20";
+} from "./js/constants.js?v=21";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -39,8 +39,9 @@ import {
   nearestUsableLane,
 } from "./js/worldgen.js?v=20";
 import {
-  unlockSirenAudio, startSiren, stopSiren, setSirenVolume, sirenLevelFromProximity,
-} from "./js/siren.js?v=1";
+  unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
+  sirenLevelFromProximity, getSirenDebug,
+} from "./js/siren.js?v=2";
 
 const save = loadSave();
 
@@ -677,7 +678,8 @@ function updateSirenAudio(dt) {
   const opening = sirenOpeningT > 0
     ? (sirenOpeningT / SIREN_OPENING_FADE) * SIREN_OPENING
     : 0;
-  // During intro / first moments, always run the siren so the chase is audible immediately
+  // Keep AudioContext alive — browsers can re-suspend in background tabs
+  resumeSirenAudio();
   startSiren();
   const level = sirenLevelFromProximity({
     dist: nearestPoliceDist(),
@@ -691,6 +693,7 @@ function updateSirenAudio(dt) {
 /** Begin chase audio — called when gameplay (or intro) starts. */
 function beginChaseSiren() {
   unlockSirenAudio();
+  resumeSirenAudio();
   sirenOpeningT = SIREN_OPENING_FADE;
   startSiren();
   setSirenVolume(SIREN_OPENING);
@@ -1699,6 +1702,13 @@ document.getElementById("btn-retry").onclick = () => {
   unlockSirenAudio();
   startRun({ instant: true });
 };
+// pointerdown unlocks earlier than click — critical for mobile Safari audio
+for (const id of ["btn-play", "btn-retry"]) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  el.addEventListener("pointerdown", () => unlockSirenAudio(), { passive: true });
+  el.addEventListener("touchstart", () => unlockSirenAudio(), { passive: true });
+}
 document.getElementById("btn-menu").onclick = () => {
   fromGameOver = false;
   setupMenuScene();
@@ -2159,6 +2169,7 @@ window.__endlessChase = {
     transitioning, transitionQueue: transitionQueue.length,
     policeDist: nearestPoliceDist(),
     sirenOpeningT: +sirenOpeningT.toFixed(2),
+    siren: getSirenDebug(),
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),
     playerYaw: +player.rotation.y.toFixed(3),

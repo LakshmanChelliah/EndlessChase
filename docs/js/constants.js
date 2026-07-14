@@ -76,11 +76,11 @@ export const GAS_COP_Z_NEAR = 2.8;
 export const SIREN_NEAR = 4;
 export const SIREN_FAR = 48;
 /** Baseline chase ambience while a run is active (0–1) */
-export const SIREN_AMBIENT = 0.2;
+export const SIREN_AMBIENT = 0.35;
 /** Opening wail when gameplay begins — establishes the chase */
-export const SIREN_OPENING = 0.78;
+export const SIREN_OPENING = 0.95;
 /** Seconds for the opening boost to fade into ambient/distance */
-export const SIREN_OPENING_FADE = 5.5;
+export const SIREN_OPENING_FADE = 6.5;
 
 export const NES = {
   black: 0x000000,
