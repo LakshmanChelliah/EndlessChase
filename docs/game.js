@@ -17,9 +17,9 @@ import {
   GAS_COLOR_OK, GAS_COLOR_LOW,
   GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
-  SIREN_NEAR, SIREN_FAR, SIREN_VOL_NEAR, SIREN_VOL_FAR, SIREN_OPENING, SIREN_OPENING_FADE,
+  SIREN_NEAR, SIREN_FAR, SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=22";
+} from "./js/constants.js?v=23";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -41,7 +41,7 @@ import {
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=3";
+} from "./js/siren.js?v=4";
 
 const save = loadSave();
 
@@ -673,7 +673,8 @@ function nearestPoliceDist() {
 }
 
 /**
- * Siren volume = cop distance (near loud / far quiet), plus a loud opening cue.
+ * Siren volume: loud opening at start; afterward silent until cops are
+ * ~40% close, then louder as they close in.
  * @param {number} dt
  */
 function updateSirenAudio(dt) {
@@ -697,8 +698,9 @@ function updateSirenAudio(dt) {
     {
       near: SIREN_NEAR,
       far: SIREN_FAR,
+      onset: SIREN_ONSET,
       volNear: SIREN_VOL_NEAR,
-      volFar: SIREN_VOL_FAR,
+      volOnset: SIREN_VOL_ONSET,
     },
   );
   // Smooth toward target so distance changes feel continuous, not jumpy
@@ -724,7 +726,7 @@ function spawnOpeningChaseCop() {
   const layout = currentLayout();
   const car = rentPolice(scene);
   const tLane = Math.min(Math.max(0, lane), layout.count - 1);
-  const behind = 26;
+  const behind = 34;
   car.position.set(layout.xs[tLane], 0, playerZ - behind);
   car.rotation.y = 0;
   car.userData.police = true;
@@ -2039,12 +2041,12 @@ function tick(now) {
           t.position.z = Math.min(t.position.z, playerZ - 14);
           continue;
         }
-        // Gap tracks escape speed (not heat): slow → cops close in (louder),
-        // fast → they fall back (quieter). Stable follow so volume isn't jumpy.
+        // Gap tracks escape speed: slow → cops close past the 40% onset (sirens on),
+        // fast → they stay beyond onset (sirens off after the opening cue).
         const zOff = THREE.MathUtils.clamp(
-          THREE.MathUtils.lerp(12, 34, (speed - 6) / 16),
-          12,
-          34,
+          THREE.MathUtils.lerp(11, 36, (speed - 6) / 16),
+          11,
+          36,
         );
         const targetZ = playerZ - zOff;
         t.position.z = THREE.MathUtils.damp(t.position.z, targetZ, 2.2, dt);
