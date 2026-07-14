@@ -222,48 +222,143 @@ html, body {
   text-shadow: 2px 2px 0 #000;
 }
 
-.heat-bar {
-  margin-top: 0.35rem;
-  height: 6px;
-  width: min(42vw, 140px);
+/* Top-center police proximity — sirens, no text */
+.police-bar {
+  position: absolute;
+  top: calc(2.35rem + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: min(78vw, 260px);
+  padding: 0.28rem 0.35rem;
+  background: rgba(0, 0, 0, 0.78);
+  border: 3px solid #1a1a22;
+  box-shadow: 0 0 0 2px var(--nes-red);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.police-bar.hot {
+  box-shadow: 0 0 0 2px var(--nes-red), 0 0 12px rgba(255, 0, 77, 0.55);
+  animation: police-pulse 0.35s steps(2) infinite;
+}
+
+.police-track {
+  flex: 1;
+  height: 12px;
   background: #000;
-  border: 2px solid var(--nes-gray);
+  border: 2px solid var(--nes-white);
   overflow: hidden;
 }
 
-.heat-fill {
+.police-fill {
   height: 100%;
   width: 0%;
-  background: var(--nes-orange);
+  background: linear-gradient(90deg, #0033ff 0%, var(--nes-red) 55%, var(--nes-red) 100%);
+  transition: width 0.08s linear;
 }
 
-.heat-bar.hot .heat-fill {
+.police-siren {
+  width: 12px;
+  height: 12px;
+  image-rendering: pixelated;
+  box-shadow:
+    2px 0 0 #1a1a22,
+    -2px 0 0 #1a1a22,
+    0 2px 0 #1a1a22,
+    0 -2px 0 #1a1a22;
+}
+
+.police-siren-l {
+  background: #0033ff;
+  animation: siren-flip 0.4s steps(1) infinite;
+}
+
+.police-siren-r {
   background: var(--nes-red);
+  animation: siren-flip 0.4s steps(1) infinite reverse;
 }
 
-.gas-block {
-  margin-top: 0.45rem;
-  width: min(72vw, 220px);
+@keyframes siren-flip {
+  0%, 49% { background: #0033ff; }
+  50%, 100% { background: var(--nes-red); }
 }
 
-.gas-text {
-  font-size: clamp(0.85rem, 4.2vw, 1.15rem);
-  line-height: 1.2;
-  letter-spacing: 0.04em;
-  color: var(--nes-green);
-  text-shadow: 3px 3px 0 #000;
-  margin-bottom: 0.28rem;
+@keyframes police-pulse {
+  0%, 100% { border-color: #1a1a22; }
+  50% { border-color: var(--nes-red); }
 }
 
-.gas-block.ok .gas-text { color: var(--nes-green); }
-.gas-block.low .gas-text { color: var(--nes-orange); }
-.gas-block.critical .gas-text { color: var(--nes-red); }
+/* Bottom gauge cluster — fuel icon + bar beside speedo */
+.gauge-cluster {
+  position: absolute;
+  left: 50%;
+  bottom: calc(0.7rem + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.45rem;
+  padding: 0.4rem 0.5rem 0.35rem;
+  background: rgba(0, 0, 0, 0.82);
+  border: 3px solid var(--nes-white);
+  box-shadow: inset 0 0 0 2px #3a3d48;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.gas-gauge {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 5.5rem;
+}
+
+.fuel-icon {
+  position: relative;
+  width: 14px;
+  height: 18px;
+  flex: 0 0 auto;
+  image-rendering: pixelated;
+}
+
+.fuel-body {
+  position: absolute;
+  left: 1px;
+  bottom: 2px;
+  width: 8px;
+  height: 12px;
+  background: var(--nes-white);
+  box-shadow:
+    inset 0 -2px 0 #83769c,
+    2px 2px 0 #000;
+}
+
+.fuel-nozzle {
+  position: absolute;
+  right: 0;
+  top: 2px;
+  width: 5px;
+  height: 3px;
+  background: var(--nes-orange);
+  box-shadow: 0 3px 0 var(--nes-orange), 3px 3px 0 var(--nes-orange);
+}
+
+.fuel-base {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 10px;
+  height: 3px;
+  background: var(--nes-gray);
+}
 
 .gas-bar {
-  height: 12px;
-  width: 100%;
+  height: 14px;
+  width: 4.2rem;
   background: #000;
-  border: 3px solid var(--nes-white);
+  border: 2px solid var(--nes-white);
   overflow: hidden;
 }
 
@@ -274,9 +369,38 @@ html, body {
   transition: width 0.08s linear, background-color 0.15s ease;
 }
 
-.gas-block.ok .gas-fill { background: var(--nes-green); }
-.gas-block.low .gas-fill { background: var(--nes-orange); }
-.gas-block.critical .gas-fill { background: var(--nes-red); }
+.gas-gauge.ok .gas-fill { background: var(--nes-green); }
+.gas-gauge.low .gas-fill { background: var(--nes-orange); }
+.gas-gauge.critical .gas-fill { background: var(--nes-red); }
+.gas-gauge.ok .fuel-body { background: var(--nes-green); }
+.gas-gauge.low .fuel-body { background: var(--nes-orange); }
+.gas-gauge.critical .fuel-body { background: var(--nes-red); }
+
+.speedo {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  min-width: 3.4rem;
+  padding: 0.4rem 0.5rem;
+  background: #000;
+  border: 2px solid var(--nes-yellow);
+  color: var(--nes-white);
+  font-size: 0.8rem;
+  line-height: 1;
+  text-align: center;
+  text-shadow: 2px 2px 0 #000;
+  letter-spacing: 0.05em;
+}
+
+.speedo::after {
+  content: " MPH";
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.35rem;
+  color: var(--nes-gray);
+  letter-spacing: 0;
+}
 
 .station-float {
   position: absolute;
@@ -360,11 +484,18 @@ html, body {
 }
 
 .gas-hint {
-  margin-top: 0.35rem;
+  position: absolute;
+  top: calc(4.1rem + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(90vw, 280px);
+  text-align: center;
   color: var(--nes-orange);
   font-size: 0.42rem;
   line-height: 1.45;
   text-shadow: 2px 2px 0 #000;
+  z-index: 3;
+  pointer-events: none;
 }
 
 .pump-bar-now {
@@ -442,30 +573,6 @@ html, body {
   color: var(--nes-red);
   font-size: 0.5rem;
   text-shadow: 2px 2px 0 #000;
-}
-
-.speedo {
-  position: absolute;
-  left: 50%;
-  bottom: calc(0.85rem + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  min-width: 3.2rem;
-  padding: 0.35rem 0.55rem;
-  background: rgba(0, 0, 0, 0.7);
-  border: 2px solid var(--nes-white);
-  color: var(--nes-white);
-  font-size: 0.75rem;
-  line-height: 1;
-  text-align: center;
-  text-shadow: 2px 2px 0 #000;
-  letter-spacing: 0.05em;
-}
-
-.speedo::after {
-  content: " MPH";
-  font-size: 0.4rem;
-  color: var(--nes-gray);
-  letter-spacing: 0;
 }
 
 .upgrade-row {
