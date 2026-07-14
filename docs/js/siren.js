@@ -1,24 +1,27 @@
 /**
  * Procedural police siren via Web Audio API.
- * Two-tone wail that loops; volume is driven by the game (distance / heat).
+ * Alternating hi/lo yelp — volume driven by police distance.
+ *
+ * Unlock must happen inside a user gesture (Play / Retry tap).
  */
 
 let ctx = null;
 let master = null;
 let osc = null;
-let gain = null;
-let lfo = null;
-let lfoGain = null;
+let oscGain = null;
+let yelpTimer = null;
 let playing = false;
+let hiTone = true;
 let targetVol = 0;
-let currentVol = 0;
+let appliedVol = -1;
+let unlocked = false;
 
-const BASE_FREQ = 780;
-const WAIL_DEPTH = 420;
-const WAIL_RATE = 0.55;
-const MAX_GAIN = 0.42;
-const RAMP_UP = 0.08;
-const RAMP_DOWN = 0.18;
+const FREQ_LO = 680;
+const FREQ_HI = 980;
+const YELP_MS = 280;
+/** Peak output level (0–1). Kept high so the chase is obvious on phone speakers. */
+const MAX_GAIN = 0.9;
+const VOL_EPS = 0.01;
 
 function ensureCtx() {
   if (ctx) return ctx;
@@ -31,127 +34,206 @@ function ensureCtx() {
   return ctx;
 }
 
-/** Call from a user gesture (Play click) so the AudioContext can start. */
+/**
+ * Must run synchronously inside a click/touch/pointer handler.
+ * Creates the context, resumes it, and plays a tiny silent buffer —
+ * required on iOS/Safari to unlock audio.
+ */
 export function unlockSirenAudio() {
   const c = ensureCtx();
-  if (!c) return;
-  if (c.state === "suspended") c.resume().catch(() => {});
+  if (!c) return false;
+
+  // Resume is async; kick it immediately from the gesture.
+  if (c.state === "suspended") {
+    c.resume().then(() => { unlocked = true; }).catch(() => {});
+  } else {
+    unlocked = true;
+  }
+
+  // Silent buffer play — the reliable iOS unlock pattern
+  try {
+    const buf = c.createBuffer(1, 1, c.sampleRate || 22050);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.connect(c.destination);
+    src.start(0);
+  } catch (_) { /* ignore */ }
+
+  return c.state === "running" || unlocked;
+}
+
+/** Keep trying to resume if the browser left us suspended. */
+export function resumeSirenAudio() {
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    ctx.resume().then(() => { unlocked = true; }).catch(() => {});
+  } else if (ctx.state === "running") {
+    unlocked = true;
+  }
 }
 
 function buildGraph() {
   if (!ctx || !master) return;
 
+  // Tear down any leftover nodes
+  teardownNodes();
+
   osc = ctx.createOscillator();
-  osc.type = "sawtooth";
+  osc.type = "square";
+  osc.frequency.value = FREQ_HI;
 
-  gain = ctx.createGain();
-  gain.gain.value = 0.22;
+  oscGain = ctx.createGain();
+  oscGain.gain.value = 0.55;
 
-  // Soft low-pass so the sawtooth isn't harsh
+  // Mild low-pass so square isn't piercing/harsh on laptop speakers
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
-  filter.frequency.value = 2200;
-  filter.Q.value = 0.7;
-
-  lfo = ctx.createOscillator();
-  lfo.type = "sine";
-  lfo.frequency.value = WAIL_RATE;
-
-  lfoGain = ctx.createGain();
-  lfoGain.gain.value = WAIL_DEPTH;
-
-  lfo.connect(lfoGain);
-  lfoGain.connect(osc.frequency);
-  osc.frequency.value = BASE_FREQ;
+  filter.frequency.value = 3200;
+  filter.Q.value = 0.5;
 
   osc.connect(filter);
-  filter.connect(gain);
-  gain.connect(master);
+  filter.connect(oscGain);
+  oscGain.connect(master);
 
   const t = ctx.currentTime;
   osc.start(t);
-  lfo.start(t);
+  hiTone = true;
+  scheduleYelp();
 }
 
-/**
- * Begin the looping siren (idempotent). Does not set volume — call setSirenVolume.
- */
-export function startSiren() {
-  unlockSirenAudio();
-  if (!ensureCtx()) return;
-  if (playing) return;
-  buildGraph();
-  playing = true;
-  currentVol = 0;
-  master.gain.setValueAtTime(0, ctx.currentTime);
+function scheduleYelp() {
+  clearYelp();
+  yelpTimer = setInterval(() => {
+    if (!osc || !ctx) return;
+    hiTone = !hiTone;
+    const f = hiTone ? FREQ_HI : FREQ_LO;
+    try {
+      const now = ctx.currentTime;
+      osc.frequency.cancelScheduledValues(now);
+      osc.frequency.setValueAtTime(f, now);
+    } catch (_) { /* ignore */ }
+  }, YELP_MS);
 }
 
-/** Stop and tear down the siren graph. */
-export function stopSiren() {
-  targetVol = 0;
-  currentVol = 0;
-  if (!playing) return;
-  playing = false;
-  const t = ctx ? ctx.currentTime : 0;
-  try {
-    if (master) master.gain.cancelScheduledValues(t);
-    if (master) master.gain.setTargetAtTime(0, t, 0.05);
-  } catch (_) { /* ignore */ }
+function clearYelp() {
+  if (yelpTimer != null) {
+    clearInterval(yelpTimer);
+    yelpTimer = null;
+  }
+}
 
+function teardownNodes() {
+  clearYelp();
   const o = osc;
-  const l = lfo;
-  const g = gain;
+  const g = oscGain;
   osc = null;
-  lfo = null;
-  lfoGain = null;
-  gain = null;
-
-  // Allow a short fade before stopping nodes
-  const stopAt = (t || 0) + 0.2;
+  oscGain = null;
   try {
-    if (o) { o.stop(stopAt); o.disconnect(); }
-    if (l) { l.stop(stopAt); l.disconnect(); }
+    if (o) { o.stop(); o.disconnect(); }
+  } catch (_) { /* ignore */ }
+  try {
     if (g) g.disconnect();
   } catch (_) { /* ignore */ }
 }
 
+/** Begin the looping siren (idempotent). */
+export function startSiren() {
+  unlockSirenAudio();
+  if (!ensureCtx()) return;
+  resumeSirenAudio();
+  if (playing) return;
+  buildGraph();
+  playing = true;
+  appliedVol = -1;
+  try {
+    master.gain.cancelScheduledValues(ctx.currentTime);
+    master.gain.setValueAtTime(0, ctx.currentTime);
+  } catch (_) { /* ignore */ }
+}
+
+/** Stop and tear down the siren. */
+export function stopSiren() {
+  targetVol = 0;
+  appliedVol = -1;
+  if (!playing) return;
+  playing = false;
+  const t = ctx ? ctx.currentTime : 0;
+  try {
+    if (master) {
+      master.gain.cancelScheduledValues(t);
+      master.gain.setValueAtTime(0, t);
+    }
+  } catch (_) { /* ignore */ }
+  teardownNodes();
+}
+
 /**
- * @param {number} level 0–1 desired loudness (pre-max-gain)
+ * @param {number} level 0–1 desired loudness
  */
 export function setSirenVolume(level) {
   targetVol = Math.max(0, Math.min(1, level));
   if (!playing || !ctx || !master) return;
+  resumeSirenAudio();
   const next = targetVol * MAX_GAIN;
+  if (Math.abs(next - appliedVol) < VOL_EPS) return;
   const now = ctx.currentTime;
-  const tau = next > currentVol ? RAMP_UP : RAMP_DOWN;
-  master.gain.cancelScheduledValues(now);
-  master.gain.setTargetAtTime(next, now, tau);
-  currentVol = next;
+  try {
+    master.gain.cancelScheduledValues(now);
+    // Short linear ramp — more reliable than setTargetAtTime across browsers
+    const cur = appliedVol < 0 ? 0 : appliedVol;
+    master.gain.setValueAtTime(cur, now);
+    master.gain.linearRampToValueAtTime(next, now + 0.06);
+  } catch (_) {
+    try { master.gain.value = next; } catch (__) { /* ignore */ }
+  }
+  appliedVol = next;
 }
 
 export function isSirenPlaying() {
   return playing;
 }
 
+export function getSirenDebug() {
+  return {
+    playing,
+    unlocked,
+    ctxState: ctx ? ctx.state : "none",
+    targetVol: +targetVol.toFixed(3),
+    appliedVol: +appliedVol.toFixed(3),
+  };
+}
+
 /**
- * Map nearest-cop distance + heat + opening boost → 0–1 volume.
- * Closer cops and higher heat = louder.
+ * Volume from cop proximity (+ optional opening boost at run start).
  *
- * @param {{ dist: number|null, heat: number, opening: number, ambient?: number }} p
- * @param {{ near?: number, far?: number }} [cfg]
+ * Proximity 0 = at/beyond FAR, 1 = at/inside NEAR.
+ * After the opening cue, sirens stay off until proximity >= onset (~40%),
+ * then ramp louder as cops close in.
+ *
+ * @param {{ dist: number|null, opening?: number }} p
+ * @param {{ near?: number, far?: number, onset?: number, volNear?: number, volOnset?: number }} [cfg]
  */
 export function sirenLevelFromProximity(p, cfg = {}) {
-  const near = cfg.near ?? 4;
-  const far = cfg.far ?? 48;
-  const ambient = p.ambient ?? 0;
-  const heatVol = Math.max(0, Math.min(1, (p.heat || 0) / 100));
+  const near = cfg.near ?? 5;
+  const far = cfg.far ?? 42;
+  const onset = cfg.onset ?? 0.4;
+  const volNear = cfg.volNear ?? 0.95;
+  const volOnset = cfg.volOnset ?? 0.22;
+  const opening = Math.max(0, Math.min(1, p.opening || 0));
+
   let distVol = 0;
   if (p.dist != null && Number.isFinite(p.dist)) {
-    const t = (p.dist - near) / Math.max(0.001, far - near);
-    distVol = 1 - Math.max(0, Math.min(1, t));
-    // Smoothstep so mid-range stays audible
-    distVol = distVol * distVol * (3 - 2 * distVol);
+    // 0 at FAR (or beyond), 1 at NEAR (or closer)
+    const proximity = 1 - (p.dist - near) / Math.max(0.001, far - near);
+    const prox = Math.max(0, Math.min(1, proximity));
+    if (prox >= onset) {
+      // Map onset→1 onto volOnset→volNear
+      const u = (prox - onset) / Math.max(0.001, 1 - onset);
+      distVol = volOnset + (volNear - volOnset) * Math.max(0, Math.min(1, u));
+    }
+    // else: still too far — keep silent (opening may still play)
   }
-  const opening = Math.max(0, Math.min(1, p.opening || 0));
-  return Math.max(ambient, distVol, heatVol * 0.92, opening);
+
+  // Opening can only raise volume (establishes the chase at run start)
+  return Math.max(distVol, opening);
 }

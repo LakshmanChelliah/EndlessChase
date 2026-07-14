@@ -17,9 +17,9 @@ import {
   GAS_COLOR_OK, GAS_COLOR_LOW,
   GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
-  SIREN_NEAR, SIREN_FAR, SIREN_AMBIENT, SIREN_OPENING, SIREN_OPENING_FADE,
+  SIREN_NEAR, SIREN_FAR, SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=21";
+} from "./js/constants.js?v=23";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -39,8 +39,9 @@ import {
   nearestUsableLane,
 } from "./js/worldgen.js?v=21";
 import {
-  unlockSirenAudio, startSiren, stopSiren, setSirenVolume, sirenLevelFromProximity,
-} from "./js/siren.js?v=2";
+  unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
+  sirenLevelFromProximity, getSirenDebug,
+} from "./js/siren.js?v=4";
 
 const save = loadSave();
 
@@ -300,6 +301,8 @@ let pursuit = null;
 let bustPending = false;
 /** Seconds remaining for the opening chase siren boost (0 = faded) */
 let sirenOpeningT = 0;
+/** Smoothed siren level so volume tracks distance without frame jitter */
+let sirenSmoothVol = 0;
 let keysBrake = false;
 let touchStart = null;
 let last = performance.now();
@@ -651,11 +654,16 @@ function updateHeatUI() {
   if (hudHeat) hudHeat.classList.toggle("hot", heat >= 70);
 }
 
-/** Nearest police car distance in meters, or null if none. */
+/**
+ * Distance to the nearest chase cop (opening / pursuit / gas threat).
+ * Ignores ambient traffic police so random spawns don't yank the volume.
+ */
 function nearestPoliceDist() {
   let best = null;
   for (const t of activeTraffic) {
-    if (!t.userData?.police) continue;
+    const u = t.userData;
+    if (!u?.police) continue;
+    if (!(u.openingChase || u.pursuit || u.gasThreat)) continue;
     const dx = t.position.x - laneX;
     const dz = t.position.z - playerZ;
     const d = Math.hypot(dx, dz);
@@ -665,33 +673,47 @@ function nearestPoliceDist() {
 }
 
 /**
- * Keep the siren looping while a run is alive; volume from cop distance + heat + opening.
+ * Siren volume: loud opening at start; afterward silent until cops are
+ * ~40% close, then louder as they close in.
  * @param {number} dt
  */
 function updateSirenAudio(dt) {
   if (!alive || (!running && !gasVisit && !intro)) {
     stopSiren();
+    sirenSmoothVol = 0;
     return;
   }
   if (sirenOpeningT > 0) sirenOpeningT = Math.max(0, sirenOpeningT - dt);
+  // Ease opening from full → 0 over the fade window
   const opening = sirenOpeningT > 0
-    ? (sirenOpeningT / SIREN_OPENING_FADE) * SIREN_OPENING
+    ? SIREN_OPENING * (sirenOpeningT / SIREN_OPENING_FADE)
     : 0;
-  // During intro / first moments, always run the siren so the chase is audible immediately
+
+  resumeSirenAudio();
   startSiren();
-  const level = sirenLevelFromProximity({
-    dist: nearestPoliceDist(),
-    heat,
-    opening,
-    ambient: (running || gasVisit || intro) ? SIREN_AMBIENT : 0,
-  }, { near: SIREN_NEAR, far: SIREN_FAR });
-  setSirenVolume(level);
+
+  const dist = nearestPoliceDist();
+  const target = sirenLevelFromProximity(
+    { dist, opening },
+    {
+      near: SIREN_NEAR,
+      far: SIREN_FAR,
+      onset: SIREN_ONSET,
+      volNear: SIREN_VOL_NEAR,
+      volOnset: SIREN_VOL_ONSET,
+    },
+  );
+  // Smooth toward target so distance changes feel continuous, not jumpy
+  sirenSmoothVol = THREE.MathUtils.damp(sirenSmoothVol, target, 4.5, dt);
+  setSirenVolume(sirenSmoothVol);
 }
 
 /** Begin chase audio — called when gameplay (or intro) starts. */
 function beginChaseSiren() {
   unlockSirenAudio();
+  resumeSirenAudio();
   sirenOpeningT = SIREN_OPENING_FADE;
+  sirenSmoothVol = SIREN_OPENING;
   startSiren();
   setSirenVolume(SIREN_OPENING);
 }
@@ -704,7 +726,7 @@ function spawnOpeningChaseCop() {
   const layout = currentLayout();
   const car = rentPolice(scene);
   const tLane = Math.min(Math.max(0, lane), layout.count - 1);
-  const behind = 26;
+  const behind = 34;
   car.position.set(layout.xs[tLane], 0, playerZ - behind);
   car.rotation.y = 0;
   car.userData.police = true;
@@ -1299,6 +1321,7 @@ function endRun(reason) {
   intro = null;
   sirenOpeningT = 0;
   stopSiren();
+  sirenSmoothVol = 0;
   if (gasVisit?.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
@@ -1336,6 +1359,7 @@ function setupMenuScene() {
   clearWorld();
   stopSiren();
   sirenOpeningT = 0;
+  sirenSmoothVol = 0;
   running = false;
   alive = false;
   intro = null;
@@ -1424,6 +1448,7 @@ function resetRunState() {
   transitionFrom = null;
   transitionTo = null;
   sirenOpeningT = 0;
+  sirenSmoothVol = 0;
 }
 
 /**
@@ -1704,6 +1729,13 @@ document.getElementById("btn-retry").onclick = () => {
   unlockSirenAudio();
   startRun({ instant: true });
 };
+// pointerdown unlocks earlier than click — critical for mobile Safari audio
+for (const id of ["btn-play", "btn-retry"]) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  el.addEventListener("pointerdown", () => unlockSirenAudio(), { passive: true });
+  el.addEventListener("touchstart", () => unlockSirenAudio(), { passive: true });
+}
 document.getElementById("btn-menu").onclick = () => {
   fromGameOver = false;
   setupMenuScene();
@@ -2009,10 +2041,15 @@ function tick(now) {
           t.position.z = Math.min(t.position.z, playerZ - 14);
           continue;
         }
-        const threat = heat / 100;
-        const zOff = THREE.MathUtils.lerp(28, 11, threat);
+        // Gap tracks escape speed: slow → cops close past the 40% onset (sirens on),
+        // fast → they stay beyond onset (sirens off after the opening cue).
+        const zOff = THREE.MathUtils.clamp(
+          THREE.MathUtils.lerp(11, 36, (speed - 6) / 16),
+          11,
+          36,
+        );
         const targetZ = playerZ - zOff;
-        t.position.z = THREE.MathUtils.damp(t.position.z, targetZ, 1.35, dt);
+        t.position.z = THREE.MathUtils.damp(t.position.z, targetZ, 2.2, dt);
         const lx = currentLayout().xs[Math.min(lane, currentLayout().count - 1)];
         t.position.x = THREE.MathUtils.damp(t.position.x, lx, 2.2, dt);
         t.userData.lane = Math.min(lane, currentLayout().count - 1);
@@ -2164,6 +2201,8 @@ window.__endlessChase = {
     transitioning, transitionQueue: transitionQueue.length,
     policeDist: nearestPoliceDist(),
     sirenOpeningT: +sirenOpeningT.toFixed(2),
+    sirenVol: +sirenSmoothVol.toFixed(3),
+    siren: getSirenDebug(),
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),
     playerYaw: +player.rotation.y.toFixed(3),
