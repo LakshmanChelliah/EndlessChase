@@ -17,6 +17,10 @@ export const TURN_COOLDOWN_SEGS = 10;
 export const TURN_WINDOW = 1.25;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
+/** Max duration for a tap (gas station). Swipes have no time limit. */
+export const TAP_MAX_MS = 450;
+/** Ignore synthetic mouse clicks this long after a real touch. */
+export const TOUCH_MOUSE_GUARD_MS = 700;
 
 /**
  * Minimum straight segments between traffic-light intersections.

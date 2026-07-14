@@ -5,8 +5,11 @@
 - [ ] Page loads; NES CRT look; no blank hang
 - [ ] **Play** starts run; HUD shows distance/coins/heat/**gas**
 - [ ] A/D or swipe across **4 city lanes**; page does not scroll
+- [ ] Slow deliberate swipes (drag longer than 0.5s) still change lanes / brake
+- [ ] Caps Lock on: A/D still steer
 - [ ] Oncoming lanes show **WRONG WAY**; collision wrecks
 - [ ] Swipe down / S brakes; heat rises → pursuit → **Busted!**
+- [ ] Swipe up / W / Space resumes after sticky brake
 - [ ] Collision shows **Wrecked!**; **Retry** works
 - [ ] Turn cue; swipe L/R switches biome via on-ramp
 - [ ] Gas station on L or R; must be in matching outer lane or see "Move closer to enter"

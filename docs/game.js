@@ -8,7 +8,7 @@ import {
   SEG_LEN, NES_W, NES_H, NES, MAX_UPGRADE,
   BRAKE_DURATION, BRAKE_SPEED_MUL,
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
-  TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE,
+  TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
@@ -325,7 +325,14 @@ let sirenOpeningT = 0;
 /** Smoothed siren level so volume tracks distance without frame jitter */
 let sirenSmoothVol = 0;
 let keysBrake = false;
+/** Active pointer gesture: { x, y, t, id } or null */
 let touchStart = null;
+/** True once this gesture already fired a swipe (threshold-on-move). */
+let swipeConsumed = false;
+/** Last real touch timestamp — suppresses ghost mouse events on mobile. */
+let lastTouchAt = 0;
+/** One buffered swipe while intro is playing (applied when driving starts). */
+let pendingSwipe = null;
 let last = performance.now();
 let worldSeed = 1;
 let transitionQueue = [];
@@ -1811,6 +1818,9 @@ function resetRunState() {
   onRampPending = false;
   bustPending = false;
   keysBrake = false;
+  pendingSwipe = null;
+  touchStart = null;
+  swipeConsumed = false;
   crossSpawnTimer = 0.4;
   worldSeed = (Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0;
   transitionQueue = [];
@@ -1913,6 +1923,11 @@ function finishIntro() {
   running = true;
   alive = true;
   spawnOpeningChaseCop();
+  if (pendingSwipe) {
+    const dir = pendingSwipe;
+    pendingSwipe = null;
+    onSwipe(dir);
+  }
 }
 
 /**
@@ -1959,7 +1974,12 @@ function updateIntro(dt) {
 
 function onSwipe(dir) {
   if (!alive || gasVisit) return;
-  if (!running) return;
+  if (!running) {
+    // Intro ignores live control — keep the latest gesture so it isn't lost
+    if (intro) pendingSwipe = dir;
+    return;
+  }
+  pendingSwipe = null;
   if (turnActive && (dir === "left" || dir === "right")) {
     const biome = dir === "left" ? turnActive.left : turnActive.right;
     turnYawVel = dir === "left" ? TURN_YAW * 4 : -TURN_YAW * 4;
@@ -1986,61 +2006,176 @@ function onSwipe(dir) {
   if (dir === "up") resumeThrottle();
 }
 
-function pointerDown(x, y) { touchStart = { x, y, t: performance.now() }; }
-function pointerUp(x, y) {
-  if (!touchStart) return;
-  const dx = x - touchStart.x;
-  const dy = y - touchStart.y;
-  const dt = performance.now() - touchStart.t;
-  touchStart = null;
-  if (gasVisit) return;
-  const dist = Math.hypot(dx, dy);
-  // Tap (not swipe) — try gas station interact
-  if (dist < MIN_SWIPE && dt < 450) {
-    if (tryTapGasStation(x, y)) return;
-    return;
-  }
-  if (dt > 450 || dist < MIN_SWIPE) return;
+function emitSwipeFromDelta(dx, dy) {
   if (Math.abs(dx) > Math.abs(dy)) onSwipe(dx > 0 ? "right" : "left");
   else onSwipe(dy > 0 ? "down" : "up");
 }
 
+function pointerDown(x, y, id = 0) {
+  touchStart = { x, y, t: performance.now(), id };
+  swipeConsumed = false;
+}
+
+function pointerMove(x, y, id = 0) {
+  if (!touchStart || swipeConsumed) return;
+  if (id !== touchStart.id) return;
+  const dx = x - touchStart.x;
+  const dy = y - touchStart.y;
+  if (Math.hypot(dx, dy) < MIN_SWIPE) return;
+  // Fire as soon as the swipe crosses the threshold — no time cutoff.
+  // Slow deliberate swipes used to miss when only resolved on release within 450ms.
+  swipeConsumed = true;
+  if (gasVisit) return;
+  emitSwipeFromDelta(dx, dy);
+}
+
+function pointerUp(x, y, id = 0) {
+  if (!touchStart) return;
+  if (id !== touchStart.id) return;
+  const start = touchStart;
+  touchStart = null;
+  if (swipeConsumed) {
+    swipeConsumed = false;
+    return;
+  }
+  if (gasVisit) return;
+  const dx = x - start.x;
+  const dy = y - start.y;
+  const dt = performance.now() - start.t;
+  const dist = Math.hypot(dx, dy);
+  // Tap (not swipe) — try gas station interact
+  if (dist < MIN_SWIPE) {
+    if (dt < TAP_MAX_MS) tryTapGasStation(x, y);
+    return;
+  }
+  // Swipe completed on release (threshold not hit during move, e.g. very fast flick)
+  emitSwipeFromDelta(dx, dy);
+}
+
+function pointerCancel(id = 0) {
+  if (!touchStart) return;
+  if (id !== touchStart.id) return;
+  touchStart = null;
+  swipeConsumed = false;
+}
+
+function isGhostMouse() {
+  return performance.now() - lastTouchAt < TOUCH_MOUSE_GUARD_MS;
+}
+
+function touchPoint(e, preferId = null) {
+  const list = e.changedTouches || e.touches;
+  if (!list || !list.length) return null;
+  if (preferId != null) {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].identifier === preferId) {
+        return { x: list[i].clientX, y: list[i].clientY, id: list[i].identifier };
+      }
+    }
+  }
+  const t = list[0];
+  return { x: t.clientX, y: t.clientY, id: t.identifier };
+}
+
+function activeTouchPoint(e, preferId) {
+  let pt = touchPoint(e, preferId);
+  if (pt || preferId == null || !e.touches) return pt;
+  for (let i = 0; i < e.touches.length; i++) {
+    if (e.touches[i].identifier === preferId) {
+      return { x: e.touches[i].clientX, y: e.touches[i].clientY, id: e.touches[i].identifier };
+    }
+  }
+  return null;
+}
+
 canvas.addEventListener("touchstart", (e) => {
   if (e.cancelable) e.preventDefault();
-  pointerDown(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  lastTouchAt = performance.now();
+  // Start a new gesture only when idle — ignore extra fingers mid-swipe
+  if (touchStart) return;
+  const p = touchPoint(e);
+  if (p) pointerDown(p.x, p.y, p.id);
 }, { passive: false });
-canvas.addEventListener("touchmove", (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+canvas.addEventListener("touchmove", (e) => {
+  if (e.cancelable) e.preventDefault();
+  lastTouchAt = performance.now();
+  if (!touchStart) return;
+  const pt = activeTouchPoint(e, touchStart.id);
+  if (pt) pointerMove(pt.x, pt.y, pt.id);
+}, { passive: false });
 canvas.addEventListener("touchend", (e) => {
   if (e.cancelable) e.preventDefault();
-  pointerUp(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  lastTouchAt = performance.now();
+  const p = touchPoint(e, touchStart?.id);
+  if (p) pointerUp(p.x, p.y, p.id);
 }, { passive: false });
-canvas.addEventListener("mousedown", (e) => pointerDown(e.clientX, e.clientY));
-canvas.addEventListener("mouseup", (e) => pointerUp(e.clientX, e.clientY));
+canvas.addEventListener("touchcancel", (e) => {
+  lastTouchAt = performance.now();
+  const p = touchPoint(e, touchStart?.id);
+  pointerCancel(p ? p.id : touchStart?.id ?? 0);
+}, { passive: true });
+
+canvas.addEventListener("mousedown", (e) => {
+  if (isGhostMouse()) return;
+  if (e.button !== 0) return;
+  pointerDown(e.clientX, e.clientY, -1);
+});
+window.addEventListener("mousemove", (e) => {
+  if (!touchStart || touchStart.id !== -1) return;
+  pointerMove(e.clientX, e.clientY, -1);
+});
+window.addEventListener("mouseup", (e) => {
+  if (e.button !== 0) return;
+  if (!touchStart || touchStart.id !== -1) return;
+  pointerUp(e.clientX, e.clientY, -1);
+});
+window.addEventListener("blur", () => pointerCancel(touchStart?.id ?? 0));
+
+function gameKey(e) {
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown") return e.key;
+  if (e.key === " ") return " ";
+  if (e.key === "Enter") return "Enter";
+  if (e.key.length === 1) return e.key.toLowerCase();
+  return e.key;
+}
 
 window.addEventListener("keydown", (e) => {
+  const key = gameKey(e);
   if (gasVisit?.phase === "pumping") {
-    if (e.key === " " || e.key === "f" || e.key === "F") {
+    if (key === " " || key === "f") {
       e.preventDefault();
       setPumpHolding(true);
     }
     return;
   }
   if (gasVisit?.phase === "waitClear") {
-    if (e.key === " " || e.key === "Enter" || e.key === "w" || e.key === "ArrowUp") {
+    if (key === " " || key === "Enter" || key === "w" || key === "ArrowUp") {
       e.preventDefault();
       beginPullOut();
     }
     return;
   }
   if (gasVisit) return;
-  if (e.key === "a" || e.key === "ArrowLeft") onSwipe("left");
-  if (e.key === "d" || e.key === "ArrowRight") onSwipe("right");
-  if (e.key === "s" || e.key === "ArrowDown") startBrake();
-  if (e.key === "w" || e.key === "ArrowUp" || e.key === " ") resumeThrottle();
+  // Ignore OS key-repeat so held A/D does not skip lanes
+  if (e.repeat) return;
+  if (key === "a" || key === "ArrowLeft") {
+    e.preventDefault();
+    onSwipe("left");
+  } else if (key === "d" || key === "ArrowRight") {
+    e.preventDefault();
+    onSwipe("right");
+  } else if (key === "s" || key === "ArrowDown") {
+    e.preventDefault();
+    startBrake();
+  } else if (key === "w" || key === "ArrowUp" || key === " ") {
+    e.preventDefault();
+    resumeThrottle();
+  }
 });
 
 window.addEventListener("keyup", (e) => {
-  if (gasVisit?.phase === "pumping" && (e.key === " " || e.key === "f" || e.key === "F")) {
+  const key = gameKey(e);
+  if (gasVisit?.phase === "pumping" && (key === " " || key === "f")) {
     if (gasVisit.holding) {
       setPumpHolding(false);
       enterWaitClear();
@@ -2048,7 +2183,7 @@ window.addEventListener("keyup", (e) => {
     return;
   }
   // Sticky brake: release of S does not resume — only swipe up / W / Space
-  if (e.key === "s" || e.key === "ArrowDown") keysBrake = false;
+  if (key === "s" || key === "ArrowDown") keysBrake = false;
 });
 
 if (hudStationFloat) {
