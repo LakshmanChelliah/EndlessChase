@@ -1463,12 +1463,10 @@ btnUpHandling.onclick = () => { if (tryUpgrade(save, "handlingLevel")) refreshUp
 
 function layoutCanvas() {
   // Always render as portrait (9:16). If the phone is landscape, letterbox
-  // the portrait stage inside the landscape window and show a rotate hint.
+  // the portrait stage inside the landscape window.
   const vw = Math.max(1, window.innerWidth);
   const vh = Math.max(1, window.innerHeight);
   const isPortrait = vh >= vw;
-  const rotateHint = document.getElementById("rotate-hint");
-  if (rotateHint) rotateHint.classList.toggle("hidden", isPortrait);
 
   // Fixed NES portrait buffer — wider FOV so outer lanes stay on-screen
   const iw = 160;
