@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=14" />
+  <link rel="stylesheet" href="styles.css?v=15" />
 </head>
 <body>
   <div id="game-root">
@@ -33,21 +33,35 @@
           <span id="hud-distance">0 m</span>
           <span id="hud-coins">$0</span>
         </div>
-        <div id="hud-heat" class="heat-bar" aria-label="Police heat">
-          <div id="hud-heat-fill" class="heat-fill"></div>
-        </div>
-        <div id="hud-gas-block" class="gas-block" aria-label="Fuel">
-          <div id="hud-gas-text" class="gas-text">GAS 50%</div>
-          <div id="hud-gas" class="gas-bar">
-            <div id="hud-gas-fill" class="gas-fill"></div>
+
+        <div id="hud-heat" class="police-bar" aria-label="Police proximity">
+          <div class="police-siren police-siren-l" aria-hidden="true"></div>
+          <div class="police-track">
+            <div id="hud-heat-fill" class="police-fill"></div>
           </div>
+          <div class="police-siren police-siren-r" aria-hidden="true"></div>
         </div>
+
         <div id="hud-boost" class="boost hidden">BOOST</div>
         <div id="hud-light" class="light-hint hidden"></div>
         <div id="hud-turn" class="turn-cue hidden"></div>
         <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
         <div id="hud-gas-hint" class="gas-hint hidden">Move closer to enter</div>
-        <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
+
+        <div id="hud-cluster" class="gauge-cluster" aria-label="Gauges">
+          <div id="hud-gas-block" class="gas-gauge ok" aria-label="Fuel">
+            <div class="fuel-icon" aria-hidden="true">
+              <span class="fuel-nozzle"></span>
+              <span class="fuel-body"></span>
+              <span class="fuel-base"></span>
+            </div>
+            <div id="hud-gas" class="gas-bar">
+              <div id="hud-gas-fill" class="gas-fill"></div>
+            </div>
+          </div>
+          <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
+        </div>
+
         <button type="button" id="hud-station-float" class="station-float hidden">Tap to fill up!</button>
       </section>
 
@@ -102,6 +116,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=17"></script>
+  <script type="module" src="game.js?v=18"></script>
 </body>
 </html>

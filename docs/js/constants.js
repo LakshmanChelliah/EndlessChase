@@ -41,8 +41,8 @@ export const CROSS_MAX = 3;
 export const CROSS_SPAWN_INTERVAL = 1.15;
 
 /** Gas resource — drain, stations, hold-to-fill */
-export const GAS_START_MIN = 35;
-export const GAS_START_MAX = 70;
+export const GAS_START_MIN = 88;
+export const GAS_START_MAX = 96;
 /** % drained per second at cruise speed (~18) */
 export const GAS_DRAIN_PER_SEC = 1.55;
 export const GAS_DRAIN_BOOST_MUL = 1.7;
