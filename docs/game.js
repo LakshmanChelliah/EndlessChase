@@ -19,7 +19,7 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=26";
+} from "./js/constants.js?v=27";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -33,8 +33,8 @@ import { Pool } from "./js/pool.js?v=21";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-  applyMixBiomeOverlay, clearMixBiomeOverlay,
-} from "./js/nes.js?v=22";
+  applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
+} from "./js/nes.js?v=23";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
@@ -97,21 +97,124 @@ const upHandlingLabel = document.getElementById("up-handling-label");
 const btnUpSpeed = document.getElementById("btn-up-speed");
 const btnUpAccel = document.getElementById("btn-up-accel");
 const btnUpHandling = document.getElementById("btn-up-handling");
+const fxFlash = document.getElementById("fx-flash");
+const fxHeatVignette = document.getElementById("fx-heat-vignette");
+const fxSpeedlines = document.getElementById("fx-speedlines");
+const pumpShell = document.getElementById("pump-shell");
+const btnRetry = document.getElementById("btn-retry");
+const upSpeedPips = document.getElementById("up-speed-pips");
+const upAccelPips = document.getElementById("up-accel-pips");
+const upHandlingPips = document.getElementById("up-handling-pips");
 
 /** Garage browse highlight (may differ from equipped selectedCar while shopping). */
 let garageFocusId = save.selectedCar;
+let activePanelName = "menu";
+let goScoreTarget = 0;
+let goScoreDisplay = 0;
+let goRetryTimer = 0;
+let shakeAmp = 0;
+let shakeTime = 0;
+let camFovTarget = 72;
+let exhaustFlicker = null;
+let prevBoostActive = false;
+
+function triggerShake(amp, duration = 0.22) {
+  shakeAmp = Math.max(shakeAmp, amp);
+  shakeTime = Math.max(shakeTime, duration);
+}
+
+function triggerFlash(kind = "wreck") {
+  if (!fxFlash) return;
+  fxFlash.className = `fx-flash flash-${kind}`;
+  // Restart CSS animation
+  void fxFlash.offsetWidth;
+  fxFlash.classList.add("active");
+}
+
+function updateHeatVignette() {
+  if (!fxHeatVignette) return;
+  const t = Math.max(0, (heat - 45) / 55);
+  // Stepped NES opacity
+  const stepped = Math.round(t * 5) / 5;
+  fxHeatVignette.style.opacity = String(stepped * 0.85);
+}
+
+function setSpeedlines(on) {
+  if (!fxSpeedlines) return;
+  fxSpeedlines.classList.toggle("hidden", !on);
+}
+
+function applyCameraShake(dt) {
+  if (shakeTime <= 0) {
+    shakeAmp = 0;
+    return;
+  }
+  shakeTime -= dt;
+  const falloff = Math.max(0, shakeTime);
+  const a = shakeAmp * Math.min(1, falloff * 4);
+  // Stepped jitter — not smooth noise
+  const sx = ((Math.random() * 2 - 1) * a);
+  const sy = ((Math.random() * 2 - 1) * a * 0.55);
+  camera.position.x += sx;
+  camera.position.y += sy;
+}
+
+function ensureExhaustFlicker() {
+  if (exhaustFlicker || !player) return;
+  exhaustFlicker = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.18, 0.18),
+    new THREE.MeshBasicMaterial({ color: NES.orange })
+  );
+  exhaustFlicker.position.set(0, 0.35, -1.55);
+  exhaustFlicker.name = "exhaustFlicker";
+  player.add(exhaustFlicker);
+}
+
+function renderUpgradePips(el, level) {
+  if (!el) return;
+  el.innerHTML = "";
+  for (let i = 0; i < MAX_UPGRADE; i++) {
+    const pip = document.createElement("span");
+    pip.className = "pip" + (i < level ? " on" : "");
+    el.appendChild(pip);
+  }
+}
 
 function showPanel(name) {
   for (const k of Object.keys(panels)) {
     if (!panels[k]) continue;
     // Pump overlays HUD — don't force-hide via this helper when opening pump
     if (k === "pump") continue;
-    panels[k].classList.toggle("hidden", k !== name);
+    const el = panels[k];
+    const show = k === name;
+    if (show) {
+      el.classList.remove("hidden");
+      el.classList.remove("panel-enter");
+      void el.offsetWidth;
+      el.classList.add("panel-enter");
+    } else {
+      el.classList.add("hidden");
+      el.classList.remove("panel-enter");
+    }
+  }
+  activePanelName = name;
+  if (name !== "gameover" && panels.gameover) {
+    panels.gameover.classList.remove("go-wreck", "go-bust");
   }
 }
 
 function showPumpPanel(show) {
-  if (panels.pump) panels.pump.classList.toggle("hidden", !show);
+  if (!panels.pump) return;
+  if (show) {
+    panels.pump.classList.remove("hidden");
+    panels.pump.classList.remove("panel-enter");
+    void panels.pump.offsetWidth;
+    panels.pump.classList.add("panel-enter");
+  } else {
+    panels.pump.classList.add("hidden");
+    panels.pump.classList.remove("panel-enter");
+    if (pumpShell) pumpShell.classList.remove("threat-mid", "threat-high");
+  }
 }
 
 function refreshUpgradesUI() {
@@ -144,6 +247,7 @@ function refreshUpgradesUI() {
       const unlocked = isUnlocked(save, id);
       const def = getCar(id);
       btn.classList.toggle("selected", id === garageFocusId);
+      btn.classList.toggle("equipped", id === save.selectedCar);
       btn.classList.toggle("locked", !unlocked);
       const label = btn.querySelector(".car-card-label");
       if (label) {
@@ -174,15 +278,16 @@ function refreshUpgradesUI() {
   }
 
   const levels = save.cars[garageFocusId] || { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0 };
-  const bind = (labelEl, btn, title, key) => {
+  const bind = (labelEl, btn, title, key, pipsEl) => {
     const level = levels[key] | 0;
     const cost = costFor(level);
-    labelEl.textContent = `${title} ${level}/${MAX_UPGRADE}` + (cost < 0 ? " MAX" : ` $${cost}`);
+    labelEl.textContent = `${title}` + (cost < 0 ? " MAX" : ` $${cost}`);
     btn.disabled = !unlockedFocus || cost < 0 || save.coins < cost;
+    renderUpgradePips(pipsEl, level);
   };
-  bind(upSpeedLabel, btnUpSpeed, "SPEED", "topSpeedLevel");
-  bind(upAccelLabel, btnUpAccel, "ACCEL", "accelerationLevel");
-  bind(upHandlingLabel, btnUpHandling, "HANDL", "handlingLevel");
+  bind(upSpeedLabel, btnUpSpeed, "SPEED", "topSpeedLevel", upSpeedPips);
+  bind(upAccelLabel, btnUpAccel, "ACCEL", "accelerationLevel", upAccelPips);
+  bind(upHandlingLabel, btnUpHandling, "HANDL", "handlingLevel", upHandlingPips);
 }
 
 // ---------- Renderer ----------
@@ -199,7 +304,7 @@ const camera = new THREE.PerspectiveCamera(72, 160 / 256, 0.1, 200);
 scene.add(camera);
 
 const tex = createTextures();
-addSky(camera);
+const sky = addSky(camera);
 
 // Permanent berm under the road so the navy void never reads as bare ground
 const worldGround = new THREE.Mesh(
@@ -210,6 +315,7 @@ worldGround.rotation.x = -Math.PI / 2;
 worldGround.position.set(0, -0.04, 80);
 worldGround.renderOrder = -2;
 scene.add(worldGround);
+applyBiomeAtmosphere(scene, sky, worldGround, "city", renderer);
 
 // ---------- Menu / intro camera ----------
 /** City curb sits at ±8.2; park fully on the left sidewalk just outside it. */
@@ -357,7 +463,9 @@ let player = createVehicle(save.selectedCar, { tint: false });
 scene.add(player);
 
 function syncPlayerCar() {
+  exhaustFlicker = null;
   player = replacePlayerVehicle(scene, player, save.selectedCar);
+  ensureExhaustFlicker();
 }
 
 function segFactory(biome, kind) {
@@ -392,6 +500,7 @@ const segmentPool = {
 const coinPool = new Pool(() => { const c = makeCoin(tex); scene.add(c); return c; }, 10);
 const conePool = new Pool(() => { const o = makeCone(); scene.add(o); return o; }, 24);
 const barricadePool = new Pool(() => { const o = makeBarricade(); scene.add(o); return o; }, 12);
+const dustPool = new Pool(() => { const o = makeDustMote(); scene.add(o); return o; }, 16);
 
 /** Layout for global biome (traffic defaults / HUD). Player control uses segment layout. */
 function currentLayout() { return layoutFor(activeBiome); }
@@ -442,6 +551,7 @@ function stampSegmentDefaults(seg) {
 
 function returnObstacle(o) {
   if (o.userData.kind === "barricade") barricadePool.return(o);
+  else if (o.userData.kind === "dust") dustPool.return(o);
   else conePool.return(o);
 }
 
@@ -459,7 +569,19 @@ function spawnTransitionObstacles(seg, closedLaneXs) {
       const cone = conePool.rent();
       cone.position.set(x + (i % 2 === 0 ? 0 : 0.15), 0, zBase - SEG_LEN * 0.15 + i * 3.2);
       cone.rotation.y = 0;
+      cone.userData.wobblePhase = Math.random() * Math.PI * 2;
       activeObstacles.push(cone);
+    }
+    // Sparse dust motes so closed lanes feel hazardous
+    for (let d = 0; d < 2; d++) {
+      const dust = dustPool.rent();
+      dust.position.set(
+        x + (Math.random() - 0.5) * 1.2,
+        0.08 + Math.random() * 0.15,
+        zBase - SEG_LEN * 0.1 + d * 4.5 + Math.random() * 2
+      );
+      dust.userData.wobblePhase = Math.random() * Math.PI * 2;
+      activeObstacles.push(dust);
     }
   }
 }
@@ -476,6 +598,7 @@ function adoptBiomeFromSegment(seg) {
   const next = seg.userData.biome;
   if (!next || next === activeBiome) return;
   activeBiome = next;
+  applyBiomeAtmosphere(scene, sky, worldGround, activeBiome, renderer);
   // Do not auto-merge the player — only sync lane index if already on a valid center
   syncPlayerLaneIndexIfAligned();
   if (!transitionQueue.length && transitioning && transitionTo === next) {
@@ -1007,6 +1130,7 @@ function updateHeatUI() {
   if (!hudHeatFill) return;
   hudHeatFill.style.width = `${Math.min(100, heat)}%`;
   if (hudHeat) hudHeat.classList.toggle("hot", heat >= 70);
+  updateHeatVignette();
 }
 
 /**
@@ -1236,6 +1360,10 @@ function tickGasVisitThreat(dt) {
 
   updateHeatUI();
   if (pumpHeatFill) pumpHeatFill.style.width = `${Math.min(100, heat)}%`;
+  if (pumpShell) {
+    pumpShell.classList.toggle("threat-mid", heat >= 40 && heat < 70);
+    pumpShell.classList.toggle("threat-high", heat >= 70);
+  }
   if (heat >= 100) {
     bustAtPump();
     return true;
@@ -1680,6 +1808,7 @@ function spawnTrafficCar() {
   car.userData.stopped = false;
   clearMergeState(car);
   car.userData.mergeDist = MERGE_DIST_MIN + Math.random() * (MERGE_DIST_MAX - MERGE_DIST_MIN);
+  car.userData.nearMissed = false;
   activeTraffic.push(car);
 }
 
@@ -1691,6 +1820,14 @@ function endRun(reason) {
   sirenOpeningT = 0;
   stopSiren();
   sirenSmoothVol = 0;
+  setSpeedlines(false);
+  if (reason === "bust") {
+    triggerFlash("bust");
+    triggerShake(0.55, 0.45);
+  } else {
+    triggerFlash("wreck");
+    triggerShake(0.7, 0.4);
+  }
   if (gasVisit?.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
@@ -1703,12 +1840,23 @@ function endRun(reason) {
   hideStationFloat();
   hideGasHint();
   if (goTitle) goTitle.textContent = reason === "bust" ? "Busted!" : "Wrecked!";
-  goScore.textContent = `${Math.floor(distance)} m`;
+  goScoreTarget = Math.floor(distance);
+  goScoreDisplay = 0;
+  if (goScore) goScore.textContent = `0 m`;
   goCoins.textContent = `+$${runCoins}`;
   writeSave(save);
   fromGameOver = true;
   setupMenuScene(); // rebuild city title street under game-over UI
+  if (panels.gameover) {
+    panels.gameover.classList.toggle("go-bust", reason === "bust");
+    panels.gameover.classList.toggle("go-wreck", reason !== "bust");
+  }
+  if (btnRetry) {
+    btnRetry.disabled = true;
+    goRetryTimer = 0.45;
+  }
   showPanel("gameover");
+  updateHeatVignette();
 }
 
 function crash() { endRun("wreck"); }
@@ -1734,6 +1882,7 @@ function setupMenuScene() {
   alive = false;
   intro = null;
   activeBiome = "city";
+  applyBiomeAtmosphere(scene, sky, worldGround, "city", renderer);
   nextSpawnZ = -SEG_LEN;
   spawnIndex = 0;
   worldSeed = 0xc0ffee;
@@ -1765,6 +1914,9 @@ function setupMenuScene() {
   parkPlayerCurbside();
   applyMenuCamera();
   menuTime = 0;
+  ensureExhaustFlicker();
+  updateHeatVignette();
+  setSpeedlines(false);
 }
 
 /** Parked curb cars on the title street — kept through intro until they scroll out of view. */
@@ -1789,6 +1941,7 @@ function spawnCurbDecoCars() {
 
 function resetRunState() {
   activeBiome = "city";
+  applyBiomeAtmosphere(scene, sky, worldGround, "city", renderer);
   const layout = layoutFor(activeBiome);
   lane = layout.defaultLane;
   laneX = layout.xs[lane];
@@ -1854,6 +2007,12 @@ function startRun(opts = {}) {
   hideStationFloat();
   hideGasHint();
   if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
+  prevBoostActive = false;
+  setSpeedlines(false);
+  shakeAmp = 0;
+  shakeTime = 0;
+  camFovTarget = 72;
+  ensureExhaustFlicker();
   updateHeatUI();
   updateGasUI();
   trafficTimer = 0.8;
@@ -1998,8 +2157,9 @@ function onSwipe(dir) {
     while (next >= 0 && next < layout.count && !usable.includes(next)) next += delta;
     if (next >= 0 && next < layout.count && usable.includes(next) && next !== lane) {
       lane = next;
-      // Mild yaw kick into the lane change
-      turnYawVel = -delta * TURN_YAW * 2.2;
+      // Stronger yaw kick into the lane change
+      turnYawVel = -delta * TURN_YAW * 3.4;
+      triggerShake(0.08, 0.1);
     }
   }
   if (dir === "down") startBrake();
@@ -2235,6 +2395,7 @@ document.getElementById("btn-play").onclick = () => {
 };
 document.getElementById("btn-retry").onclick = () => {
   unlockSirenAudio();
+  if (btnRetry) btnRetry.disabled = false;
   startRun({ instant: true });
 };
 // pointerdown unlocks earlier than click — critical for mobile Safari audio
@@ -2371,6 +2532,7 @@ function tick(now) {
     }
     if (heat >= 100 && !bustPending) spawnPursuit();
     updateHeatUI();
+    if (heat >= 85 && Math.random() < 0.22) triggerShake(0.04, 0.06);
 
     const { seg: playerSeg, layout, usable } = playerControlLayout();
     adoptBiomeFromSegment(playerSeg);
@@ -2389,33 +2551,53 @@ function tick(now) {
     laneVel = (laneVel - omega * temp) * exp;
     laneX = targetX + (change + temp) * exp;
 
-    // Subtle steer yaw with lateral motion, then settle straight
-    const laneYawTarget = THREE.MathUtils.clamp(laneVel * 0.02, -TURN_YAW * 0.45, TURN_YAW * 0.45);
+    // Subtle steer yaw with lateral motion, then settle straight — amplified for juice
+    const laneYawTarget = THREE.MathUtils.clamp(laneVel * 0.035, -TURN_YAW * 0.55, TURN_YAW * 0.55);
     turnYaw += turnYawVel * dt;
     turnYaw = THREE.MathUtils.damp(turnYaw, laneYawTarget, 9, dt);
     turnYawVel = THREE.MathUtils.damp(turnYawVel, 0, 8, dt);
 
-    // Light bank — keep wheels planted
-    const laneRoll = THREE.MathUtils.clamp(-laneVel * 0.022, -0.1, 0.1);
+    // Weightier bank into lane changes
+    const laneRoll = THREE.MathUtils.clamp(-laneVel * 0.038, -0.16, 0.16);
 
     player.position.set(laneX, 0, playerZ);
-    player.rotation.set(laneRoll * 0.15, turnYaw, laneRoll);
+    player.rotation.set(laneRoll * 0.35, turnYaw, laneRoll);
 
     if (hudLaneWarn) {
       const oncoming = lane >= 0 && lane < layout.count && layout.dirs[lane] === -1;
       const closed = !usable.includes(lane);
-      hudLaneWarn.classList.toggle("hidden", !oncoming && !closed);
+      const warn = oncoming || closed;
+      if (hudLaneWarn.classList.contains("hidden") && warn) {
+        hudLaneWarn.classList.remove("hidden");
+        // retrigger pop animation
+        hudLaneWarn.classList.remove("cue-replay");
+        void hudLaneWarn.offsetWidth;
+      } else {
+        hudLaneWarn.classList.toggle("hidden", !warn);
+      }
     }
 
+    const boostActive = boostTimer > 0;
+    if (boostActive && !prevBoostActive) {
+      triggerFlash("boost");
+      triggerShake(0.2, 0.18);
+    }
+    prevBoostActive = boostActive;
     if (boostTimer > 0) {
       boostTimer -= dt;
       if (boostTimer <= 0) { boostTimer = 0; boostMul = 1; }
     }
+    setSpeedlines(boostActive && !gasVisit);
 
-    // Portrait chase cam: stay near road center so left/rightmost lanes stay visible
-    camera.position.copy(gameplayCamPos(laneX, playerZ));
+    // Portrait chase cam + brake dive / boost FOV
+    const camPos = gameplayCamPos(laneX, playerZ);
+    if (braking) camPos.y -= 0.55;
+    if (boostActive) camPos.z += 0.6;
+    camera.position.copy(camPos);
     const look = gameplayCamLook(laneX, playerZ);
+    if (braking) look.y -= 0.35;
     setCameraLook(look.x, look.y, look.z);
+    camFovTarget = 72 + (boostActive ? 5 : 0) - (braking ? 3.5 : 0);
     worldGround.position.z = playerZ + 80;
   }
 
@@ -2620,6 +2802,17 @@ function tick(now) {
         crash();
         break;
       }
+      // Near-miss juice
+      if (
+        !gasVisit &&
+        !t.userData.nearMissed &&
+        Math.abs(t.position.z - playerZ) < 3.8 &&
+        Math.abs(t.position.x - laneX) > 1.35 &&
+        Math.abs(t.position.x - laneX) < 2.4
+      ) {
+        t.userData.nearMissed = true;
+        triggerShake(0.14, 0.16);
+      }
     }
 
     for (let i = activeCross.length - 1; i >= 0; i--) {
@@ -2660,7 +2853,17 @@ function tick(now) {
         returnObstacle(o);
         continue;
       }
+      if (o.userData.kind === "cone" || o.userData.kind === "dust") {
+        const phase = (o.userData.wobblePhase || 0) + now / 1000;
+        if (o.userData.kind === "cone") {
+          o.rotation.z = Math.sin(phase * 6) * 0.08;
+        } else {
+          o.position.y = 0.1 + Math.abs(Math.sin(phase * 4)) * 0.25;
+          o.material.opacity = 0.3 + 0.25 * Math.abs(Math.sin(phase * 5));
+        }
+      }
       if (gasVisit) continue;
+      if (o.userData.kind === "dust") continue;
       const hx = o.userData.hitHalfX || 0.5;
       const hz = o.userData.hitHalfZ || 0.5;
       if (Math.abs(o.position.z - playerZ) < hz + 1.1 && Math.abs(o.position.x - laneX) < hx + 0.7) {
@@ -2677,9 +2880,11 @@ function tick(now) {
     }
     if (braking && boostTimer <= 0 && !gasVisit) {
       hudBoost.textContent = "BRAKE";
+      hudBoost.classList.add("brake-mode");
       hudBoost.classList.remove("hidden");
     } else {
       hudBoost.textContent = "BOOST";
+      hudBoost.classList.remove("brake-mode");
       hudBoost.classList.toggle("hidden", boostTimer <= 0 || !!gasVisit);
     }
 
@@ -2696,13 +2901,38 @@ function tick(now) {
     worldGround.position.z = playerZ + 80;
   } else if (!running) {
     menuTime += dt;
-    // Idle curb pose — tiny sway, no spin
+    // Idle curb pose — stronger sway + exhaust flicker
+    ensureExhaustFlicker();
     player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
-    player.rotation.y = MENU_PARK.yaw + Math.sin(menuTime * 0.7) * 0.04;
+    player.rotation.y = MENU_PARK.yaw + Math.sin(menuTime * 0.85) * 0.07;
+    player.rotation.z = Math.sin(menuTime * 1.1) * 0.025;
+    if (exhaustFlicker) {
+      exhaustFlicker.visible = Math.sin(menuTime * 18) > 0.15;
+      exhaustFlicker.material.color.setHex(Math.sin(menuTime * 22) > 0 ? NES.orange : NES.yellow);
+    }
     applyMenuCamera();
     worldGround.position.z = 80;
+    setSpeedlines(false);
   }
 
+  // Game-over score count-up + delayed retry
+  if (activePanelName === "gameover" && goRetryTimer > 0) {
+    goRetryTimer -= dt;
+    if (goRetryTimer <= 0 && btnRetry) btnRetry.disabled = false;
+  }
+  if (activePanelName === "gameover" && goScoreDisplay < goScoreTarget) {
+    goScoreDisplay = Math.min(goScoreTarget, goScoreDisplay + Math.max(3, goScoreTarget * dt * 2.8));
+    if (goScore) goScore.textContent = `${Math.floor(goScoreDisplay)} m`;
+  }
+
+  // Damped FOV for boost / brake (layoutCanvas resets base aspect)
+  if (!driving) camFovTarget = 72;
+  if (Math.abs(camera.fov - camFovTarget) > 0.05) {
+    camera.fov = THREE.MathUtils.damp(camera.fov, camFovTarget, 8, dt);
+    camera.updateProjectionMatrix();
+  }
+
+  applyCameraShake(dt);
   updateSirenAudio(dt);
 
   renderer.render(scene, camera);
