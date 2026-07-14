@@ -18,25 +18,25 @@ import {
   GAS_HOLD_FILL_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=25";
+} from "./js/constants.js";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=25";
-import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js?v=25";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=25";
+} from "./js/save.js";
+import { BUYABLE_CARS, getCar, pickMenuDecoCarId, previewUrl } from "./js/cars.js";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=25";
-import { Pool } from "./js/pool.js?v=25";
+} from "./js/carPool.js";
+import { Pool } from "./js/pool.js";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-} from "./js/nes.js?v=25";
+} from "./js/nes.js";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane,
-} from "./js/worldgen.js?v=25";
+} from "./js/worldgen.js";
 
 const save = loadSave();
 
@@ -1564,12 +1564,10 @@ if (btnCarAction) {
 
 function layoutCanvas() {
   // Always render as portrait (9:16). If the phone is landscape, letterbox
-  // the portrait stage inside the landscape window and show a rotate hint.
+  // the portrait stage inside the landscape window.
   const vw = Math.max(1, window.innerWidth);
   const vh = Math.max(1, window.innerHeight);
   const isPortrait = vh >= vw;
-  const rotateHint = document.getElementById("rotate-hint");
-  if (rotateHint) rotateHint.classList.toggle("hidden", isPortrait);
 
   // Fixed NES portrait buffer — wider FOV so outer lanes stay on-screen
   const iw = 160;
