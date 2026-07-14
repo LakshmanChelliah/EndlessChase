@@ -204,28 +204,35 @@ export function getSirenDebug() {
 }
 
 /**
- * Volume from the HUD police distance bar (+ optional opening boost).
+ * Volume from real police distance (+ optional opening boost).
  *
- * `bar` is heat/100 (0–1), same fill as the police proximity meter.
- * After the opening cue, sirens stay off until bar >= onset (~40%),
- * then ramp louder as the bar climbs toward 100%.
+ * Maps meters → a 0–1 fill (0 at FAR, 1 at NEAR) — same idea as the
+ * proximity bar — but uses chase-cop world distance, never car speed/heat.
+ * After the opening cue, sirens stay off until fill >= onset (~60%),
+ * then ramp louder as cops close in.
  *
- * @param {{ bar?: number, opening?: number }} p
- * @param {{ onset?: number, volNear?: number, volOnset?: number }} [cfg]
+ * @param {{ dist: number|null, opening?: number }} p
+ * @param {{ near?: number, far?: number, onset?: number, volNear?: number, volOnset?: number }} [cfg]
  */
 export function sirenLevelFromProximity(p, cfg = {}) {
-  const onset = cfg.onset ?? 0.4;
+  const near = cfg.near ?? 5;
+  const far = cfg.far ?? 42;
+  const onset = cfg.onset ?? 0.6;
   const volNear = cfg.volNear ?? 0.95;
   const volOnset = cfg.volOnset ?? 0.22;
   const opening = Math.max(0, Math.min(1, p.opening || 0));
-  const bar = Math.max(0, Math.min(1, p.bar ?? 0));
 
-  let barVol = 0;
-  if (bar >= onset) {
-    const u = (bar - onset) / Math.max(0.001, 1 - onset);
-    barVol = volOnset + (volNear - volOnset) * Math.max(0, Math.min(1, u));
+  let distVol = 0;
+  if (p.dist != null && Number.isFinite(p.dist)) {
+    // 0% fill at FAR, 100% fill at NEAR — "how full the distance bar is"
+    const fill = 1 - (p.dist - near) / Math.max(0.001, far - near);
+    const bar = Math.max(0, Math.min(1, fill));
+    if (bar >= onset) {
+      const u = (bar - onset) / Math.max(0.001, 1 - onset);
+      distVol = volOnset + (volNear - volOnset) * Math.max(0, Math.min(1, u));
+    }
   }
 
   // Opening can only raise volume (establishes the chase at run start)
-  return Math.max(barVol, opening);
+  return Math.max(distVol, opening);
 }

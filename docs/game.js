@@ -17,9 +17,9 @@ import {
   GAS_COLOR_OK, GAS_COLOR_LOW,
   GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
-  SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
+  SIREN_NEAR, SIREN_FAR, SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=24";
+} from "./js/constants.js?v=25";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -41,7 +41,7 @@ import {
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=5";
+} from "./js/siren.js?v=6";
 
 const save = loadSave();
 
@@ -655,15 +655,16 @@ function updateHeatUI() {
 }
 
 /**
- * Distance to the nearest chase cop (opening / pursuit / gas threat).
- * Ignores ambient traffic police so random spawns don't yank the volume.
+ * Distance to the nearest siren-driving chase cop (pursuit / gas threat).
+ * Opening shadow cops and ambient traffic police are ignored so braking
+ * / speed changes cannot yank the volume.
  */
 function nearestPoliceDist() {
   let best = null;
   for (const t of activeTraffic) {
     const u = t.userData;
     if (!u?.police) continue;
-    if (!(u.openingChase || u.pursuit || u.gasThreat)) continue;
+    if (!(u.pursuit || u.gasThreat)) continue;
     const dx = t.position.x - laneX;
     const dz = t.position.z - playerZ;
     const d = Math.hypot(dx, dz);
@@ -672,9 +673,17 @@ function nearestPoliceDist() {
   return best;
 }
 
+/** 0–1 fill of the distance scale (0 = far, 1 = near), for debug / HUD parity. */
+function policeDistanceBarFill(dist = nearestPoliceDist()) {
+  if (dist == null || !Number.isFinite(dist)) return 0;
+  const fill = 1 - (dist - SIREN_NEAR) / Math.max(0.001, SIREN_FAR - SIREN_NEAR);
+  return Math.max(0, Math.min(1, fill));
+}
+
 /**
- * Siren volume: loud opening at start; afterward follows the police
- * distance bar — silent below ~40%, then louder as the bar fills.
+ * Siren volume from real police distance only (not brake / heat / speed).
+ * Loud opening at start; afterward silent until distance fill ≥ ~60%,
+ * then louder as cops close in.
  * @param {number} dt
  */
 function updateSirenAudio(dt) {
@@ -684,7 +693,6 @@ function updateSirenAudio(dt) {
     return;
   }
   if (sirenOpeningT > 0) sirenOpeningT = Math.max(0, sirenOpeningT - dt);
-  // Ease opening from full → 0 over the fade window
   const opening = sirenOpeningT > 0
     ? SIREN_OPENING * (sirenOpeningT / SIREN_OPENING_FADE)
     : 0;
@@ -692,16 +700,17 @@ function updateSirenAudio(dt) {
   resumeSirenAudio();
   startSiren();
 
-  // Same 0–100 meter as the HUD police distance bar
+  const dist = nearestPoliceDist();
   const target = sirenLevelFromProximity(
-    { bar: heat / 100, opening },
+    { dist, opening },
     {
+      near: SIREN_NEAR,
+      far: SIREN_FAR,
       onset: SIREN_ONSET,
       volNear: SIREN_VOL_NEAR,
       volOnset: SIREN_VOL_ONSET,
     },
   );
-  // Smooth toward target so bar changes feel continuous, not jumpy
   sirenSmoothVol = THREE.MathUtils.damp(sirenSmoothVol, target, 4.5, dt);
   setSirenVolume(sirenSmoothVol);
 }
@@ -2028,8 +2037,8 @@ function tick(now) {
         continue;
       }
       if (t.userData.openingChase) {
-        // Shadow chase cop — stays behind; distance drives siren volume.
-        // Drop when a real bust pursuit takes over.
+        // Visual trailing cop only — does not drive siren audio.
+        // Hold a steady far gap so braking / speed never yank volume.
         if (pursuit) {
           activeTraffic.splice(i, 1);
           returnTrafficCar(t);
@@ -2039,13 +2048,7 @@ function tick(now) {
           t.position.z = Math.min(t.position.z, playerZ - 14);
           continue;
         }
-        // Gap tracks escape speed: slow → cops close past the 40% onset (sirens on),
-        // fast → they stay beyond onset (sirens off after the opening cue).
-        const zOff = THREE.MathUtils.clamp(
-          THREE.MathUtils.lerp(11, 36, (speed - 6) / 16),
-          11,
-          36,
-        );
+        const zOff = 34;
         const targetZ = playerZ - zOff;
         t.position.z = THREE.MathUtils.damp(t.position.z, targetZ, 2.2, dt);
         const lx = currentLayout().xs[Math.min(lane, currentLayout().count - 1)];
@@ -2198,7 +2201,8 @@ window.__endlessChase = {
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
     transitioning, transitionQueue: transitionQueue.length,
     policeDist: nearestPoliceDist(),
-    policeBar: +heat.toFixed(1),
+    policeBar: +(policeDistanceBarFill() * 100).toFixed(1),
+    heat: +heat.toFixed(1),
     sirenOpeningT: +sirenOpeningT.toFixed(2),
     sirenVol: +sirenSmoothVol.toFixed(3),
     siren: getSirenDebug(),
