@@ -2866,10 +2866,14 @@ function tick(now) {
     player.rotation.set(laneRoll * 0.35, turnYaw, laneRoll);
 
     if (hudLaneWarn) {
-      const onCenter =
-        lane >= 0 && lane < layout.count && Math.abs(laneX - layout.xs[lane]) < 0.75;
-      const oncoming = onCenter && layout.dirs[lane] === -1;
-      const closed = !onCenter || !usable.includes(lane);
+      // Use the commanded spring target, not physical mid-slide X.
+      // The old !onCenter check treated every lane change as "closed" and
+      // flashed WRONG WAY even when switching between same-direction lanes.
+      const cmd = commandedLaneIndex(layout);
+      const targetingLane =
+        cmd >= 0 && cmd < layout.count && Math.abs(laneTargetX - layout.xs[cmd]) < 0.75;
+      const oncoming = targetingLane && layout.dirs[cmd] === -1;
+      const closed = !targetingLane || !usable.includes(cmd);
       const warn = oncoming || closed;
       if (hudLaneWarn.classList.contains("hidden") && warn) {
         hudLaneWarn.classList.remove("hidden");
