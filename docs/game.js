@@ -2759,7 +2759,8 @@ function tick(now) {
           const aheadDz = seg.position.z - playerZ;
           if (aheadDz > 0 && aheadDz < LIGHT_HUD_AHEAD && !seg.userData.resolved) {
             const state = seg.userData.lightState;
-            hudLight.textContent = state === "red" ? "● RED" : state === "yellow" ? "● YELLOW" : "● GREEN";
+            // Avoid ● — Press Start 2P has no bullet glyph (rendered as ".")
+            hudLight.textContent = state === "red" ? "RED" : state === "yellow" ? "YELLOW" : "GREEN";
             hudLight.style.color = state === "red" ? "#ff004d" : state === "yellow" ? "#ffec27" : "#00e436";
             hudLight.classList.remove("hidden");
           }
