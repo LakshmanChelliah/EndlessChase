@@ -12,10 +12,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#000000" />
   <title>Endless Chase</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=24" />
+  <link rel="stylesheet" href="styles.css?v=25" />
 </head>
 <body>
   <div id="game-root">
@@ -30,7 +31,7 @@
     <div id="ui">
       <section id="panel-menu" class="panel">
         <h1 class="brand">Endless <span>Chase</span></h1>
-        <p class="tag">SWIPE TO STEER · TAP STATIONS TO REFUEL · TAKE TURNS</p>
+        <p class="tag">SWIPE OR A/D STEER<br />S BRAKE · W/SPACE GO<br />TAP STATIONS TO REFUEL</p>
         <button type="button" id="btn-play" class="btn primary">Start Engine</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
       </section>
@@ -146,6 +147,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=46"></script>
+  <script type="module" src="game.js?v=47"></script>
 </body>
 </html>

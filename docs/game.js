@@ -616,12 +616,24 @@ function adoptBiomeFromSegment(seg) {
 }
 
 /**
- * Sync `lane` to a layout index only when laneX is already on that center.
+ * Keep `lane` coherent with the commanded target / physical X.
  * Never moves laneX / laneTargetX — lane indices are not portable across biomes
  * (city lane 1 ≠ rural lane 1), so index validity alone must not retarget the spring.
+ *
+ * Important: while a swipe spring is in flight, prefer `laneTargetX` over physical
+ * `laneX`. Inferring from laneX mid-change snapped the index back to the old lane
+ * and ate rapid swipes / smoke assertions.
  */
 function syncPlayerLaneIndexIfAligned() {
   const { layout, usable } = playerControlLayout();
+  // Commanded lane center wins while the spring is still heading there
+  for (let i = 0; i < layout.count; i++) {
+    if (Math.abs(laneTargetX - layout.xs[i]) < 0.75) {
+      lane = i;
+      return;
+    }
+  }
+  // Orphaned target (closed / biome flip): infer from physical X only
   if (lane >= 0 && lane < layout.count && Math.abs(laneX - layout.xs[lane]) < 0.75) {
     return;
   }
@@ -1816,13 +1828,18 @@ function spawnTrafficCar() {
     if (layout.dirs[i] === -1) oncomingIdx.push(i);
     else sameIdx.push(i);
   }
-  const wantOncoming = oncomingIdx.length > 0 && Math.random() < 0.45;
+  // Ease early chase: fewer oncoming cars while players learn inverted steering
+  const oncomingChance = distance < 220 ? 0.22 : distance < 450 ? 0.35 : 0.45;
+  const wantOncoming = oncomingIdx.length > 0 && Math.random() < oncomingChance;
   const poolLanes = wantOncoming ? oncomingIdx : sameIdx;
   if (!poolLanes.length) return;
 
   let tLane = poolLanes[(Math.random() * poolLanes.length) | 0];
-  if (!wantOncoming && tLane === lane && Math.random() < 0.4) {
-    tLane = poolLanes[(tLane + 1) % poolLanes.length];
+  // Prefer not to stack the player's lane in the opening stretch
+  if (!wantOncoming && tLane === lane && Math.random() < (distance < 180 ? 0.7 : 0.4)) {
+    const alt = poolLanes.filter((i) => i !== lane);
+    if (alt.length) tLane = alt[(Math.random() * alt.length) | 0];
+    else tLane = poolLanes[(tLane + 1) % poolLanes.length];
   }
 
   // Avoid stacking same-dir cars in a red/yellow stop box

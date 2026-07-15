@@ -109,12 +109,24 @@ if (!/(Coins|Cash|CASH):?\s*\$?\d+/i.test(coinsLabel || "")) throw new Error("up
 await page.click("#btn-up-speed");
 await page.waitForTimeout(200);
 const after = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-if (!after || after.topSpeedLevel < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
+const speedLvl = (id) => {
+  if (!after) return 0;
+  if (after.cars && after.cars[id]) return after.cars[id].topSpeedLevel | 0;
+  return after.topSpeedLevel | 0;
+};
+const selected = after?.selectedCar || "mobil";
+if (speedLvl(selected) < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
 
 // Persist across reload
 await page.reload({ waitUntil: "networkidle" });
 const afterReload = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-if (afterReload.topSpeedLevel < 1) throw new Error("save lost on reload");
+const reloadLvl = (() => {
+  if (!afterReload) return 0;
+  const id = afterReload.selectedCar || "mobil";
+  if (afterReload.cars && afterReload.cars[id]) return afterReload.cars[id].topSpeedLevel | 0;
+  return afterReload.topSpeedLevel | 0;
+})();
+if (reloadLvl < 1) throw new Error("save lost on reload");
 
 await page.click("#btn-play");
 await page.waitForSelector("#panel-hud:not(.hidden)");
@@ -125,5 +137,5 @@ if (hard.length) {
   throw new Error("console errors present");
 }
 
-console.log("SMOKE_OK", base, { distanceText, topSpeedLevel: afterReload.topSpeedLevel, coins: afterReload.coins });
+console.log("SMOKE_OK", base, { distanceText, topSpeedLevel: reloadLvl, coins: afterReload.coins });
 await browser.close();
