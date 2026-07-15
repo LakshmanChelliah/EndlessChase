@@ -31,10 +31,10 @@ import {
   tryBuyCar, selectCar, isUnlocked,
 } from "./js/save.js?v=22";
 import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=23";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=23";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=26";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=24";
+} from "./js/carPool.js?v=27";
 import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
@@ -799,9 +799,28 @@ function setNpcBlinkers(t, side /* -1 left, 1 right, 0 off */) {
     R.visible = false;
     return;
   }
-  const on = Math.floor(performance.now() / 140) % 2 === 0;
-  L.visible = side < 0 && on;
-  R.visible = side > 0 && on;
+  // ~3 Hz flash with longer ON duty so the amber blob sticks in peripheral vision
+  const now = performance.now();
+  const phase = now % 280;
+  const on = phase < 180;
+  const pulse = 0.75 + 0.25 * Math.abs(Math.sin(now * 0.03));
+  const apply = (blinker, active) => {
+    blinker.visible = active;
+    const glow = blinker.userData && blinker.userData.blinkerGlow;
+    const bloom = blinker.userData && blinker.userData.blinkerBloom;
+    if (glow && glow.material) {
+      glow.material.opacity = active ? 0.85 + 0.15 * pulse : 0;
+      const s = active ? 2.6 + 0.6 * pulse : 2.8;
+      glow.scale.set(s, s, 1);
+    }
+    if (bloom && bloom.material) {
+      bloom.material.opacity = active ? 0.45 + 0.35 * pulse : 0;
+      const s = active ? 4.6 + 1.2 * pulse : 5;
+      bloom.scale.set(s, s, 1);
+    }
+  };
+  apply(L, side < 0 && on);
+  apply(R, side > 0 && on);
 }
 
 function clearMergeState(t) {
