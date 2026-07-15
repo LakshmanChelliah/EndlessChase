@@ -163,11 +163,55 @@ html, body {
 }
 
 .menu-high {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.55rem;
   font-size: 0.55rem;
   line-height: 1.5;
   color: var(--nes-yellow);
   text-shadow: 2px 2px 0 #000;
+}
+
+.menu-missions {
+  margin: 0 0 0.75rem;
+  padding: 0.45rem 0.45rem 0.35rem;
+  width: min(92vw, 280px);
+  text-align: left;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid #3a3d48;
+}
+
+.menu-missions-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.42rem;
+  color: var(--nes-yellow);
+  letter-spacing: 0.06em;
+}
+
+.menu-mission-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  align-items: baseline;
+  margin: 0.22rem 0;
+  font-size: 0.36rem;
+  line-height: 1.4;
+  color: var(--nes-white);
+}
+
+.menu-mission-row .mission-prog {
+  flex: 0 0 auto;
+  color: var(--nes-orange);
+  white-space: nowrap;
+}
+
+.menu-mission-row .mission-pay {
+  flex: 0 0 auto;
+  color: var(--nes-green);
+  white-space: nowrap;
+}
+
+.menu-mission-row .mission-label {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .hud-high {
@@ -374,10 +418,35 @@ html, body {
   text-shadow: 2px 2px 0 #000;
 }
 
+.hud-mission {
+  margin: 0.25rem 0 0;
+  font-size: 0.42rem;
+  line-height: 1.35;
+  color: var(--nes-yellow);
+  text-shadow: 2px 2px 0 #000;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.mission-clear {
+  position: static;
+  transform: none;
+  margin-top: 0;
+  display: inline-block;
+  padding: 0.25rem 0.55rem;
+  background: var(--nes-green);
+  color: var(--nes-black);
+  font-size: 0.45rem;
+  border: 2px solid var(--nes-black);
+  box-shadow: 2px 2px 0 #000;
+  pointer-events: none;
+  animation: cue-pop 0.28s steps(3);
+}
+
 /* Single cue stack under police bar — avoids overlapping absolute tips */
 .hud-cue-stack {
   position: absolute;
-  top: calc(4.35rem + env(safe-area-inset-top, 0px));
+  top: calc(5.1rem + env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
@@ -418,7 +487,7 @@ html, body {
 /* Top-center police proximity */
 .police-bar {
   position: absolute;
-  top: calc(2.15rem + env(safe-area-inset-top, 0px));
+  top: calc(2.85rem + env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1069,6 +1138,27 @@ html, body {
   color: var(--nes-green);
   text-shadow: 2px 2px 0 #000;
   animation: cue-pop 0.35s steps(3);
+}
+
+.go-missions {
+  margin: 0.35rem 0 0.55rem;
+  font-size: 0.4rem;
+  line-height: 1.45;
+  color: var(--nes-white);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.go-missions:empty {
+  display: none;
+}
+
+.go-missions .go-mission-line {
+  margin: 0.15rem 0;
+}
+
+.go-missions .go-mission-bonus {
+  margin-top: 0.3rem;
+  color: var(--nes-green);
 }
 
 /* FX overlays — NES juice */
