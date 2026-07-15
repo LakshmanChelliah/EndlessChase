@@ -18,6 +18,7 @@ import {
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
+  CROSS_STOP_PAD, CROSS_ENTER_CUTOFF,
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
   GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
   GAS_COLOR_OK, GAS_COLOR_LOW,
@@ -25,7 +26,7 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=28";
+} from "./js/constants.js?v=29";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -1722,10 +1723,28 @@ function findNearbyRedIntersection() {
   return best;
 }
 
+/** True while main-road red still has enough time for cross traffic to enter. */
+function crossMayEnter(seg) {
+  return (
+    !!seg &&
+    seg.userData.lightState === "red" &&
+    seg.userData.lightTimer > CROSS_ENTER_CUTOFF
+  );
+}
+
+/** Absolute X of the cross-street stop line for a given travel direction. */
+function crossStopX(seg, fromLeft) {
+  const half = roadHalfForSegment(seg);
+  const edge = half + CROSS_STOP_PAD;
+  return fromLeft ? -edge : edge;
+}
+
 /** Spawn cross traffic far off-screen so approach is visible (no curb teleport). */
 function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5 } = {}) {
   if (activeCross.length >= CROSS_MAX && !hazard) return null;
   if (activeCross.length >= CROSS_MAX + 1) return null;
+  // Ambient cross cars need time to reach the box before main goes green
+  if (!hazard && !crossMayEnter(seg)) return null;
   const car = rentCross(scene);
   const speed = hazard ? CROSS_HAZARD_SPEED : CROSS_SPEED * (0.85 + Math.random() * 0.3);
   const laneZ = seg.position.z + (Math.random() - 0.5) * 3.2;
@@ -1733,10 +1752,14 @@ function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5
   car.position.set(startX, 0, laneZ);
   car.rotation.y = fromLeft ? Math.PI / 2 : -Math.PI / 2;
   car.userData.vx = fromLeft ? speed : -speed;
+  car.userData.cruiseVx = car.userData.vx;
   car.userData.crossKind = "van";
+  car.userData.crossSeg = seg;
+  car.userData.fromLeft = fromLeft;
   car.userData.hazard = hazard;
   car.userData.police = false;
   car.userData.pursuit = false;
+  car.userData.stopped = false;
   activeCross.push(car);
   return car;
 }
@@ -2837,6 +2860,53 @@ function tick(now) {
 
     for (let i = activeCross.length - 1; i >= 0; i--) {
       const t = activeCross[i];
+      // Ambient cross traffic obeys the signal: stop before the box when main
+      // is green/yellow (or red is about to end). Hazard cars always barge.
+      if (!t.userData.hazard) {
+        const seg = t.userData.crossSeg;
+        const cruise = Math.abs(t.userData.cruiseVx || t.userData.vx) || CROSS_SPEED;
+        const fromLeft = t.userData.fromLeft ?? ((t.userData.cruiseVx || t.userData.vx) >= 0);
+        const sign = fromLeft ? 1 : -1;
+        const segLive = seg && seg.userData.intersection && activeSegments.includes(seg);
+        if (!segLive) {
+          // Intersection recycled — don't sit forever on a dead stop line
+          if (t.userData.stopped || Math.abs(t.position.x) < CROSS_SPAWN_X) {
+            activeCross.splice(i, 1);
+            returnCross(t);
+            continue;
+          }
+        } else {
+          const stopX = crossStopX(seg, fromLeft);
+          const distToStop = fromLeft ? stopX - t.position.x : t.position.x - stopX;
+          const pastStop = distToStop < -0.35;
+          if (!pastStop) {
+            if (crossMayEnter(seg)) {
+              const next = THREE.MathUtils.damp(Math.abs(t.userData.vx), cruise, 4, dt);
+              t.userData.vx = sign * next;
+              t.userData.stopped = false;
+            } else {
+              // Brake hard enough to settle on the stop line (no box overshoot)
+              let target = 0;
+              if (distToStop > 0.35) {
+                const maxV = Math.sqrt(2 * 14 * distToStop);
+                target = Math.min(cruise, maxV);
+              }
+              const next = THREE.MathUtils.damp(Math.abs(t.userData.vx), target, 10, dt);
+              t.userData.vx = sign * (next < 0.2 ? 0 : next);
+              t.userData.stopped = Math.abs(t.userData.vx) < 0.25;
+              if (distToStop <= 0.35 || (t.userData.stopped && distToStop < 1.4)) {
+                t.position.x = stopX;
+                t.userData.vx = 0;
+                t.userData.stopped = true;
+              }
+            }
+          } else if (Math.abs(t.userData.vx) < cruise * 0.85) {
+            // Already committed through the box — finish clearing at cruise
+            t.userData.vx = sign * THREE.MathUtils.damp(Math.abs(t.userData.vx), cruise, 5, dt);
+            t.userData.stopped = false;
+          }
+        }
+      }
       t.position.x += t.userData.vx * dt;
       if (Math.abs(t.position.x) > CROSS_SPAWN_X + 4) {
         activeCross.splice(i, 1);
@@ -3030,6 +3100,8 @@ window.__endlessChase = {
     x: +c.position.x.toFixed(2),
     z: +c.position.z.toFixed(2),
     vx: c.userData.vx,
+    stopped: !!c.userData.stopped,
+    hazard: !!c.userData.hazard,
     kind: c.userData.crossKind,
   })),
   getIntersections: () => activeSegments
