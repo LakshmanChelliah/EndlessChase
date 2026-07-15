@@ -88,7 +88,7 @@ export function makeBuildingBox(w, h, d, map) {
 }
 
 /**
- * Title-street bank landmark — columns, ajar door glow, alarm beacon, BANK sign.
+ * Title-street bank landmark — columns, ajar door glow, big BANK marquee, $ crest.
  * Place on the left sidewalk so the getaway car parks at the doors.
  * @param {{buildings?: THREE.Texture[], building?: THREE.Texture}} tex
  * @returns {THREE.Group}
@@ -153,28 +153,85 @@ export function makeBankLandmark(tex) {
   steps.position.set(2.95, 0.11, 0);
   root.add(steps);
 
-  // BANK sign
+  // Big street-facing BANK marquee (chunky box + canvas so it reads at menu distance)
   const signCanvas = document.createElement("canvas");
-  signCanvas.width = 64;
-  signCanvas.height = 16;
+  signCanvas.width = 128;
+  signCanvas.height = 40;
   const ctx = signCanvas.getContext("2d");
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, 128, 40);
   ctx.fillStyle = "#1d2b53";
-  ctx.fillRect(0, 0, 64, 16);
+  ctx.fillRect(4, 4, 120, 32);
+  ctx.strokeStyle = "#ffec27";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(6, 6, 116, 28);
   ctx.fillStyle = "#ffec27";
-  ctx.font = "bold 10px monospace";
+  ctx.font = "bold 22px monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("BANK", 32, 9);
+  ctx.fillText("BANK", 64, 21);
   const signMap = new THREE.CanvasTexture(signCanvas);
   signMap.magFilter = THREE.NearestFilter;
   signMap.minFilter = THREE.NearestFilter;
   signMap.generateMipmaps = false;
   signMap.colorSpace = THREE.SRGBColorSpace;
   const signMat = new THREE.MeshBasicMaterial({ map: signMap, transparent: true });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.6), signMat);
-  sign.position.set(2.72, 3.7, 0);
+
+  // Thick marquee board facing the street (+X)
+  const marquee = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 1.15, 3.6),
+    [
+      signMat, // +x street face
+      basicColor(0x0a1020),
+      basicColor(NES.yellow),
+      basicColor(0x0a1020),
+      basicColor(0x0a1020),
+      basicColor(0x0a1020),
+    ]
+  );
+  marquee.position.set(2.9, 3.55, 0);
+  root.add(marquee);
+
+  // Flat neon outline plane slightly in front for extra punch
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 1.05), signMat);
+  sign.position.set(3.1, 3.55, 0);
   sign.rotation.y = Math.PI / 2;
   root.add(sign);
+
+  // Gold "$" crest above the door — instant bank read
+  const dollarCanvas = document.createElement("canvas");
+  dollarCanvas.width = 32;
+  dollarCanvas.height = 32;
+  const dctx = dollarCanvas.getContext("2d");
+  dctx.fillStyle = "#ffa300";
+  dctx.beginPath();
+  dctx.arc(16, 16, 14, 0, Math.PI * 2);
+  dctx.fill();
+  dctx.fillStyle = "#000000";
+  dctx.font = "bold 22px monospace";
+  dctx.textAlign = "center";
+  dctx.textBaseline = "middle";
+  dctx.fillText("$", 16, 17);
+  const dollarMap = new THREE.CanvasTexture(dollarCanvas);
+  dollarMap.magFilter = THREE.NearestFilter;
+  dollarMap.minFilter = THREE.NearestFilter;
+  dollarMap.generateMipmaps = false;
+  dollarMap.colorSpace = THREE.SRGBColorSpace;
+  const dollar = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.85, 0.85),
+    new THREE.MeshBasicMaterial({ map: dollarMap, transparent: true })
+  );
+  dollar.position.set(3.05, 2.85, 0);
+  dollar.rotation.y = Math.PI / 2;
+  root.add(dollar);
+
+  // Pediment bar under the marquee
+  const pediment = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.2, 4.0),
+    basicColor(NES.yellow)
+  );
+  pediment.position.set(2.85, 2.95, 0);
+  root.add(pediment);
 
   // Roof alarm beacon (red/blue blink driven by game loop)
   const alarmPole = new THREE.Mesh(
