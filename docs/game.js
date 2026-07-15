@@ -3931,11 +3931,11 @@ function tick(now) {
       h.material.color.setHex(Math.sin(menuTime * 9) > -0.4 ? NES.yellow : NES.white);
     }
     // Slow camera drift so the bank street feels alive
-    const driftX = Math.sin(menuTime * 0.35) * 0.28;
-    const driftY = Math.sin(menuTime * 0.48) * 0.1;
-    const driftZ = Math.sin(menuTime * 0.22) * 0.35;
+    const driftX = Math.sin(menuTime * 0.35) * 0.22;
+    const driftY = Math.sin(menuTime * 0.48) * 0.08;
+    const driftZ = Math.sin(menuTime * 0.22) * 0.18;
     camera.position.set(_menuCamPos.x + driftX, _menuCamPos.y + driftY, _menuCamPos.z + driftZ);
-    setCameraLook(_menuCamLook.x + driftX * 0.45, _menuCamLook.y, _menuCamLook.z + driftZ * 0.2);
+    setCameraLook(_menuCamLook.x + driftX * 0.4, _menuCamLook.y, _menuCamLook.z + driftZ * 0.15);
     updateBankAlarm(menuTime, false);
     // Crew fidget outside the doors; loot bag twitches
     for (let i = 0; i < menuCrew.length; i++) {
