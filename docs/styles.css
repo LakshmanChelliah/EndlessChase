@@ -876,7 +876,11 @@ html, body {
 }
 
 .go-high.is-new {
+  margin-top: 0.45rem;
+  font-size: 0.95rem;
+  line-height: 1.35;
   color: var(--nes-green);
+  text-shadow: 2px 2px 0 #000;
   animation: cue-pop 0.35s steps(3);
 }
 
