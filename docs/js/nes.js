@@ -88,6 +88,65 @@ export function makeBuildingBox(w, h, d, map) {
 }
 
 /**
+ * Title-street bank landmark — wide storefront + BANK sign + door recess.
+ * Place on the left sidewalk so the getaway car can park at the doors.
+ * @param {{buildings?: THREE.Texture[], building?: THREE.Texture}} tex
+ * @returns {THREE.Group}
+ */
+export function makeBankLandmark(tex) {
+  const root = new THREE.Group();
+  root.name = "bankLandmark";
+  const facade = tex.buildings?.[2] || tex.building;
+  const body = makeBuildingBox(5.2, 4.4, 4.6, facade);
+  body.position.set(0, 2.2, 0);
+  root.add(body);
+
+  // Dark door recess facing the street (+X)
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 2.1, 1.4),
+    basicColor(0x0a0a12)
+  );
+  door.position.set(2.55, 1.05, 0);
+  root.add(door);
+
+  // Steps under the door
+  const steps = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 0.22, 1.8),
+    basicColor(NES.curb)
+  );
+  steps.position.set(2.85, 0.11, 0);
+  root.add(steps);
+
+  // BANK sign (canvas texture, blinks via userData.signMat)
+  const signCanvas = document.createElement("canvas");
+  signCanvas.width = 64;
+  signCanvas.height = 16;
+  const ctx = signCanvas.getContext("2d");
+  ctx.fillStyle = "#1d2b53";
+  ctx.fillRect(0, 0, 64, 16);
+  ctx.fillStyle = "#ffec27";
+  ctx.font = "bold 10px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("BANK", 32, 9);
+  const signMap = new THREE.CanvasTexture(signCanvas);
+  signMap.magFilter = THREE.NearestFilter;
+  signMap.minFilter = THREE.NearestFilter;
+  signMap.generateMipmaps = false;
+  signMap.colorSpace = THREE.SRGBColorSpace;
+  const signMat = new THREE.MeshBasicMaterial({ map: signMap });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.55), signMat);
+  sign.position.set(2.62, 3.55, 0);
+  sign.rotation.y = Math.PI / 2;
+  root.add(sign);
+
+  root.userData.bank = true;
+  root.userData.signMat = signMat;
+  root.userData.doorWorld = new THREE.Vector3(3.1, 0, 0); // local offset toward street
+  return root;
+}
+
+/**
  * Screen-locked NES sky (parented to the camera).
  * Must NOT be a world-space sphere — the player drives past z≈120 and
  * would clip through a fixed dome (that read as a yellow wall).

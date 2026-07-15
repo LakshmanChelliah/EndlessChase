@@ -147,14 +147,66 @@ html, body {
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* Start screen sits low so the curbside car + street stay visible */
+/* Floating brand + BEST over the open street (street-first menu) */
+.menu-hero {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: calc(0.85rem + env(safe-area-inset-top));
+  transform: translateX(-50%);
+  width: min(94vw, 360px);
+  text-align: center;
+  z-index: 5;
+}
+
+.menu-hero .brand {
+  margin: 0 0 0.35rem;
+  font-size: clamp(0.95rem, 4vw, 1.2rem);
+}
+
+.menu-high {
+  margin: 0;
+  font-size: 0.55rem;
+  line-height: 1.5;
+  color: var(--nes-yellow);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.menu-boarding {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(2.4rem + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(94vw, 320px);
+  margin: 0;
+  padding: 0.55rem 0.6rem;
+  text-align: center;
+  font-size: 0.48rem;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  color: var(--nes-yellow);
+  text-shadow: 2px 2px 0 #000;
+  background: rgba(29, 43, 83, 0.72);
+  border: 3px solid var(--nes-white);
+  box-shadow: 0 0 0 3px var(--nes-black), 4px 4px 0 var(--nes-black);
+  z-index: 5;
+  animation: boarding-pulse 0.9s steps(2) infinite;
+}
+
+@keyframes boarding-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* Start dock sits low so the bank + curb car stay visible */
 #panel-menu {
   top: auto;
   bottom: calc(1rem + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   width: min(94vw, 360px);
-  padding: 0.85rem 0.85rem 0.95rem;
-  background: rgba(29, 43, 83, 0.78);
+  padding: 0.65rem 0.75rem 0.75rem;
+  background: rgba(29, 43, 83, 0.72);
 }
 
 #panel-menu .tag {
@@ -162,17 +214,9 @@ html, body {
   font-size: 0.5rem;
 }
 
-.menu-high {
-  margin: 0 0 0.55rem;
-  font-size: 0.55rem;
-  line-height: 1.5;
-  color: var(--nes-yellow);
-  text-shadow: 2px 2px 0 #000;
-}
-
 .menu-missions {
-  margin: 0 0 0.75rem;
-  padding: 0.45rem 0.45rem 0.35rem;
+  margin: 0 auto 0.55rem;
+  padding: 0.4rem 0.4rem 0.3rem;
   width: min(92vw, 280px);
   text-align: left;
   background: rgba(0, 0, 0, 0.45);
@@ -218,42 +262,6 @@ html, body {
   color: var(--nes-orange);
   font-size: 0.55rem;
   opacity: 0.95;
-}
-
-.menu-controls {
-  margin: 0 0 0.75rem;
-  padding: 0.55rem 0.5rem 0.45rem;
-  text-align: left;
-  background: rgba(0, 0, 0, 0.45);
-  border: 2px solid #3a3d48;
-}
-
-.menu-controls-title {
-  margin: 0 0 0.4rem;
-  font-size: 0.45rem;
-  color: var(--nes-yellow);
-  letter-spacing: 0.06em;
-}
-
-.menu-controls-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.menu-controls-list li {
-  display: flex;
-  gap: 0.45rem;
-  align-items: baseline;
-  margin: 0.28rem 0;
-  font-size: 0.4rem;
-  line-height: 1.45;
-  color: var(--nes-white);
-}
-
-.menu-controls-list li span {
-  flex: 0 0 3.2rem;
-  color: var(--nes-orange);
 }
 
 /* How-to-play tips */
@@ -383,6 +391,11 @@ html, body {
   background: var(--nes-red);
   border-color: var(--nes-white);
   color: var(--nes-white);
+}
+
+.btn.primary:active:not(:disabled) {
+  translate: 0 4px scale(0.97);
+  box-shadow: 0 0 0 #000;
 }
 
 .btn.ghost {
