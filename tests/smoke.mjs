@@ -57,10 +57,15 @@ await page.click("#btn-howto-skip");
 await page.waitForSelector("#panel-menu:not(.hidden)", { timeout: 3000 });
 
 await page.click("#btn-play");
-await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 5000 });
+// Boarding cue shows before HUD; allow skip via state or wait for HUD
+await page.waitForFunction(() => {
+  const s = window.__endlessChase?.getState?.();
+  return !!(s && (s.boarding || s.intro || s.running));
+}, null, { timeout: 5000 });
+await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 8000 });
 
-// Wait out the curb pull-out intro before asserting controls
-await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 8000 });
+// Wait out boarding (~2s) + curb pull-out (~2s) before asserting controls
+await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 14000 });
 
 // Mission HUD + debug grant path (coins tier 0 → 1)
 await page.waitForSelector("#hud-mission", { timeout: 3000 });

@@ -46,7 +46,9 @@ import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
-} from "./js/nes.js?v=26";
+  makeBankLandmark,
+} from "./js/nes.js?v=28";
+import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=3";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
@@ -128,6 +130,9 @@ const hudDistance = document.getElementById("hud-distance");
 const hudHigh = document.getElementById("hud-high");
 const hudCoins = document.getElementById("hud-coins");
 const menuHigh = document.getElementById("menu-high");
+const menuHero = document.getElementById("menu-hero");
+const menuBoardingEl = document.getElementById("menu-boarding");
+const menuBoardingLine = document.getElementById("menu-boarding-line");
 const hudBoost = document.getElementById("hud-boost");
 const hudLight = document.getElementById("hud-light");
 const hudHeatFill = document.getElementById("hud-heat-fill");
@@ -369,6 +374,8 @@ function showPanel(name) {
     refreshHighScoreUI();
     refreshMissionsUI();
   }
+  if (menuHero) menuHero.classList.toggle("hidden", name !== "menu");
+  if (menuBoardingEl) menuBoardingEl.classList.add("hidden");
 }
 
 function loadHintsSeen() {
@@ -459,10 +466,10 @@ function maybeStartCoach() {
     "Top bar = COPS. Slowing or braking fills it — full = Busted!",
     "Bottom green = FUEL. Keep it topped at curb stations or you will coast into the cops.",
   ];
-  // Defer until the pull-out intro finishes so the tip sits on a live HUD
+  // Defer until boarding + pull-out finish so the tip sits on a live HUD
   const wait = () => {
     if (!alive) return;
-    if (intro) {
+    if (boarding || intro) {
       requestAnimationFrame(wait);
       return;
     }
@@ -589,11 +596,21 @@ applyBiomeAtmosphere(scene, sky, worldGround, "city", renderer);
 // ---------- Menu / intro camera ----------
 /** City curb sits at ±8.2; park fully on the left sidewalk just outside it. */
 const MENU_PARK = { x: -10.25, z: 2.8, yaw: 0.06 };
+/** Bank landmark sits behind the parked getaway car on the left sidewalk. */
+const BANK_POS = { x: -14.15, z: 4.0 };
 /** Long enough to read the steer-out → straighten arc. */
 const INTRO_DURATION = 2.05;
+/** Crew run from bank doors into the car before pull-out. */
+const BOARDING_DURATION = 2.45;
+const BOARDING_CUES = [
+  { at: 0, text: "ALARM!" },
+  { at: 0.35, text: "CREW COMING OUT!" },
+  { at: 1.05, text: "BAGS IN THE BACK!" },
+  { at: 1.85, text: "GO GO GO!" },
+];
 
-const _menuCamPos = new THREE.Vector3(-4.6, 2.55, -2.4);
-const _menuCamLook = new THREE.Vector3(-9.8, 0.5, 6.2);
+const _menuCamPos = new THREE.Vector3(-2.8, 3.1, -2.2);
+const _menuCamLook = new THREE.Vector3(-11.4, 1.0, 4.8);
 const _camLook = new THREE.Vector3().copy(_menuCamLook);
 const _tmpV = new THREE.Vector3();
 const _tmpV2 = new THREE.Vector3();
@@ -647,6 +664,33 @@ let alive = false;
  *   yaw:number, roll:number
  * }} */
 let intro = null;
+/**
+ * Bank boarding cutscene before curb pull-out.
+ * @type {null | {
+ *   t: number,
+ *   duration: number,
+ *   members: Array<{
+ *     mesh: THREE.Object3D,
+ *     from: THREE.Vector3,
+ *     to: THREE.Vector3,
+ *     delay: number,
+ *     enterAt: number,
+ *     seated: boolean
+ *   }>,
+ *   punch: number
+ * }}
+ */
+let boarding = null;
+/** @type {THREE.Group | null} */
+let bankLandmark = null;
+/** @type {THREE.Object3D[]} */
+let menuCrew = [];
+/** @type {THREE.Object3D[]} */
+let menuLoot = [];
+/** @type {THREE.Object3D[]} */
+let menuHeadlights = [];
+/** @type {THREE.Object3D[]} */
+let menuTireDust = [];
 let activeBiome = "city";
 let lane = 2;
 let laneX = 0;
@@ -1427,6 +1471,7 @@ function spawnSegment() {
 }
 
 function clearWorld() {
+  clearMenuProps();
   while (activeSegments.length) recycleSegment(activeSegments.pop());
   while (activeTraffic.length) {
     const t = activeTraffic.pop();
@@ -1445,6 +1490,26 @@ function clearWorld() {
   endGasVisit({ resume: false, busted: false });
   hideStationFloat();
   hideGasHint();
+}
+
+function clearMenuProps() {
+  if (bankLandmark) {
+    scene.remove(bankLandmark);
+    bankLandmark = null;
+  }
+  for (const c of menuCrew) scene.remove(c);
+  menuCrew = [];
+  for (const b of menuLoot) scene.remove(b);
+  menuLoot = [];
+  for (const h of menuHeadlights) {
+    if (h.parent) h.parent.remove(h);
+    else scene.remove(h);
+  }
+  menuHeadlights = [];
+  for (const d of menuTireDust) scene.remove(d);
+  menuTireDust = [];
+  boarding = null;
+  if (menuBoardingEl) menuBoardingEl.classList.add("hidden");
 }
 
 function updateHeatUI() {
@@ -2169,6 +2234,8 @@ function endRun(reason) {
   alive = false;
   running = false;
   intro = null;
+  boarding = null;
+  if (menuBoardingEl) menuBoardingEl.classList.add("hidden");
   hideCoach();
   sirenOpeningT = 0;
   stopSiren();
@@ -2233,7 +2300,7 @@ function applyMenuCamera() {
   setCameraLook(_menuCamLook.x, _menuCamLook.y, _menuCamLook.z);
 }
 
-/** Attract / title street: city blocks + player parked on the left curb. */
+/** Attract / title street: bank curb + player parked for the getaway. */
 function setupMenuScene() {
   clearWorld();
   stopSiren();
@@ -2242,6 +2309,7 @@ function setupMenuScene() {
   running = false;
   alive = false;
   intro = null;
+  boarding = null;
   activeBiome = "city";
   applyBiomeAtmosphere(scene, sky, worldGround, "city", renderer);
   nextSpawnZ = -SEG_LEN;
@@ -2270,14 +2338,168 @@ function setupMenuScene() {
     spawnIndex++;
   }
 
+  spawnBankLandmark();
+  spawnMenuCrewAtDoor();
+  spawnMenuLoot();
   spawnCurbDecoCars();
+  spawnIdleRollingDeco();
   syncPlayerCar();
   parkPlayerCurbside();
+  ensureMenuHeadlights();
   applyMenuCamera();
   menuTime = 0;
   ensureExhaustFlicker();
   updateHeatVignette();
   setSpeedlines(false);
+  if (menuBoardingEl) menuBoardingEl.classList.add("hidden");
+}
+
+function spawnBankLandmark() {
+  bankLandmark = makeBankLandmark(tex);
+  bankLandmark.position.set(BANK_POS.x, 0, BANK_POS.z);
+  scene.add(bankLandmark);
+}
+
+function bankDoorWorld() {
+  const local = bankLandmark?.userData?.doorWorld;
+  if (!bankLandmark || !local) {
+    return new THREE.Vector3(MENU_PARK.x - 1.2, 0, MENU_PARK.z + 1.1);
+  }
+  return new THREE.Vector3(
+    bankLandmark.position.x + local.x,
+    0,
+    bankLandmark.position.z + local.z
+  );
+}
+
+function spawnMenuCrewAtDoor() {
+  for (const c of menuCrew) scene.remove(c);
+  menuCrew = [];
+  const door = bankDoorWorld();
+  for (let i = 0; i < 2; i++) {
+    const crew = makeCrewMember({
+      coat: i === 0 ? NES.black : NES.navy,
+      bag: i === 0 ? NES.yellow : NES.orange,
+      hat: i === 0 ? NES.red : NES.black,
+    });
+    // Idle just outside the doors, street-facing so the menu cam reads them
+    crew.position.set(door.x + 0.55 + 0.22 * i, 0, door.z - 0.1 + 0.55 * i);
+    crew.rotation.y = -0.55 + i * 0.2;
+    crew.visible = true;
+    scene.add(crew);
+    menuCrew.push(crew);
+  }
+}
+
+function spawnMenuLoot() {
+  for (const b of menuLoot) scene.remove(b);
+  menuLoot = [];
+  const door = bankDoorWorld();
+  const bag = makeLootBag(NES.yellow);
+  bag.position.set(door.x + 1.1, 0, door.z + 0.85);
+  bag.rotation.y = 0.4;
+  scene.add(bag);
+  menuLoot.push(bag);
+}
+
+/** Neon-ish headlight boxes parented to the parked getaway car. */
+function ensureMenuHeadlights() {
+  for (const h of menuHeadlights) {
+    if (h.parent) h.parent.remove(h);
+  }
+  menuHeadlights = [];
+  if (!player) return;
+  for (const x of [-0.45, 0.45]) {
+    const lamp = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 0.14, 0.12),
+      new THREE.MeshBasicMaterial({ color: NES.yellow })
+    );
+    lamp.position.set(x, 0.55, 1.45);
+    lamp.name = "menuHeadlight";
+    player.add(lamp);
+    menuHeadlights.push(lamp);
+  }
+}
+
+function updateBankAlarm(t, hot = false) {
+  if (!bankLandmark) return;
+  const alarm = bankLandmark.userData.alarm;
+  const spill = bankLandmark.userData.doorSpill;
+  const foyer = bankLandmark.userData.foyerGlow;
+  const signMat = bankLandmark.userData.signMat;
+  const rate = hot ? 14 : 3.4;
+  const on = Math.sin(t * rate) > 0;
+  if (alarm?.material) {
+    alarm.material.color.setHex(on ? NES.red : 0x0033ff);
+  }
+  if (signMat) {
+    signMat.opacity = hot ? (on ? 1 : 0.3) : (Math.sin(t * 3.2) > -0.2 ? 1 : 0.45);
+    signMat.transparent = true;
+  }
+  if (spill?.material) {
+    spill.material.opacity = hot ? 0.75 : 0.4 + 0.2 * Math.sin(t * 2.5);
+  }
+  if (foyer?.material) {
+    foyer.material.opacity = hot ? 0.9 : 0.55 + 0.15 * Math.sin(t * 2.2);
+  }
+}
+
+function setBoardingCue(text) {
+  if (menuBoardingLine) menuBoardingLine.textContent = text;
+}
+
+function spawnTireDustBurst() {
+  for (const d of menuTireDust) scene.remove(d);
+  menuTireDust = [];
+  for (let i = 0; i < 5; i++) {
+    const dust = makeDustMote();
+    dust.material.color.setHex(NES.gray);
+    dust.material.opacity = 0.55;
+    dust.position.set(
+      MENU_PARK.x + 0.4 + (i % 3) * 0.35,
+      0.08,
+      MENU_PARK.z - 0.6 - i * 0.25
+    );
+    dust.scale.setScalar(0.7 + i * 0.15);
+    dust.userData.menuDust = true;
+    dust.userData.life = 0.9 + i * 0.08;
+    scene.add(dust);
+    menuTireDust.push(dust);
+  }
+}
+
+function updateTireDust(dt) {
+  for (let i = menuTireDust.length - 1; i >= 0; i--) {
+    const d = menuTireDust[i];
+    d.userData.life -= dt;
+    d.position.y += dt * 0.35;
+    d.position.x += dt * 0.4;
+    d.material.opacity = Math.max(0, d.userData.life);
+    d.scale.multiplyScalar(1 + dt * 0.8);
+    if (d.userData.life <= 0) {
+      scene.remove(d);
+      menuTireDust.splice(i, 1);
+    }
+  }
+}
+
+/** Slow far-lane passer for title-street life — loops while menu is idle. */
+function spawnIdleRollingDeco() {
+  const layout = layoutFor("city");
+  const farLane = layout.count - 1;
+  const deco = rentCivilian(scene, pickDistinctMenuDecoIds(1, [save.selectedCar])[0] || "coupe");
+  deco.position.set(layout.xs[farLane], 0, 38);
+  deco.rotation.y = 0;
+  deco.userData.police = false;
+  deco.userData.pursuit = false;
+  deco.userData.dir = 1;
+  deco.userData.speed = 5.5;
+  deco.userData.cruiseSpeed = 5.5;
+  deco.userData.lane = farLane;
+  deco.userData.curbParked = false;
+  deco.userData.menuIdleRoll = true;
+  clearMergeState(deco);
+  activeTraffic.push(deco);
 }
 
 /** Parked curb cars on the title street — kept through intro until they scroll out of view. */
@@ -2353,45 +2575,42 @@ function resetRunState() {
 }
 
 /**
- * Build the run world, keep the car at the curb, then lerp camera + pull-out into lane.
+ * Build the run world (or promote the menu street), then board crew → curb pull-out.
  * @param {{instant?: boolean}} [opts]
  */
 function startRun(opts = {}) {
-  if (intro) return;
+  if (intro || boarding) return;
   const instant = !!opts.instant;
 
-  clearWorld();
-  resetRunState();
-  syncPlayerCar();
-  for (let i = 0; i < 10; i++) spawnSegment();
-  // Keep title-street curb cars through the pull-out until the camera leaves them behind
-  spawnCurbDecoCars();
-
-  showPanel("hud");
-  showPumpPanel(false);
-  hudCoins.textContent = `$${save.coins}`;
-  if (hudTurn) hudTurn.classList.add("hidden");
-  hideStationFloat();
-  hideGasHint();
-  if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
-  prevBoostActive = false;
-  setSpeedlines(false);
-  shakeAmp = 0;
-  shakeTime = 0;
-  camFovTarget = 72;
-  ensureExhaustFlicker();
-  updateHeatUI();
-  updateGasUI();
-  trafficTimer = TRAFFIC_TIMER_START;
-
-  const toCam = gameplayCamPos(laneX, 0).clone();
-  const toLook = gameplayCamLook(laneX, 0).clone();
-
-  // Unlock + start chase sirens immediately so the pull-out feels like a pursuit
-  beginChaseSiren();
-
   if (instant) {
+    clearWorld();
+    resetRunState();
+    syncPlayerCar();
+    for (let i = 0; i < 10; i++) spawnSegment();
+    spawnCurbDecoCars();
+
+    showPanel("hud");
+    showPumpPanel(false);
+    hudCoins.textContent = `$${save.coins}`;
+    if (hudTurn) hudTurn.classList.add("hidden");
+    hideStationFloat();
+    hideGasHint();
+    if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
+    prevBoostActive = false;
+    setSpeedlines(false);
+    shakeAmp = 0;
+    shakeTime = 0;
+    camFovTarget = 72;
+    ensureExhaustFlicker();
+    updateHeatUI();
+    updateGasUI();
+    trafficTimer = TRAFFIC_TIMER_START;
+
+    const toCam = gameplayCamPos(laneX, 0).clone();
+    const toLook = gameplayCamLook(laneX, 0).clone();
+    beginChaseSiren();
     intro = null;
+    boarding = null;
     running = true;
     alive = true;
     player.position.set(laneX, 0, 0);
@@ -2402,16 +2621,307 @@ function startRun(opts = {}) {
     return;
   }
 
-  // Seamless: stay parked, then steer out of the curb into the forward lane
+  // Seamless: keep the bank street, board crew, then pull out into the lane
+  prepareRunFromMenu();
+  beginBoarding();
+}
+
+/** Reset run counters without wiping the title-street geometry. */
+function prepareRunFromMenu() {
+  const keepSeed = worldSeed;
+  const keepNextZ = nextSpawnZ;
+  const keepSpawnIndex = spawnIndex;
+
+  activeBiome = "city";
+  applyBiomeAtmosphere(scene, sky, worldGround, "city", renderer);
+  const layout = layoutFor(activeBiome);
+  lane = layout.defaultLane;
+  laneX = layout.xs[lane];
+  laneTargetX = laneX;
+  laneVel = 0;
+  playerZ = MENU_PARK.z;
+  speed = 12;
+  distance = 0;
+  runCoins = 0;
+  runStats = { gasVisits: 0, coins: 0, distance: 0, boosts: 0 };
+  runMissionBonus = 0;
+  runClearedMissions = [];
+  lastMissionDistanceFloor = -1;
+  resetMissionProgress(save);
+  boostTimer = 0;
+  boostMul = 1;
+  braking = false;
+  brakeTimer = 0;
+  heat = 0;
+  gas = randomStartGas();
+  slowTimer = 0;
+  turnCooldown = 10;
+  intersectionCooldown = 6;
+  gasCooldown = 18;
+  turnActive = null;
+  nearbyStation = null;
+  gasVisit = null;
+  gasHintTimer = 0;
+  turnYaw = 0;
+  turnYawVel = 0;
+  onRampPending = false;
+  bustPending = false;
+  keysBrake = false;
+  pendingSwipe = null;
+  touchStart = null;
+  swipeConsumed = false;
+  crossSpawnTimer = 0.4;
+  worldSeed = keepSeed;
+  nextSpawnZ = keepNextZ;
+  spawnIndex = keepSpawnIndex;
+  transitionQueue = [];
+  transitioning = false;
+  transitionFrom = null;
+  transitionTo = null;
+  transitionCloseLanes = [];
+  pursuit = null;
+  sirenOpeningT = 0;
+  sirenSmoothVol = 0;
+  coachQueue = [];
+  coachActive = false;
+
+  // Extend the quiet street ahead so pull-out has road to land on
+  while (activeSegments.length < 10) spawnSegment();
+
+  // Stop the idle roller so it doesn't become mid-run traffic unexpectedly
+  for (let i = activeTraffic.length - 1; i >= 0; i--) {
+    const t = activeTraffic[i];
+    if (t.userData.menuIdleRoll) {
+      activeTraffic.splice(i, 1);
+      returnTrafficCar(t);
+    }
+  }
+
+  syncPlayerCar();
   parkPlayerCurbside();
+  if (!menuCrew.length) spawnMenuCrewAtDoor();
+  ensureExhaustFlicker();
+  updateHeatUI();
+  updateGasUI();
+  trafficTimer = TRAFFIC_TIMER_START;
+  prevBoostActive = false;
+  setSpeedlines(false);
+  shakeAmp = 0;
+  shakeTime = 0;
+  camFovTarget = 72;
+  if (hudTurn) hudTurn.classList.add("hidden");
+  hideStationFloat();
+  hideGasHint();
+  if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
+  showPumpPanel(false);
+}
+
+function setBoardingUI(on) {
+  if (on) {
+    for (const k of Object.keys(panels)) {
+      if (!panels[k] || k === "pump") continue;
+      panels[k].classList.add("hidden");
+      panels[k].classList.remove("panel-enter");
+    }
+    if (menuHero) menuHero.classList.add("hidden");
+    if (menuBoardingEl) menuBoardingEl.classList.remove("hidden");
+    activePanelName = "boarding";
+  } else if (menuBoardingEl) {
+    menuBoardingEl.classList.add("hidden");
+  }
+}
+
+function beginBoarding() {
+  const door = bankDoorWorld();
+  if (!menuCrew.length) spawnMenuCrewAtDoor();
+
+  const members = menuCrew.map((mesh, i) => {
+    const seat = crewSeatWorld(MENU_PARK.x, MENU_PARK.z, i);
+    // Burst from the ajar door, arc into the street, dive for the car
+    const from = new THREE.Vector3(
+      door.x + 0.35,
+      0,
+      door.z + (i === 0 ? -0.15 : 0.45)
+    );
+    const mid = new THREE.Vector3(
+      MENU_PARK.x + 1.6 + i * 0.25,
+      0,
+      MENU_PARK.z + 1.4 - i * 0.9
+    );
+    mesh.position.copy(from);
+    mesh.visible = true;
+    mesh.scale.set(1, 1, 1);
+    mesh.rotation.y = -0.2;
+    return {
+      mesh,
+      from,
+      mid,
+      to: new THREE.Vector3(seat.x, seat.y, seat.z),
+      delay: 0.22 + i * 0.42,
+      enterAt: 0.84,
+      seated: false,
+    };
+  });
+
+  for (const bag of menuLoot) bag.visible = true;
+
+  boarding = {
+    t: 0,
+    duration: BOARDING_DURATION,
+    members,
+    punch: 0,
+    cueIndex: 0,
+    alarmHot: true,
+  };
+  running = false;
+  alive = true;
+  intro = null;
+  parkPlayerCurbside();
+  ensureMenuHeadlights();
+  applyMenuCamera();
+  setBoardingCue(BOARDING_CUES[0].text);
+  setBoardingUI(true);
+  triggerFlash("boost");
+  triggerShake(0.12, 0.18);
+  if (fxHeatVignette) fxHeatVignette.style.opacity = "0.25";
+}
+
+function skipBoarding() {
+  if (!boarding) return;
+  for (const m of boarding.members) {
+    m.mesh.visible = false;
+    m.seated = true;
+  }
+  for (const bag of menuLoot) bag.visible = false;
+  boarding = null;
+  beginCurbPullOut();
+}
+
+function updateBoarding(dt) {
+  if (!boarding) return;
+  boarding.t += dt;
+  const uLinear = Math.min(1, boarding.t / boarding.duration);
+
+  while (
+    boarding.cueIndex < BOARDING_CUES.length - 1
+    && boarding.t >= BOARDING_CUES[boarding.cueIndex + 1].at
+  ) {
+    boarding.cueIndex += 1;
+    setBoardingCue(BOARDING_CUES[boarding.cueIndex].text);
+  }
+
+  ensureExhaustFlicker();
+  ensureMenuHeadlights();
+  const rev = 1 + Math.min(1, boarding.t / boarding.duration) * 0.8;
+  player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
+  player.rotation.y = MENU_PARK.yaw + Math.sin(boarding.t * 2.4 * rev) * 0.05;
+  player.rotation.z = Math.sin(boarding.t * 2.8 * rev) * 0.02;
+  if (exhaustFlicker) {
+    exhaustFlicker.visible = Math.sin(boarding.t * 22) > -0.2;
+    exhaustFlicker.material.color.setHex(Math.sin(boarding.t * 18) > 0 ? NES.orange : NES.yellow);
+    exhaustFlicker.scale.setScalar(1 + Math.abs(Math.sin(boarding.t * 20)) * 0.6);
+  }
+  for (const h of menuHeadlights) {
+    h.material.color.setHex(Math.sin(boarding.t * 16) > 0 ? NES.yellow : NES.white);
+  }
+
+  const bob = Math.sin(boarding.t * 1.4) * 0.05;
+  const lookNudge = easeOutCubic(Math.min(1, boarding.t / 1.2)) * 0.45;
+  camera.position.set(
+    _menuCamPos.x + bob * 0.2,
+    _menuCamPos.y + bob * 0.1 + lookNudge * 0.15,
+    _menuCamPos.z + lookNudge * 0.4
+  );
+  if (boarding.punch > 0) {
+    boarding.punch = Math.max(0, boarding.punch - dt);
+    camera.position.x += (Math.random() - 0.5) * boarding.punch * 0.8;
+    camera.position.y += boarding.punch * 0.15;
+  }
+  setCameraLook(
+    _menuCamLook.x + lookNudge * 0.2,
+    _menuCamLook.y,
+    _menuCamLook.z - lookNudge * 0.25
+  );
+
+  updateBankAlarm(boarding.t, true);
+
+  let allSeated = true;
+  for (let mi = 0; mi < boarding.members.length; mi++) {
+    const m = boarding.members[mi];
+    const span = 1 - m.delay / boarding.duration;
+    const localT = Math.max(0, Math.min(1, (uLinear - m.delay / boarding.duration) / Math.max(0.001, span)));
+    if (localT <= 0) {
+      m.mesh.position.copy(m.from);
+      animateCrew(m.mesh, boarding.t + m.delay, "idle");
+      allSeated = false;
+      continue;
+    }
+    const u = easeInOutCubic(localT);
+    const x = bezier3(m.from.x, m.mid.x, m.mid.x, m.to.x, u);
+    const z = bezier3(m.from.z, m.mid.z, m.mid.z, m.to.z, u);
+    m.mesh.position.set(x, Math.abs(Math.sin(u * Math.PI * 5)) * 0.12 * (1 - u), z);
+    const tx = bezier3Deriv(m.from.x, m.mid.x, m.mid.x, m.to.x, Math.min(0.99, u));
+    const tz = bezier3Deriv(m.from.z, m.mid.z, m.mid.z, m.to.z, Math.min(0.99, u));
+    m.mesh.rotation.y = Math.atan2(tx, Math.max(0.001, tz));
+    animateCrew(m.mesh, boarding.t * 2 + localT * 8, "run", 1 - u * 0.3);
+
+    if (mi === 0 && menuLoot[0]?.visible && localT > 0.35 && localT < 0.55) {
+      menuLoot[0].visible = false;
+      triggerShake(0.04, 0.08);
+    }
+
+    if (localT >= m.enterAt && !m.seated) {
+      m.seated = true;
+      m.mesh.visible = false;
+      boarding.punch = 0.22;
+      triggerShake(0.1, 0.14);
+      triggerFlash("boost");
+    }
+    if (!m.seated) allSeated = false;
+  }
+
+  if (fxHeatVignette) {
+    fxHeatVignette.style.opacity = String(0.2 + uLinear * 0.35);
+  }
+
+  worldGround.position.z = 80;
+
+  if (uLinear >= 1 || allSeated) {
+    for (const m of boarding.members) {
+      m.mesh.visible = false;
+      m.seated = true;
+    }
+    for (const bag of menuLoot) bag.visible = false;
+    boarding = null;
+    beginCurbPullOut();
+  }
+}
+
+/** Start the existing curb Bezier pull-out after crew is aboard. */
+function beginCurbPullOut() {
+  setBoardingUI(false);
+  showPanel("hud");
+  hudCoins.textContent = `$${save.coins}`;
+  refreshMissionsUI();
+
+  for (const c of menuCrew) c.visible = false;
+  for (const bag of menuLoot) bag.visible = false;
+
+  parkPlayerCurbside();
+  ensureMenuHeadlights();
   applyMenuCamera();
   running = false;
   alive = true;
 
-  // Bezier pull-out (left curb → lane). Control points shape a real parallel exit:
-  // P1: creep forward with nose starting to cut in
-  // P2: deep into the street while still angled
-  // P3: settled in-lane heading down the road
+  spawnTireDustBurst();
+  triggerShake(0.16, 0.22);
+  triggerFlash("boost");
+  setSpeedlines(true);
+
+  const toCam = gameplayCamPos(laneX, 0).clone();
+  const toLook = gameplayCamLook(laneX, 0).clone();
+  beginChaseSiren();
+
   const p0x = MENU_PARK.x;
   const p0z = MENU_PARK.z;
   intro = {
@@ -2447,8 +2957,12 @@ function finishIntro() {
   distance = pz;
   turnYaw = 0;
   intro = null;
+  boarding = null;
   running = true;
   alive = true;
+  // Bank stays in world until it scrolls out of recycle range with segments;
+  // remove landmark props once chase starts so they don't float mid-run.
+  clearMenuProps();
   spawnOpeningChaseCop();
   if (pendingSwipe) {
     const dir = pendingSwipe;
@@ -2496,12 +3010,20 @@ function updateIntro(dt) {
   _camLook.lerpVectors(intro.fromLook, intro.toLook, camU);
   camera.lookAt(_camLook);
 
-  if (uLinear >= 1) finishIntro();
+  if (uLinear >= 1) {
+    setSpeedlines(false);
+    finishIntro();
+  }
 }
 
 function onSwipe(dir) {
   if (!alive || gasVisit) return;
   if (!running) {
+    // Boarding: any gesture skips to curb pull-out
+    if (boarding) {
+      skipBoarding();
+      return;
+    }
     // Intro ignores live control — keep the latest gesture so it isn't lost
     if (intro) pendingSwipe = dir;
     return;
@@ -2578,9 +3100,12 @@ function pointerUp(x, y, id = 0) {
   const dy = y - start.y;
   const dt = performance.now() - start.t;
   const dist = Math.hypot(dx, dy);
-  // Tap (not swipe) — try gas station interact
+  // Tap (not swipe) — skip boarding, or try gas station interact
   if (dist < MIN_SWIPE) {
-    if (dt < TAP_MAX_MS) tryTapGasStation(x, y);
+    if (dt < TAP_MAX_MS) {
+      if (boarding) skipBoarding();
+      else tryTapGasStation(x, y);
+    }
     return;
   }
   // Swipe completed on release (threshold not hit during move, e.g. very fast flick)
@@ -2691,6 +3216,15 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (gasVisit) return;
+  if (boarding) {
+    if (key === "a" || key === "ArrowLeft" || key === "d" || key === "ArrowRight"
+      || key === "w" || key === "ArrowUp" || key === " " || key === "Enter"
+      || key === "s" || key === "ArrowDown") {
+      e.preventDefault();
+      skipBoarding();
+    }
+    return;
+  }
   // Ignore OS key-repeat so held A/D does not skip lanes
   if (e.repeat) return;
   if (key === "a" || key === "ArrowLeft") {
@@ -3371,21 +3905,55 @@ function tick(now) {
     } else {
       hideStationFloat();
     }
+  } else if (boarding) {
+    updateBoarding(dt);
+    updateTireDust(dt);
+    worldGround.position.z = 80;
   } else if (intro) {
     updateIntro(dt);
+    updateTireDust(dt);
     worldGround.position.z = playerZ + 80;
   } else if (!running) {
     menuTime += dt;
-    // Idle curb pose — stronger sway + exhaust flicker
+    // Idle curb pose — impatient wheelman sway + exhaust
     ensureExhaustFlicker();
+    ensureMenuHeadlights();
     player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
     player.rotation.y = MENU_PARK.yaw + Math.sin(menuTime * 0.85) * 0.07;
     player.rotation.z = Math.sin(menuTime * 1.1) * 0.025;
     if (exhaustFlicker) {
       exhaustFlicker.visible = Math.sin(menuTime * 18) > 0.15;
       exhaustFlicker.material.color.setHex(Math.sin(menuTime * 22) > 0 ? NES.orange : NES.yellow);
+      exhaustFlicker.scale.setScalar(1 + Math.abs(Math.sin(menuTime * 14)) * 0.35);
     }
-    applyMenuCamera();
+    for (const h of menuHeadlights) {
+      h.visible = true;
+      h.material.color.setHex(Math.sin(menuTime * 9) > -0.4 ? NES.yellow : NES.white);
+    }
+    // Slow camera drift so the bank street feels alive
+    const driftX = Math.sin(menuTime * 0.35) * 0.22;
+    const driftY = Math.sin(menuTime * 0.48) * 0.08;
+    const driftZ = Math.sin(menuTime * 0.22) * 0.18;
+    camera.position.set(_menuCamPos.x + driftX, _menuCamPos.y + driftY, _menuCamPos.z + driftZ);
+    setCameraLook(_menuCamLook.x + driftX * 0.4, _menuCamLook.y, _menuCamLook.z + driftZ * 0.15);
+    updateBankAlarm(menuTime, false);
+    // Crew fidget outside the doors; loot bag twitches
+    for (let i = 0; i < menuCrew.length; i++) {
+      const baseYaw = -0.55 + i * 0.2;
+      menuCrew[i].rotation.y = baseYaw + Math.sin(menuTime * 0.9 + i) * 0.15;
+      animateCrew(menuCrew[i], menuTime + i * 1.7, "idle");
+      menuCrew[i].position.y = Math.abs(Math.sin(menuTime * 2.2 + i)) * 0.03;
+    }
+    for (const bag of menuLoot) {
+      bag.rotation.y = menuTime * 0.4;
+      bag.position.y = Math.abs(Math.sin(menuTime * 3)) * 0.04;
+    }
+    // Idle roller on the far lane
+    for (const t of activeTraffic) {
+      if (!t.userData.menuIdleRoll) continue;
+      t.position.z -= t.userData.speed * dt;
+      if (t.position.z < -12) t.position.z = 48 + Math.random() * 10;
+    }
     worldGround.position.z = 80;
     setSpeedlines(false);
   }
@@ -3437,7 +4005,7 @@ window.__endlessChase = {
   }),
   getPlayer: () => player,
   getState: () => ({
-    running, alive, intro: !!intro, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
+    running, alive, intro: !!intro, boarding: !!boarding, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
     difficulty: +difficulty01(distance).toFixed(3),
     trafficInterval: +trafficSpawnInterval(distance).toFixed(2),
     turnActive: !!turnActive,
