@@ -47,8 +47,8 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=27";
-import { makeCrewMember, crewSeatWorld } from "./js/crew.js?v=2";
+} from "./js/nes.js?v=28";
+import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=3";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
@@ -132,6 +132,7 @@ const hudCoins = document.getElementById("hud-coins");
 const menuHigh = document.getElementById("menu-high");
 const menuHero = document.getElementById("menu-hero");
 const menuBoardingEl = document.getElementById("menu-boarding");
+const menuBoardingLine = document.getElementById("menu-boarding-line");
 const hudBoost = document.getElementById("hud-boost");
 const hudLight = document.getElementById("hud-light");
 const hudHeatFill = document.getElementById("hud-heat-fill");
@@ -600,7 +601,13 @@ const BANK_POS = { x: -14.15, z: 4.0 };
 /** Long enough to read the steer-out → straighten arc. */
 const INTRO_DURATION = 2.05;
 /** Crew run from bank doors into the car before pull-out. */
-const BOARDING_DURATION = 2.0;
+const BOARDING_DURATION = 2.45;
+const BOARDING_CUES = [
+  { at: 0, text: "ALARM!" },
+  { at: 0.35, text: "CREW COMING OUT!" },
+  { at: 1.05, text: "BAGS IN THE BACK!" },
+  { at: 1.85, text: "GO GO GO!" },
+];
 
 const _menuCamPos = new THREE.Vector3(-2.8, 3.1, -2.2);
 const _menuCamLook = new THREE.Vector3(-11.4, 1.0, 4.8);
@@ -678,6 +685,12 @@ let boarding = null;
 let bankLandmark = null;
 /** @type {THREE.Object3D[]} */
 let menuCrew = [];
+/** @type {THREE.Object3D[]} */
+let menuLoot = [];
+/** @type {THREE.Object3D[]} */
+let menuHeadlights = [];
+/** @type {THREE.Object3D[]} */
+let menuTireDust = [];
 let activeBiome = "city";
 let lane = 2;
 let laneX = 0;
@@ -1486,6 +1499,15 @@ function clearMenuProps() {
   }
   for (const c of menuCrew) scene.remove(c);
   menuCrew = [];
+  for (const b of menuLoot) scene.remove(b);
+  menuLoot = [];
+  for (const h of menuHeadlights) {
+    if (h.parent) h.parent.remove(h);
+    else scene.remove(h);
+  }
+  menuHeadlights = [];
+  for (const d of menuTireDust) scene.remove(d);
+  menuTireDust = [];
   boarding = null;
   if (menuBoardingEl) menuBoardingEl.classList.add("hidden");
 }
@@ -2318,10 +2340,12 @@ function setupMenuScene() {
 
   spawnBankLandmark();
   spawnMenuCrewAtDoor();
+  spawnMenuLoot();
   spawnCurbDecoCars();
   spawnIdleRollingDeco();
   syncPlayerCar();
   parkPlayerCurbside();
+  ensureMenuHeadlights();
   applyMenuCamera();
   menuTime = 0;
   ensureExhaustFlicker();
@@ -2355,14 +2379,107 @@ function spawnMenuCrewAtDoor() {
   for (let i = 0; i < 2; i++) {
     const crew = makeCrewMember({
       coat: i === 0 ? NES.black : NES.navy,
-      bag: i === 0 ? NES.yellow : NES.green,
+      bag: i === 0 ? NES.yellow : NES.orange,
+      hat: i === 0 ? NES.red : NES.black,
     });
     // Idle just outside the doors, street-facing so the menu cam reads them
-    crew.position.set(door.x + 0.55 + 0.2 * i, 0, door.z - 0.15 + 0.5 * i);
-    crew.rotation.y = -0.55;
+    crew.position.set(door.x + 0.55 + 0.22 * i, 0, door.z - 0.1 + 0.55 * i);
+    crew.rotation.y = -0.55 + i * 0.2;
     crew.visible = true;
     scene.add(crew);
     menuCrew.push(crew);
+  }
+}
+
+function spawnMenuLoot() {
+  for (const b of menuLoot) scene.remove(b);
+  menuLoot = [];
+  const door = bankDoorWorld();
+  const bag = makeLootBag(NES.yellow);
+  bag.position.set(door.x + 1.1, 0, door.z + 0.85);
+  bag.rotation.y = 0.4;
+  scene.add(bag);
+  menuLoot.push(bag);
+}
+
+/** Neon-ish headlight boxes parented to the parked getaway car. */
+function ensureMenuHeadlights() {
+  for (const h of menuHeadlights) {
+    if (h.parent) h.parent.remove(h);
+  }
+  menuHeadlights = [];
+  if (!player) return;
+  for (const x of [-0.45, 0.45]) {
+    const lamp = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 0.14, 0.12),
+      new THREE.MeshBasicMaterial({ color: NES.yellow })
+    );
+    lamp.position.set(x, 0.55, 1.45);
+    lamp.name = "menuHeadlight";
+    player.add(lamp);
+    menuHeadlights.push(lamp);
+  }
+}
+
+function updateBankAlarm(t, hot = false) {
+  if (!bankLandmark) return;
+  const alarm = bankLandmark.userData.alarm;
+  const spill = bankLandmark.userData.doorSpill;
+  const foyer = bankLandmark.userData.foyerGlow;
+  const signMat = bankLandmark.userData.signMat;
+  const rate = hot ? 14 : 3.4;
+  const on = Math.sin(t * rate) > 0;
+  if (alarm?.material) {
+    alarm.material.color.setHex(on ? NES.red : 0x0033ff);
+  }
+  if (signMat) {
+    signMat.opacity = hot ? (on ? 1 : 0.3) : (Math.sin(t * 3.2) > -0.2 ? 1 : 0.45);
+    signMat.transparent = true;
+  }
+  if (spill?.material) {
+    spill.material.opacity = hot ? 0.75 : 0.4 + 0.2 * Math.sin(t * 2.5);
+  }
+  if (foyer?.material) {
+    foyer.material.opacity = hot ? 0.9 : 0.55 + 0.15 * Math.sin(t * 2.2);
+  }
+}
+
+function setBoardingCue(text) {
+  if (menuBoardingLine) menuBoardingLine.textContent = text;
+}
+
+function spawnTireDustBurst() {
+  for (const d of menuTireDust) scene.remove(d);
+  menuTireDust = [];
+  for (let i = 0; i < 5; i++) {
+    const dust = makeDustMote();
+    dust.material.color.setHex(NES.gray);
+    dust.material.opacity = 0.55;
+    dust.position.set(
+      MENU_PARK.x + 0.4 + (i % 3) * 0.35,
+      0.08,
+      MENU_PARK.z - 0.6 - i * 0.25
+    );
+    dust.scale.setScalar(0.7 + i * 0.15);
+    dust.userData.menuDust = true;
+    dust.userData.life = 0.9 + i * 0.08;
+    scene.add(dust);
+    menuTireDust.push(dust);
+  }
+}
+
+function updateTireDust(dt) {
+  for (let i = menuTireDust.length - 1; i >= 0; i--) {
+    const d = menuTireDust[i];
+    d.userData.life -= dt;
+    d.position.y += dt * 0.35;
+    d.position.x += dt * 0.4;
+    d.material.opacity = Math.max(0, d.userData.life);
+    d.scale.multiplyScalar(1 + dt * 0.8);
+    if (d.userData.life <= 0) {
+      scene.remove(d);
+      menuTireDust.splice(i, 1);
+    }
   }
 }
 
@@ -2620,38 +2737,53 @@ function beginBoarding() {
 
   const members = menuCrew.map((mesh, i) => {
     const seat = crewSeatWorld(MENU_PARK.x, MENU_PARK.z, i);
-    // Start at door, swing out toward the street so the run is camera-facing
+    // Burst from the ajar door, arc into the street, dive for the car
     const from = new THREE.Vector3(
-      door.x + 0.8 + 0.25 * i,
+      door.x + 0.35,
       0,
-      door.z - 0.2 + 0.55 * i
+      door.z + (i === 0 ? -0.15 : 0.45)
+    );
+    const mid = new THREE.Vector3(
+      MENU_PARK.x + 1.6 + i * 0.25,
+      0,
+      MENU_PARK.z + 1.4 - i * 0.9
     );
     mesh.position.copy(from);
     mesh.visible = true;
     mesh.scale.set(1, 1, 1);
-    mesh.rotation.y = -0.4;
+    mesh.rotation.y = -0.2;
     return {
       mesh,
       from,
+      mid,
       to: new THREE.Vector3(seat.x, seat.y, seat.z),
-      delay: i * 0.32,
-      enterAt: 0.78 + i * 0.08,
+      delay: 0.22 + i * 0.42,
+      enterAt: 0.84,
       seated: false,
     };
   });
+
+  for (const bag of menuLoot) bag.visible = true;
 
   boarding = {
     t: 0,
     duration: BOARDING_DURATION,
     members,
     punch: 0,
+    cueIndex: 0,
+    alarmHot: true,
   };
   running = false;
   alive = true;
   intro = null;
   parkPlayerCurbside();
+  ensureMenuHeadlights();
   applyMenuCamera();
+  setBoardingCue(BOARDING_CUES[0].text);
   setBoardingUI(true);
+  triggerFlash("boost");
+  triggerShake(0.12, 0.18);
+  if (fxHeatVignette) fxHeatVignette.style.opacity = "0.25";
 }
 
 function skipBoarding() {
@@ -2660,6 +2792,7 @@ function skipBoarding() {
     m.mesh.visible = false;
     m.seated = true;
   }
+  for (const bag of menuLoot) bag.visible = false;
   boarding = null;
   beginCurbPullOut();
 }
@@ -2669,54 +2802,86 @@ function updateBoarding(dt) {
   boarding.t += dt;
   const uLinear = Math.min(1, boarding.t / boarding.duration);
 
-  ensureExhaustFlicker();
-  player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
-  player.rotation.y = MENU_PARK.yaw + Math.sin(boarding.t * 1.2) * 0.04;
-  player.rotation.z = Math.sin(boarding.t * 1.4) * 0.015;
-  if (exhaustFlicker) {
-    exhaustFlicker.visible = Math.sin(boarding.t * 20) > 0.1;
-    exhaustFlicker.material.color.setHex(NES.orange);
+  while (
+    boarding.cueIndex < BOARDING_CUES.length - 1
+    && boarding.t >= BOARDING_CUES[boarding.cueIndex + 1].at
+  ) {
+    boarding.cueIndex += 1;
+    setBoardingCue(BOARDING_CUES[boarding.cueIndex].text);
   }
 
-  // Soft camera hold — slight nudge toward the door so crew stay readable
-  const bob = Math.sin(boarding.t * 1.1) * 0.04;
-  const lookNudge = Math.min(1, boarding.t * 0.55) * 0.55;
+  ensureExhaustFlicker();
+  ensureMenuHeadlights();
+  const rev = 1 + Math.min(1, boarding.t / boarding.duration) * 0.8;
+  player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
+  player.rotation.y = MENU_PARK.yaw + Math.sin(boarding.t * 2.4 * rev) * 0.05;
+  player.rotation.z = Math.sin(boarding.t * 2.8 * rev) * 0.02;
+  if (exhaustFlicker) {
+    exhaustFlicker.visible = Math.sin(boarding.t * 22) > -0.2;
+    exhaustFlicker.material.color.setHex(Math.sin(boarding.t * 18) > 0 ? NES.orange : NES.yellow);
+    exhaustFlicker.scale.setScalar(1 + Math.abs(Math.sin(boarding.t * 20)) * 0.6);
+  }
+  for (const h of menuHeadlights) {
+    h.material.color.setHex(Math.sin(boarding.t * 16) > 0 ? NES.yellow : NES.white);
+  }
+
+  const bob = Math.sin(boarding.t * 1.4) * 0.05;
+  const lookNudge = easeOutCubic(Math.min(1, boarding.t / 1.2)) * 0.45;
   camera.position.set(
-    _menuCamPos.x + bob * 0.25,
-    _menuCamPos.y + bob * 0.12,
-    _menuCamPos.z + lookNudge * 0.35
+    _menuCamPos.x + bob * 0.2,
+    _menuCamPos.y + bob * 0.1 + lookNudge * 0.15,
+    _menuCamPos.z + lookNudge * 0.4
   );
   if (boarding.punch > 0) {
     boarding.punch = Math.max(0, boarding.punch - dt);
-    camera.position.z -= boarding.punch * 0.25;
+    camera.position.x += (Math.random() - 0.5) * boarding.punch * 0.8;
+    camera.position.y += boarding.punch * 0.15;
   }
   setCameraLook(
-    _menuCamLook.x + lookNudge * 0.15,
+    _menuCamLook.x + lookNudge * 0.2,
     _menuCamLook.y,
-    _menuCamLook.z - lookNudge * 0.2
+    _menuCamLook.z - lookNudge * 0.25
   );
 
+  updateBankAlarm(boarding.t, true);
+
   let allSeated = true;
-  for (const m of boarding.members) {
-    const localT = Math.max(0, Math.min(1, (uLinear - m.delay / boarding.duration) / (1 - m.delay / boarding.duration + 0.001)));
+  for (let mi = 0; mi < boarding.members.length; mi++) {
+    const m = boarding.members[mi];
+    const span = 1 - m.delay / boarding.duration;
+    const localT = Math.max(0, Math.min(1, (uLinear - m.delay / boarding.duration) / Math.max(0.001, span)));
+    if (localT <= 0) {
+      m.mesh.position.copy(m.from);
+      animateCrew(m.mesh, boarding.t + m.delay, "idle");
+      allSeated = false;
+      continue;
+    }
     const u = easeInOutCubic(localT);
-    m.mesh.position.lerpVectors(m.from, m.to, u);
-    // Run cycle bob
-    m.mesh.position.y = Math.abs(Math.sin(u * Math.PI * 4)) * 0.08 * (1 - u);
-    m.mesh.rotation.y = Math.atan2(m.to.x - m.from.x, Math.max(0.001, m.to.z - m.from.z));
+    const x = bezier3(m.from.x, m.mid.x, m.mid.x, m.to.x, u);
+    const z = bezier3(m.from.z, m.mid.z, m.mid.z, m.to.z, u);
+    m.mesh.position.set(x, Math.abs(Math.sin(u * Math.PI * 5)) * 0.12 * (1 - u), z);
+    const tx = bezier3Deriv(m.from.x, m.mid.x, m.mid.x, m.to.x, Math.min(0.99, u));
+    const tz = bezier3Deriv(m.from.z, m.mid.z, m.mid.z, m.to.z, Math.min(0.99, u));
+    m.mesh.rotation.y = Math.atan2(tx, Math.max(0.001, tz));
+    animateCrew(m.mesh, boarding.t * 2 + localT * 8, "run", 1 - u * 0.3);
+
+    if (mi === 0 && menuLoot[0]?.visible && localT > 0.35 && localT < 0.55) {
+      menuLoot[0].visible = false;
+      triggerShake(0.04, 0.08);
+    }
+
     if (localT >= m.enterAt && !m.seated) {
       m.seated = true;
       m.mesh.visible = false;
-      boarding.punch = 0.18;
-      triggerShake(0.06, 0.12);
+      boarding.punch = 0.22;
+      triggerShake(0.1, 0.14);
+      triggerFlash("boost");
     }
     if (!m.seated) allSeated = false;
   }
 
-  // Blink bank sign during the heist beat
-  if (bankLandmark?.userData?.signMat) {
-    bankLandmark.userData.signMat.opacity = Math.sin(boarding.t * 10) > 0 ? 1 : 0.35;
-    bankLandmark.userData.signMat.transparent = true;
+  if (fxHeatVignette) {
+    fxHeatVignette.style.opacity = String(0.2 + uLinear * 0.35);
   }
 
   worldGround.position.z = 80;
@@ -2726,6 +2891,7 @@ function updateBoarding(dt) {
       m.mesh.visible = false;
       m.seated = true;
     }
+    for (const bag of menuLoot) bag.visible = false;
     boarding = null;
     beginCurbPullOut();
   }
@@ -2738,13 +2904,19 @@ function beginCurbPullOut() {
   hudCoins.textContent = `$${save.coins}`;
   refreshMissionsUI();
 
-  // Hide crew props for the chase
   for (const c of menuCrew) c.visible = false;
+  for (const bag of menuLoot) bag.visible = false;
 
   parkPlayerCurbside();
+  ensureMenuHeadlights();
   applyMenuCamera();
   running = false;
   alive = true;
+
+  spawnTireDustBurst();
+  triggerShake(0.16, 0.22);
+  triggerFlash("boost");
+  setSpeedlines(true);
 
   const toCam = gameplayCamPos(laneX, 0).clone();
   const toLook = gameplayCamLook(laneX, 0).clone();
@@ -2838,7 +3010,10 @@ function updateIntro(dt) {
   _camLook.lerpVectors(intro.fromLook, intro.toLook, camU);
   camera.lookAt(_camLook);
 
-  if (uLinear >= 1) finishIntro();
+  if (uLinear >= 1) {
+    setSpeedlines(false);
+    finishIntro();
+  }
 }
 
 function onSwipe(dir) {
@@ -3732,31 +3907,46 @@ function tick(now) {
     }
   } else if (boarding) {
     updateBoarding(dt);
+    updateTireDust(dt);
     worldGround.position.z = 80;
   } else if (intro) {
     updateIntro(dt);
+    updateTireDust(dt);
     worldGround.position.z = playerZ + 80;
   } else if (!running) {
     menuTime += dt;
-    // Idle curb pose — stronger sway + exhaust flicker
+    // Idle curb pose — impatient wheelman sway + exhaust
     ensureExhaustFlicker();
+    ensureMenuHeadlights();
     player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
     player.rotation.y = MENU_PARK.yaw + Math.sin(menuTime * 0.85) * 0.07;
     player.rotation.z = Math.sin(menuTime * 1.1) * 0.025;
     if (exhaustFlicker) {
       exhaustFlicker.visible = Math.sin(menuTime * 18) > 0.15;
       exhaustFlicker.material.color.setHex(Math.sin(menuTime * 22) > 0 ? NES.orange : NES.yellow);
+      exhaustFlicker.scale.setScalar(1 + Math.abs(Math.sin(menuTime * 14)) * 0.35);
+    }
+    for (const h of menuHeadlights) {
+      h.visible = true;
+      h.material.color.setHex(Math.sin(menuTime * 9) > -0.4 ? NES.yellow : NES.white);
     }
     // Slow camera drift so the bank street feels alive
-    const driftX = Math.sin(menuTime * 0.35) * 0.22;
-    const driftY = Math.sin(menuTime * 0.48) * 0.08;
-    camera.position.set(_menuCamPos.x + driftX, _menuCamPos.y + driftY, _menuCamPos.z);
-    setCameraLook(_menuCamLook.x + driftX * 0.4, _menuCamLook.y, _menuCamLook.z);
-    // Blink BANK sign
-    if (bankLandmark?.userData?.signMat) {
-      const on = Math.sin(menuTime * 3.2) > -0.2;
-      bankLandmark.userData.signMat.opacity = on ? 1 : 0.4;
-      bankLandmark.userData.signMat.transparent = true;
+    const driftX = Math.sin(menuTime * 0.35) * 0.28;
+    const driftY = Math.sin(menuTime * 0.48) * 0.1;
+    const driftZ = Math.sin(menuTime * 0.22) * 0.35;
+    camera.position.set(_menuCamPos.x + driftX, _menuCamPos.y + driftY, _menuCamPos.z + driftZ);
+    setCameraLook(_menuCamLook.x + driftX * 0.45, _menuCamLook.y, _menuCamLook.z + driftZ * 0.2);
+    updateBankAlarm(menuTime, false);
+    // Crew fidget outside the doors; loot bag twitches
+    for (let i = 0; i < menuCrew.length; i++) {
+      const baseYaw = -0.55 + i * 0.2;
+      menuCrew[i].rotation.y = baseYaw + Math.sin(menuTime * 0.9 + i) * 0.15;
+      animateCrew(menuCrew[i], menuTime + i * 1.7, "idle");
+      menuCrew[i].position.y = Math.abs(Math.sin(menuTime * 2.2 + i)) * 0.03;
+    }
+    for (const bag of menuLoot) {
+      bag.rotation.y = menuTime * 0.4;
+      bag.position.y = Math.abs(Math.sin(menuTime * 3)) * 0.04;
     }
     // Idle roller on the far lane
     for (const t of activeTraffic) {

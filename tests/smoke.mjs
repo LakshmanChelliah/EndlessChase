@@ -65,7 +65,7 @@ await page.waitForFunction(() => {
 await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 8000 });
 
 // Wait out boarding (~2s) + curb pull-out (~2s) before asserting controls
-await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 12000 });
+await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 14000 });
 
 // Mission HUD + debug grant path (coins tier 0 → 1)
 await page.waitForSelector("#hud-mission", { timeout: 3000 });

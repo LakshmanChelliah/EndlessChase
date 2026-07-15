@@ -88,8 +88,8 @@ export function makeBuildingBox(w, h, d, map) {
 }
 
 /**
- * Title-street bank landmark — wide storefront + BANK sign + door recess.
- * Place on the left sidewalk so the getaway car can park at the doors.
+ * Title-street bank landmark — columns, ajar door glow, alarm beacon, BANK sign.
+ * Place on the left sidewalk so the getaway car parks at the doors.
  * @param {{buildings?: THREE.Texture[], building?: THREE.Texture}} tex
  * @returns {THREE.Group}
  */
@@ -97,27 +97,63 @@ export function makeBankLandmark(tex) {
   const root = new THREE.Group();
   root.name = "bankLandmark";
   const facade = tex.buildings?.[2] || tex.building;
-  const body = makeBuildingBox(5.2, 4.4, 4.6, facade);
-  body.position.set(0, 2.2, 0);
+  const body = makeBuildingBox(5.6, 4.6, 4.8, facade);
+  body.position.set(0, 2.3, 0);
   root.add(body);
 
-  // Dark door recess facing the street (+X)
-  const door = new THREE.Mesh(
-    new THREE.BoxGeometry(0.2, 2.1, 1.4),
-    basicColor(0x0a0a12)
+  // Stone columns flanking the entrance
+  for (const z of [-1.35, 1.35]) {
+    const col = new THREE.Mesh(
+      new THREE.BoxGeometry(0.45, 2.6, 0.45),
+      basicColor(0xfff1e8)
+    );
+    col.position.set(2.45, 1.3, z);
+    root.add(col);
+  }
+
+  // Awning over the doors
+  const awning = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 0.12, 3.2),
+    basicColor(NES.red)
   );
-  door.position.set(2.55, 1.05, 0);
+  awning.position.set(2.9, 2.35, 0);
+  root.add(awning);
+
+  // Ajar door (hinged open toward +Z) + warm interior spill
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 2.0, 0.95),
+    basicColor(0x1a1020)
+  );
+  door.position.set(2.55, 1.05, -0.55);
+  door.rotation.y = -0.85;
+  door.name = "bankDoor";
   root.add(door);
 
-  // Steps under the door
+  const spill = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 0.05, 1.6),
+    new THREE.MeshBasicMaterial({ color: NES.yellow, transparent: true, opacity: 0.55 })
+  );
+  spill.position.set(3.2, 0.04, 0.15);
+  spill.name = "doorSpill";
+  root.add(spill);
+
+  const foyer = new THREE.Mesh(
+    new THREE.BoxGeometry(0.15, 1.6, 1.1),
+    new THREE.MeshBasicMaterial({ color: NES.yellow, transparent: true, opacity: 0.7 })
+  );
+  foyer.position.set(2.4, 1.1, 0.2);
+  foyer.name = "foyerGlow";
+  root.add(foyer);
+
+  // Steps
   const steps = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 0.22, 1.8),
+    new THREE.BoxGeometry(0.85, 0.22, 2.2),
     basicColor(NES.curb)
   );
-  steps.position.set(2.85, 0.11, 0);
+  steps.position.set(2.95, 0.11, 0);
   root.add(steps);
 
-  // BANK sign (canvas texture, blinks via userData.signMat)
+  // BANK sign
   const signCanvas = document.createElement("canvas");
   signCanvas.width = 64;
   signCanvas.height = 16;
@@ -134,15 +170,33 @@ export function makeBankLandmark(tex) {
   signMap.minFilter = THREE.NearestFilter;
   signMap.generateMipmaps = false;
   signMap.colorSpace = THREE.SRGBColorSpace;
-  const signMat = new THREE.MeshBasicMaterial({ map: signMap });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.55), signMat);
-  sign.position.set(2.62, 3.55, 0);
+  const signMat = new THREE.MeshBasicMaterial({ map: signMap, transparent: true });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.6), signMat);
+  sign.position.set(2.72, 3.7, 0);
   sign.rotation.y = Math.PI / 2;
   root.add(sign);
 
+  // Roof alarm beacon (red/blue blink driven by game loop)
+  const alarmPole = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.55, 0.12),
+    basicColor(NES.black)
+  );
+  alarmPole.position.set(0.2, 4.85, 0);
+  root.add(alarmPole);
+  const alarm = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 0.28, 0.35),
+    new THREE.MeshBasicMaterial({ color: NES.red })
+  );
+  alarm.position.set(0.2, 5.2, 0);
+  alarm.name = "alarmBeacon";
+  root.add(alarm);
+
   root.userData.bank = true;
   root.userData.signMat = signMat;
-  root.userData.doorWorld = new THREE.Vector3(3.1, 0, 0); // local offset toward street
+  root.userData.alarm = alarm;
+  root.userData.doorSpill = spill;
+  root.userData.foyerGlow = foyer;
+  root.userData.doorWorld = new THREE.Vector3(3.2, 0, 0.2);
   return root;
 }
 

@@ -160,8 +160,24 @@ html, body {
 }
 
 .menu-hero .brand {
-  margin: 0 0 0.35rem;
+  margin: 0 0 0.25rem;
   font-size: clamp(0.95rem, 4vw, 1.2rem);
+}
+
+.menu-tagline {
+  margin: 0 0 0.4rem;
+  font-size: 0.38rem;
+  letter-spacing: 0.14em;
+  color: var(--nes-orange);
+  text-shadow: 2px 2px 0 #000;
+  animation: tagline-flicker 3.6s steps(1) infinite;
+}
+
+@keyframes tagline-flicker {
+  0%, 90%, 100% { opacity: 1; }
+  92% { opacity: 0.35; }
+  94% { opacity: 1; }
+  96% { opacity: 0.5; }
 }
 
 .menu-high {
@@ -180,18 +196,49 @@ html, body {
   transform: translateX(-50%);
   width: min(94vw, 320px);
   margin: 0;
-  padding: 0.55rem 0.6rem;
+  padding: 0.6rem 0.65rem 0.5rem;
   text-align: center;
-  font-size: 0.48rem;
-  line-height: 1.5;
-  letter-spacing: 0.06em;
-  color: var(--nes-yellow);
-  text-shadow: 2px 2px 0 #000;
-  background: rgba(29, 43, 83, 0.72);
+  background: rgba(29, 43, 83, 0.82);
   border: 3px solid var(--nes-white);
   box-shadow: 0 0 0 3px var(--nes-black), 4px 4px 0 var(--nes-black);
   z-index: 5;
-  animation: boarding-pulse 0.9s steps(2) infinite;
+}
+
+.menu-boarding::before {
+  content: "";
+  display: block;
+  height: 4px;
+  margin: -0.15rem -0.2rem 0.45rem;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--nes-red) 0 10px,
+    var(--nes-white) 10px 14px,
+    #0033ff 14px 24px,
+    var(--nes-white) 24px 28px
+  );
+  animation: heist-stripe 0.45s steps(2) infinite;
+}
+
+@keyframes heist-stripe {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(1.35); }
+}
+
+.menu-boarding-line {
+  margin: 0;
+  font-size: 0.5rem;
+  line-height: 1.45;
+  letter-spacing: 0.06em;
+  color: var(--nes-yellow);
+  text-shadow: 2px 2px 0 #000;
+  animation: boarding-pulse 0.7s steps(2) infinite;
+}
+
+.menu-boarding-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.32rem;
+  letter-spacing: 0.1em;
+  color: var(--nes-gray);
 }
 
 @keyframes boarding-pulse {
@@ -207,6 +254,16 @@ html, body {
   width: min(94vw, 360px);
   padding: 0.65rem 0.75rem 0.75rem;
   background: rgba(29, 43, 83, 0.72);
+  border-image: none;
+}
+
+#panel-menu::before {
+  content: "";
+  display: block;
+  height: 3px;
+  margin: -0.2rem -0.35rem 0.5rem;
+  background: linear-gradient(90deg, var(--nes-red), var(--nes-yellow), #0033ff);
+  opacity: 0.85;
 }
 
 #panel-menu .tag {
@@ -221,6 +278,16 @@ html, body {
   text-align: left;
   background: rgba(0, 0, 0, 0.45);
   border: 2px solid #3a3d48;
+}
+
+.btn-engine {
+  animation: engine-pulse 1.4s steps(2) infinite;
+  letter-spacing: 0.04em;
+}
+
+@keyframes engine-pulse {
+  0%, 100% { box-shadow: 0 4px 0 #000; filter: brightness(1); }
+  50% { box-shadow: 0 4px 0 #000, 0 0 0 2px var(--nes-yellow); filter: brightness(1.12); }
 }
 
 .menu-missions-title {

@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=29" />
+  <link rel="stylesheet" href="styles.css?v=30" />
 </head>
 <body>
   <div id="game-root">
@@ -31,12 +31,16 @@
     <div id="ui">
       <div id="menu-hero" class="menu-hero">
         <h1 class="brand">Endless <span>Chase</span></h1>
+        <p class="menu-tagline">YOU'RE THE WHEELMAN</p>
         <p id="menu-high" class="menu-high" aria-label="High score">BEST 0 m</p>
       </div>
-      <p id="menu-boarding" class="menu-boarding hidden" aria-live="polite">WAITING FOR CREW...</p>
+      <div id="menu-boarding" class="menu-boarding hidden" aria-live="polite">
+        <p id="menu-boarding-line" class="menu-boarding-line">WAITING FOR CREW...</p>
+        <p class="menu-boarding-hint">TAP TO SKIP</p>
+      </div>
       <section id="panel-menu" class="panel">
         <div id="menu-missions" class="menu-missions" aria-label="Missions"></div>
-        <button type="button" id="btn-play" class="btn primary">Start Engine</button>
+        <button type="button" id="btn-play" class="btn primary btn-engine">Start Engine</button>
         <button type="button" id="btn-howto" class="btn">How to Play</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
       </section>
@@ -180,6 +184,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=56"></script>
+  <script type="module" src="game.js?v=57"></script>
 </body>
 </html>
