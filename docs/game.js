@@ -624,6 +624,9 @@ function adoptBiomeFromSegment(seg) {
  */
 function syncPlayerLaneIndexIfAligned() {
   const { layout, usable } = playerControlLayout();
+  // Mid lane-change: trust the commanded index until the car reaches the target.
+  // Rebinding from physical X while lerping undoes swipes and desyncs lane vs laneTargetX.
+  if (Math.abs(laneX - laneTargetX) > 0.75) return;
   if (lane >= 0 && lane < layout.count && Math.abs(laneX - layout.xs[lane]) < 0.75) {
     return;
   }
@@ -3083,6 +3086,8 @@ window.__endlessChase = {
     running, alive, intro: !!intro, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
     difficulty: +difficulty01(distance).toFixed(3),
     trafficInterval: +trafficSpawnInterval(distance).toFixed(2),
+    turnActive: !!turnActive,
+    controlUsable: playerControlLayout().usable.slice(),
     biome: activeBiome, heat, gas, braking, coins: save.coins,
     nearbyStation: !!nearbyStation,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
