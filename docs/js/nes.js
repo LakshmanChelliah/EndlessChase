@@ -65,12 +65,26 @@ function pickBuildingVariant(tex, rnd) {
   return { map: list[i], preset, index: i };
 }
 
+/** Opaque textured material — buildings/roads must stay opaque so depth sorts correctly. */
 export function basic(map, color = 0xffffff) {
-  return new THREE.MeshBasicMaterial({ map, color, transparent: !!map, alphaTest: map ? 0.1 : 0 });
+  return new THREE.MeshBasicMaterial({ map, color });
 }
 
 export function basicColor(color) {
   return new THREE.MeshBasicMaterial({ color });
+}
+
+const ROOF_COLOR = 0x2a2a38;
+
+/**
+ * Box with facade map on sides and a dark roof/floor so tops don't read as
+ * floating grey slabs against the sky (BoxGeometry UV-maps the atlas onto +Y).
+ */
+export function makeBuildingBox(w, h, d, map) {
+  const side = basic(map);
+  const roof = basicColor(ROOF_COLOR);
+  // BoxGeometry groups: +x, -x, +y, -y, +z, -z
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [side, side, roof, roof, side, side]);
 }
 
 /**
@@ -425,7 +439,7 @@ export function applyMixBiomeOverlay(seg, mixBiome, tex) {
     grass.position.set(side * (half + 5), 0.025, 0);
     group.add(grass);
     if (mixBiome === "rural") {
-      const house = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.2, 3.2), basic(tex.house));
+      const house = makeBuildingBox(2.8, 2.2, 3.2, tex.house);
       house.position.set(side * (half + 5.5), 1.1, 2);
       group.add(house);
     }
@@ -437,7 +451,7 @@ export function applyMixBiomeOverlay(seg, mixBiome, tex) {
     const mixRnd = () => Math.random();
     const { map, preset } = pickBuildingVariant(tex, mixRnd);
     const h = preset.hMin + 1;
-    const b = new THREE.Mesh(new THREE.BoxGeometry(preset.w * 0.85, h, preset.d * 0.85), basic(map));
+    const b = makeBuildingBox(preset.w * 0.85, h, preset.d * 0.85, map);
     b.position.set(side * (half + 4), h / 2, 0);
     group.add(b);
   }
@@ -863,7 +877,7 @@ export function makeSegment(tex, biome, opts = {}) {
         pad.position.set(houseX, 0.03, zc + (rnd() - 0.5) * Math.min(2, patchLen * 0.3));
         root.add(pad);
         if (rnd() > 0.2) {
-          const house = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.6, Math.min(4, patchLen - 0.4)), basic(tex.house));
+          const house = makeBuildingBox(3.2, 2.6, Math.min(4, patchLen - 0.4), tex.house);
           house.position.set(houseX, 1.3, pad.position.z);
           root.add(house);
         }
@@ -946,10 +960,7 @@ export function makeSegment(tex, biome, opts = {}) {
           const h = v.preset.hMin + ((rnd() * v.preset.hSpan) | 0);
           const depth = Math.min(v.preset.d, slotSpan - 0.6);
           const zOff = zc - patchLen / 2 + slotSpan * (slot + 0.5);
-          const b = new THREE.Mesh(
-            new THREE.BoxGeometry(v.preset.w, h, depth),
-            basic(v.map)
-          );
+          const b = makeBuildingBox(v.preset.w, h, depth, v.map);
           b.position.set(side * (walkCenter - 0.5), h / 2, zOff);
           root.add(b);
           // Lit window strips — neon NES blocks on the street-facing facade
@@ -973,9 +984,11 @@ export function makeSegment(tex, biome, opts = {}) {
           if (!intersection && rnd() > 0.45) {
             const v2 = pickBuildingVariant(tex, rnd);
             const h2 = v2.preset.hMin + ((rnd() * v2.preset.hSpan) | 0);
-            const b2 = new THREE.Mesh(
-              new THREE.BoxGeometry(v2.preset.w * 0.9, h2, Math.min(v2.preset.d, depth)),
-              basic(v2.map)
+            const b2 = makeBuildingBox(
+              v2.preset.w * 0.9,
+              h2,
+              Math.min(v2.preset.d, depth),
+              v2.map
             );
             b2.position.set(side * (walkCenter + 1.5), h2 / 2, zOff + (rnd() - 0.5));
             root.add(b2);
@@ -1000,10 +1013,7 @@ export function makeSegment(tex, biome, opts = {}) {
       root.add(walk);
       const { map, preset } = pickBuildingVariant(tex, rnd);
       const h = preset.hMin + ((rnd() * preset.hSpan) | 0);
-      const b = new THREE.Mesh(
-        new THREE.BoxGeometry(preset.w * 0.85, h, preset.d * 0.85),
-        basic(map)
-      );
+      const b = makeBuildingBox(preset.w * 0.85, h, preset.d * 0.85, map);
       b.position.set(side * (half + 4), h / 2, 0);
       root.add(b);
     }

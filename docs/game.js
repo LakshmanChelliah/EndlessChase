@@ -43,7 +43,7 @@ import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
-} from "./js/nes.js?v=25";
+} from "./js/nes.js?v=26";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
@@ -73,7 +73,49 @@ const panels = {
   gameover: document.getElementById("panel-gameover"),
   upgrades: document.getElementById("panel-upgrades"),
   pump: document.getElementById("panel-pump"),
+  howto: document.getElementById("panel-howto"),
 };
+const HINTS_KEY = "EndlessChase.Hints.v1";
+const HOWTO_STEPS = [
+  {
+    title: "STEER",
+    body: "Swipe left/right or press A/D to change lanes. In the city, stay LEFT of the double yellow — the right lanes are oncoming.",
+    callout: "",
+  },
+  {
+    title: "BRAKE & GO",
+    body: "Swipe down or press S for a sticky brake. Swipe up, W, or Space to go again. Braking cools speed but heats up the cops.",
+    callout: "",
+  },
+  {
+    title: "THE GETAWAY",
+    body: "Weave traffic, take turn ramps into new biomes, and grab cash for the Garage. Crash or get caught = run over.",
+    callout: "",
+  },
+  {
+    title: "HUD BARS",
+    body: "Top COPS bar fills when you slow, brake, or run empty — full bar means Busted. Bottom FUEL drains while you drive.",
+    callout: "COPS = police heat · FUEL = tank · MPH = speed",
+  },
+  {
+    title: "FILL GAS",
+    body: "Pull into the outer curb lane near a station, tap FILL UP TANK, then HOLD TO FILL. Cops close in while you pump — release and merge before you get busted.",
+    callout: "Empty tank forces a slow coast that fills the COPS bar.",
+  },
+];
+const howtoStepEl = document.getElementById("howto-step");
+const howtoTitleEl = document.getElementById("howto-title");
+const howtoBodyEl = document.getElementById("howto-body");
+const howtoCalloutEl = document.getElementById("howto-callout");
+const btnHowtoNext = document.getElementById("btn-howto-next");
+const btnHowtoSkip = document.getElementById("btn-howto-skip");
+const hudCoach = document.getElementById("hud-coach");
+const hudCoachText = document.getElementById("hud-coach-text");
+const btnCoachNext = document.getElementById("btn-coach-next");
+let howtoIndex = 0;
+let howtoThenPlay = false;
+let coachQueue = [];
+let coachActive = false;
 const hudDistance = document.getElementById("hud-distance");
 const hudCoins = document.getElementById("hud-coins");
 const hudBoost = document.getElementById("hud-boost");
@@ -213,6 +255,106 @@ function showPanel(name) {
   if (name !== "gameover" && panels.gameover) {
     panels.gameover.classList.remove("go-wreck", "go-bust");
   }
+}
+
+function loadHintsSeen() {
+  try {
+    const raw = localStorage.getItem(HINTS_KEY);
+    if (!raw) return { howto: false, coach: false };
+    const d = JSON.parse(raw);
+    return { howto: !!d.howto, coach: !!d.coach };
+  } catch {
+    return { howto: false, coach: false };
+  }
+}
+
+function writeHintsSeen(partial) {
+  const cur = loadHintsSeen();
+  const next = { ...cur, ...partial };
+  localStorage.setItem(HINTS_KEY, JSON.stringify(next));
+}
+
+function renderHowtoStep() {
+  const step = HOWTO_STEPS[howtoIndex];
+  if (!step) return;
+  if (howtoStepEl) howtoStepEl.textContent = `${howtoIndex + 1} / ${HOWTO_STEPS.length}`;
+  if (howtoTitleEl) howtoTitleEl.textContent = step.title;
+  if (howtoBodyEl) howtoBodyEl.textContent = step.body;
+  if (howtoCalloutEl) {
+    const has = !!step.callout;
+    howtoCalloutEl.textContent = step.callout || "";
+    howtoCalloutEl.classList.toggle("show", has);
+    howtoCalloutEl.setAttribute("aria-hidden", has ? "false" : "true");
+  }
+  if (btnHowtoNext) {
+    const last = howtoIndex >= HOWTO_STEPS.length - 1;
+    btnHowtoNext.textContent = howtoThenPlay
+      ? (last ? "Start Engine" : "Next")
+      : (last ? "Got it" : "Next");
+  }
+  if (btnHowtoSkip) {
+    btnHowtoSkip.textContent = howtoThenPlay ? "Skip & Drive" : "Back";
+  }
+}
+
+function openHowto({ thenPlay = false, startIndex = 0 } = {}) {
+  howtoThenPlay = !!thenPlay;
+  howtoIndex = Math.max(0, Math.min(HOWTO_STEPS.length - 1, startIndex | 0));
+  renderHowtoStep();
+  showPanel("howto");
+}
+
+function finishHowto({ play }) {
+  writeHintsSeen({ howto: true });
+  if (play) {
+    unlockSirenAudio();
+    startRun();
+    maybeStartCoach();
+  } else {
+    setupMenuScene();
+    showPanel("menu");
+  }
+}
+
+function hideCoach() {
+  coachActive = false;
+  coachQueue = [];
+  if (hudCoach) hudCoach.classList.add("hidden");
+}
+
+function showCoachTip(text) {
+  if (!hudCoach || !hudCoachText) return;
+  coachActive = true;
+  hudCoachText.textContent = text;
+  hudCoach.classList.remove("hidden");
+}
+
+function advanceCoach() {
+  if (!coachQueue.length) {
+    hideCoach();
+    writeHintsSeen({ coach: true });
+    return;
+  }
+  showCoachTip(coachQueue.shift());
+}
+
+function maybeStartCoach() {
+  const seen = loadHintsSeen();
+  if (seen.coach) return;
+  coachQueue = [
+    "Top bar = COPS. Slowing or braking fills it — full = Busted!",
+    "Bottom green = FUEL. Keep it topped at curb stations or you will coast into the cops.",
+  ];
+  // Defer until the pull-out intro finishes so the tip sits on a live HUD
+  const wait = () => {
+    if (!alive) return;
+    if (intro) {
+      requestAnimationFrame(wait);
+      return;
+    }
+    if (running) advanceCoach();
+  };
+  requestAnimationFrame(wait);
 }
 
 function showPumpPanel(show) {
@@ -618,15 +760,24 @@ function adoptBiomeFromSegment(seg) {
 }
 
 /**
- * Sync `lane` to a layout index only when laneX is already on that center.
+ * Keep `lane` coherent with the commanded target / physical X.
  * Never moves laneX / laneTargetX — lane indices are not portable across biomes
  * (city lane 1 ≠ rural lane 1), so index validity alone must not retarget the spring.
+ *
+ * Important: while a swipe spring is in flight, prefer `laneTargetX` over physical
+ * `laneX`. Inferring from laneX mid-change snapped the index back to the old lane
+ * and ate rapid side-to-side swipes / smoke assertions.
  */
 function syncPlayerLaneIndexIfAligned() {
   const { layout, usable } = playerControlLayout();
-  // Mid lane-change: trust the commanded index until the car reaches the target.
-  // Rebinding from physical X while lerping undoes swipes and desyncs lane vs laneTargetX.
-  if (Math.abs(laneX - laneTargetX) > 0.75) return;
+  // Commanded lane center wins while the spring is still heading there
+  for (let i = 0; i < layout.count; i++) {
+    if (Math.abs(laneTargetX - layout.xs[i]) < 0.75) {
+      lane = i;
+      return;
+    }
+  }
+  // Orphaned target (closed / biome flip): infer from physical X only
   if (lane >= 0 && lane < layout.count && Math.abs(laneX - layout.xs[lane]) < 0.75) {
     return;
   }
@@ -642,6 +793,14 @@ function syncPlayerLaneIndexIfAligned() {
       return;
     }
   }
+}
+
+/** Lane index implied by the active spring target (falls back to `lane`). */
+function commandedLaneIndex(layout) {
+  for (let i = 0; i < layout.count; i++) {
+    if (Math.abs(laneTargetX - layout.xs[i]) < 0.75) return i;
+  }
+  return lane;
 }
 
 function clearAheadTrafficSoft() {
@@ -1821,13 +1980,17 @@ function spawnTrafficCar() {
     if (layout.dirs[i] === -1) oncomingIdx.push(i);
     else sameIdx.push(i);
   }
+  // Progressive curve: sparse early, full oncoming pressure later in the run
   const wantOncoming = oncomingIdx.length > 0 && Math.random() < trafficOncomingChance(distance);
   const poolLanes = wantOncoming ? oncomingIdx : sameIdx;
   if (!poolLanes.length) return;
 
   let tLane = poolLanes[(Math.random() * poolLanes.length) | 0];
-  if (!wantOncoming && tLane === lane && Math.random() < 0.4) {
-    tLane = poolLanes[(tLane + 1) % poolLanes.length];
+  // Prefer not to stack the player's lane in the opening stretch
+  if (!wantOncoming && tLane === lane && Math.random() < (distance < 180 ? 0.7 : 0.4)) {
+    const alt = poolLanes.filter((i) => i !== lane);
+    if (alt.length) tLane = alt[(Math.random() * alt.length) | 0];
+    else tLane = poolLanes[(tLane + 1) % poolLanes.length];
   }
 
   // Avoid stacking same-dir cars in a red/yellow stop box
@@ -1885,6 +2048,7 @@ function endRun(reason) {
   alive = false;
   running = false;
   intro = null;
+  hideCoach();
   sirenOpeningT = 0;
   stopSiren();
   sirenSmoothVol = 0;
@@ -2222,10 +2386,12 @@ function onSwipe(dir) {
   // Inverted side-to-side: swipe left → move right lane, swipe right → move left
   if (dir === "left" || dir === "right") {
     const delta = dir === "left" ? 1 : -1;
-    let next = lane + delta;
+    // Use commanded target so mid-spring swipes stack instead of re-issuing the same lane
+    const current = commandedLaneIndex(layout);
+    let next = current + delta;
     // Walk toward the swipe until we hit a usable lane; block if none
     while (next >= 0 && next < layout.count && !usable.includes(next)) next += delta;
-    if (next >= 0 && next < layout.count && usable.includes(next) && next !== lane) {
+    if (next >= 0 && next < layout.count && usable.includes(next) && next !== current) {
       lane = next;
       laneTargetX = layout.xs[lane];
       // Stronger yaw kick into the lane change
@@ -2238,7 +2404,11 @@ function onSwipe(dir) {
 }
 
 function emitSwipeFromDelta(dx, dy) {
-  if (Math.abs(dx) > Math.abs(dy)) onSwipe(dx > 0 ? "right" : "left");
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  // Prefer lateral steering: thumbs often arc slightly vertical on phones, and a
+  // pure abs(dx)>abs(dy) check turned many side swipes into brake/resume.
+  if (ax >= ay * 0.85) onSwipe(dx > 0 ? "right" : "left");
   else onSwipe(dy > 0 ? "down" : "up");
 }
 
@@ -2462,15 +2632,40 @@ document.body.addEventListener("touchmove", (e) => {
 
 document.getElementById("btn-play").onclick = () => {
   unlockSirenAudio();
+  if (!loadHintsSeen().howto) {
+    openHowto({ thenPlay: true });
+    return;
+  }
   startRun();
+  maybeStartCoach();
 };
+document.getElementById("btn-howto")?.addEventListener("click", () => {
+  openHowto({ thenPlay: false });
+});
+btnHowtoNext?.addEventListener("click", () => {
+  if (howtoIndex < HOWTO_STEPS.length - 1) {
+    howtoIndex += 1;
+    renderHowtoStep();
+    return;
+  }
+  finishHowto({ play: howtoThenPlay });
+});
+btnHowtoSkip?.addEventListener("click", () => {
+  finishHowto({ play: howtoThenPlay });
+});
+btnCoachNext?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  advanceCoach();
+});
 document.getElementById("btn-retry").onclick = () => {
   unlockSirenAudio();
+  hideCoach();
   if (btnRetry) btnRetry.disabled = false;
   startRun({ instant: true });
 };
 // pointerdown unlocks earlier than click — critical for mobile Safari audio
-for (const id of ["btn-play", "btn-retry"]) {
+for (const id of ["btn-play", "btn-retry", "btn-howto-next", "btn-howto-skip"]) {
   const el = document.getElementById(id);
   if (!el) continue;
   el.addEventListener("pointerdown", () => unlockSirenAudio(), { passive: true });
@@ -2478,6 +2673,7 @@ for (const id of ["btn-play", "btn-retry"]) {
 }
 document.getElementById("btn-menu").onclick = () => {
   fromGameOver = false;
+  hideCoach();
   setupMenuScene();
   showPanel("menu");
 };
@@ -2751,7 +2947,8 @@ function tick(now) {
           const aheadDz = seg.position.z - playerZ;
           if (aheadDz > 0 && aheadDz < LIGHT_HUD_AHEAD && !seg.userData.resolved) {
             const state = seg.userData.lightState;
-            hudLight.textContent = state === "red" ? "● RED" : state === "yellow" ? "● YELLOW" : "● GREEN";
+            // Avoid ● — Press Start 2P has no bullet glyph (rendered as ".")
+            hudLight.textContent = state === "red" ? "RED" : state === "yellow" ? "YELLOW" : "GREEN";
             hudLight.style.color = state === "red" ? "#ff004d" : state === "yellow" ? "#ffec27" : "#00e436";
             hudLight.classList.remove("hidden");
           }
