@@ -21,8 +21,8 @@ export const CARS_ASSET = "assets/cars";
 
 export const BRAKE_DURATION = 0.85;
 export const BRAKE_SPEED_MUL = 0.4;
-/** Coupe stock speed limiter (world units). HUD = round(world × 4) → Coupe stock reads 75. */
-export const BASE_MAX_SPEED = 18.75;
+/** Coupe stock speed limiter (world units). HUD = round(world × 4); Van (0.85) stock reads 70. */
+export const BASE_MAX_SPEED = 70 / (0.85 * 4);
 /** Coupe stock accel (units/s²). Effective = BASE_ACCEL * accelFactor. */
 export const BASE_ACCEL = 6;
 /** Coupe stock brake deceleration (units/s²). Effective = BASE_BRAKE * brakesFactor. */
