@@ -1,12 +1,15 @@
 /**
- * localStorage persistence for coins, high score, unlocked cars, and per-car upgrades.
+ * localStorage persistence for coins, high score, unlocked cars, per-car upgrades,
+ * and progressive mission tracks.
  *
  * Flow: loadSave() → migrate/normalize → gameplay mutates → writeSave().
- * Invariants: version ≥ 2 shape; starter car always unlocked; levels clamped
- * to MAX_UPGRADE. v1 flat upgrades migrate into per-car maps.
+ * Invariants: version ≥ 3 shape; starter car always unlocked; levels clamped
+ * to MAX_UPGRADE. v1 flat upgrades migrate into per-car maps; missions always
+ * repaired via ensureMissions.
  */
 import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=32";
 import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=26";
+import { ensureMissions, defaultMissions } from "./missions.js?v=1";
 
 function emptyCarLevels() {
   return { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0, brakesLevel: 0 };
@@ -14,12 +17,13 @@ function emptyCarLevels() {
 
 export function defaultSave() {
   return {
-    version: 2,
+    version: 3,
     coins: 0,
     highScore: 0,
     selectedCar: STARTER_CAR,
     unlocked: [STARTER_CAR],
     cars: { [STARTER_CAR]: emptyCarLevels() },
+    missions: defaultMissions(),
   };
 }
 
@@ -33,6 +37,7 @@ function migrateV1(d) {
     handlingLevel: d.handlingLevel | 0,
     brakesLevel: d.brakesLevel | 0,
   };
+  ensureMissions(save);
   return save;
 }
 
@@ -61,14 +66,17 @@ function normalizeSave(d) {
   let selected = d.selectedCar || STARTER_CAR;
   if (!unlocked.includes(selected)) selected = STARTER_CAR;
 
-  return {
-    version: 2,
+  const save = {
+    version: 3,
     coins: d.coins | 0,
     highScore: Math.max(0, d.highScore | 0),
     selectedCar: selected,
     unlocked,
     cars,
+    missions: d.missions,
   };
+  ensureMissions(save);
+  return save;
 }
 
 /** Returns true when distance sets a new personal best. */

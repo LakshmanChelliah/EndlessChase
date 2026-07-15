@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=27" />
+  <link rel="stylesheet" href="styles.css?v=28" />
 </head>
 <body>
   <div id="game-root">
@@ -41,6 +41,7 @@
           </ul>
         </div>
         <p id="menu-high" class="menu-high" aria-label="High score">BEST 0 m</p>
+        <div id="menu-missions" class="menu-missions" aria-label="Missions"></div>
         <button type="button" id="btn-play" class="btn primary">Start Engine</button>
         <button type="button" id="btn-howto" class="btn">How to Play</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
@@ -63,6 +64,7 @@
           <span id="hud-high" class="hud-high">BEST 0 m</span>
           <span id="hud-coins">$0</span>
         </div>
+        <p id="hud-mission" class="hud-mission" aria-label="Active mission">GAS 0/1</p>
 
         <div id="hud-heat" class="police-bar" aria-label="Police proximity">
           <div class="police-siren police-siren-l" aria-hidden="true"></div>
@@ -75,6 +77,7 @@
 
         <div id="hud-cue-stack" class="hud-cue-stack" aria-live="polite">
           <div id="hud-boost" class="boost hidden">BOOST</div>
+          <div id="hud-mission-clear" class="mission-clear hidden"></div>
           <div id="hud-light" class="light-hint hidden"></div>
           <div id="hud-turn" class="turn-cue hidden"></div>
           <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
@@ -129,6 +132,7 @@
         <p id="go-score">0 m</p>
         <p id="go-high" class="go-high">BEST 0 m</p>
         <p id="go-coins">+$0</p>
+        <div id="go-missions" class="go-missions" aria-label="Missions cleared"></div>
         <button type="button" id="btn-retry" class="btn primary" disabled>Retry</button>
         <button type="button" id="btn-upgrades-go" class="btn">Garage</button>
         <button type="button" id="btn-menu" class="btn ghost">Menu</button>
@@ -182,6 +186,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=53"></script>
+  <script type="module" src="game.js?v=54"></script>
 </body>
 </html>

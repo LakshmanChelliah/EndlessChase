@@ -32,7 +32,10 @@ import {
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=26";
+} from "./js/save.js?v=27";
+import {
+  TRACK_KEYS, ensureMissions, resetMissionProgress, applyRunStats, trackSnapshot, closestTrack,
+} from "./js/missions.js?v=1";
 import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=26";
 import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=26";
 import {
@@ -64,6 +67,7 @@ const HEADWAY_GAP = 5.5;
 const CAR_HALF_LEN = 2.0;
 
 const save = loadSave();
+ensureMissions(save);
 
 // ---------- DOM ----------
 const canvas = document.getElementById("c");
@@ -75,6 +79,10 @@ const panels = {
   pump: document.getElementById("panel-pump"),
   howto: document.getElementById("panel-howto"),
 };
+const menuMissions = document.getElementById("menu-missions");
+const hudMission = document.getElementById("hud-mission");
+const hudMissionClear = document.getElementById("hud-mission-clear");
+const goMissions = document.getElementById("go-missions");
 const HINTS_KEY = "EndlessChase.Hints.v1";
 const HOWTO_STEPS = [
   {
@@ -252,6 +260,89 @@ function refreshHighScoreUI({ isNew = false } = {}) {
   }
 }
 
+function refreshCoinUI() {
+  if (hudCoins) hudCoins.textContent = `$${save.coins}`;
+  if (upCoins && activePanelName === "upgrades") upCoins.textContent = `CASH $${save.coins}`;
+}
+
+function refreshMissionsUI() {
+  const snap = trackSnapshot(save);
+  if (menuMissions) {
+    let html = `<p class="menu-missions-title">MISSIONS</p>`;
+    for (const goal of TRACK_KEYS) {
+      const t = snap[goal];
+      const prog = Math.min(t.progress, t.target);
+      html += `<div class="menu-mission-row">`
+        + `<span class="mission-label">${t.label}</span>`
+        + `<span class="mission-prog">${prog}/${t.target}</span>`
+        + `<span class="mission-pay">$${t.reward}</span>`
+        + `</div>`;
+    }
+    menuMissions.innerHTML = html;
+  }
+  if (hudMission) {
+    const closest = closestTrack(save);
+    if (closest) {
+      const prog = Math.min(closest.progress, closest.target);
+      hudMission.textContent = `${closest.hud} ${prog}/${closest.target}`;
+      hudMission.classList.remove("hidden");
+    }
+  }
+}
+
+function showMissionClearCue(completed, coinsEarned) {
+  if (!hudMissionClear || !coinsEarned) return;
+  const first = completed[0];
+  const tag = first ? first.hud : "MISSION";
+  hudMissionClear.textContent = `${tag} CLEAR +$${coinsEarned}`;
+  hudMissionClear.classList.remove("hidden");
+  clearTimeout(showMissionClearCue._timer);
+  showMissionClearCue._timer = setTimeout(() => {
+    hudMissionClear.classList.add("hidden");
+  }, 1600);
+}
+
+function refreshGoMissionsUI() {
+  if (!goMissions) return;
+  if (!runClearedMissions.length && !runMissionBonus) {
+    goMissions.innerHTML = "";
+    return;
+  }
+  let html = "";
+  for (const c of runClearedMissions) {
+    html += `<p class="go-mission-line">${c.hud} CLEAR +$${c.reward}</p>`;
+  }
+  if (runMissionBonus > 0) {
+    html += `<p class="go-mission-bonus">BONUS +$${runMissionBonus}</p>`;
+  }
+  goMissions.innerHTML = html;
+}
+
+/** Apply current runStats to mission tracks; award + persist on clears. */
+function flushMissions() {
+  const { completed, coinsEarned } = applyRunStats(save, runStats);
+  if (coinsEarned > 0) {
+    runMissionBonus += coinsEarned;
+    for (const c of completed) runClearedMissions.push(c);
+    writeSave(save);
+    refreshCoinUI();
+    showMissionClearCue(completed, coinsEarned);
+  }
+  refreshMissionsUI();
+  return { completed, coinsEarned };
+}
+
+/** Update one run stat and sync progressive mission tracks. */
+function noteMissionStat(key, delta = 1) {
+  if (!TRACK_KEYS.includes(key)) return { completed: [], coinsEarned: 0 };
+  if (key === "distance") {
+    runStats.distance = Math.max(0, Math.floor(distance));
+  } else {
+    runStats[key] = Math.max(0, (runStats[key] | 0) + (delta | 0));
+  }
+  return flushMissions();
+}
+
 function showPanel(name) {
   for (const k of Object.keys(panels)) {
     if (!panels[k]) continue;
@@ -273,7 +364,10 @@ function showPanel(name) {
   if (name !== "gameover" && panels.gameover) {
     panels.gameover.classList.remove("go-wreck", "go-bust");
   }
-  if (name === "menu" || name === "hud") refreshHighScoreUI();
+  if (name === "menu" || name === "hud") {
+    refreshHighScoreUI();
+    refreshMissionsUI();
+  }
 }
 
 function loadHintsSeen() {
@@ -562,6 +656,12 @@ let playerZ = 0;
 let speed = 0;
 let distance = 0;
 let runCoins = 0;
+/** Per-run mission counters (reset each startRun). */
+let runStats = { gasVisits: 0, coins: 0, distance: 0, boosts: 0 };
+let runMissionBonus = 0;
+/** @type {Array<{ goal: string, tier: number, target: number, reward: number, hud: string, label: string }>} */
+let runClearedMissions = [];
+let lastMissionDistanceFloor = -1;
 let boostTimer = 0;
 let boostMul = 1;
 let nextSpawnZ = 0;
@@ -1707,6 +1807,7 @@ function endGasVisit({ resume = true, busted = false } = {}) {
     resumeThrottle();
     updateGasUI();
     updateHeatUI();
+    noteMissionStat("gasVisits", 1);
   }
 }
 
@@ -2095,6 +2196,9 @@ function endRun(reason) {
   goScoreDisplay = 0;
   if (goScore) goScore.textContent = `0 m`;
   goCoins.textContent = `+$${runCoins}`;
+  noteMissionStat("distance", 0);
+  refreshGoMissionsUI();
+  resetMissionProgress(save);
   const isNewBest = trySetHighScore(save, goScoreTarget);
   writeSave(save);
   refreshHighScoreUI({ isNew: isNewBest });
@@ -2111,6 +2215,7 @@ function endRun(reason) {
   showPanel("gameover");
   // Keep NEW BEST label after showPanel('gameover') — menu/hud refresh path skipped
   refreshHighScoreUI({ isNew: isNewBest });
+  refreshGoMissionsUI();
   updateHeatVignette();
 }
 
@@ -2206,6 +2311,11 @@ function resetRunState() {
   speed = 12;
   distance = 0;
   runCoins = 0;
+  runStats = { gasVisits: 0, coins: 0, distance: 0, boosts: 0 };
+  runMissionBonus = 0;
+  runClearedMissions = [];
+  lastMissionDistanceFloor = -1;
+  resetMissionProgress(save);
   boostTimer = 0;
   boostMul = 1;
   nextSpawnZ = -2 * SEG_LEN;
@@ -2987,6 +3097,7 @@ function tick(now) {
                 spawnCrossVehicle(seg, { hazard: true, fromLeft: Math.random() < 0.5 });
                 hudLight.textContent = "RED! BOOST";
                 hudLight.style.color = "#ff004d";
+                noteMissionStat("boosts", 1);
               } else {
                 hudLight.textContent = "RED SLOW";
                 hudLight.style.color = "#ffa300";
@@ -3196,6 +3307,7 @@ function tick(now) {
         runCoins += 1;
         save.coins += 1;
         writeSave(save);
+        noteMissionStat("coins", 1);
       }
     }
 
@@ -3227,6 +3339,11 @@ function tick(now) {
 
     hudDistance.textContent = `${Math.floor(distance)} m`;
     hudCoins.textContent = `$${save.coins}`;
+    const distFloor = Math.floor(distance);
+    if (distFloor !== lastMissionDistanceFloor) {
+      lastMissionDistanceFloor = distFloor;
+      noteMissionStat("distance", 0);
+    }
     if (hudSpeed) {
       const showSpeed = gasVisit?.phase === "pumping" ? 0 : Math.round(speed * 4);
       hudSpeed.textContent = `${showSpeed}`;
@@ -3300,7 +3417,19 @@ window.__endlessChase = {
   startRun,
   setupMenuScene,
   beginBiomeTransition,
-  getSave: () => ({ ...save, unlocked: [...save.unlocked], cars: { ...save.cars } }),
+  getSave: () => ({
+    ...save,
+    unlocked: [...save.unlocked],
+    cars: { ...save.cars },
+    missions: {
+      tracks: Object.fromEntries(
+        TRACK_KEYS.map((k) => {
+          const t = save.missions.tracks[k];
+          return [k, { tier: t.tier | 0, progress: t.progress | 0 }];
+        })
+      ),
+    },
+  }),
   getPlayer: () => player,
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
@@ -3320,6 +3449,9 @@ window.__endlessChase = {
     playerZ: +player.position.z.toFixed(2),
     playerYaw: +player.rotation.y.toFixed(3),
     carId: player.userData.carId,
+    runStats: { ...runStats },
+    runMissionBonus,
+    missions: trackSnapshot(save),
   }),
   getSegmentAt,
   buildTransitionPlan,
@@ -3432,6 +3564,32 @@ window.__endlessChase = {
       playerZ = distance;
     }
     endRun(reason === "bust" ? "bust" : "wreck");
-    return { distance: Math.floor(distance), highScore: save.highScore | 0 };
+    return {
+      distance: Math.floor(distance),
+      highScore: save.highScore | 0,
+      runMissionBonus,
+      missions: trackSnapshot(save),
+    };
+  },
+  /** Test helper: grant mission progress through the real note/flush path. */
+  debugGrantMissionStat: (key, amount = 1) => {
+    if (!TRACK_KEYS.includes(key)) return { ok: false, reason: "bad-key" };
+    const n = Math.max(0, amount | 0);
+    if (key === "distance") {
+      distance = Math.max(distance, n);
+      playerZ = Math.max(playerZ, n);
+      runStats.distance = Math.max(0, Math.floor(distance));
+    } else {
+      runStats[key] = Math.max(0, (runStats[key] | 0) + n);
+    }
+    const result = flushMissions();
+    return {
+      ok: true,
+      key,
+      runStats: { ...runStats },
+      coins: save.coins,
+      ...result,
+      missions: trackSnapshot(save),
+    };
   },
 };

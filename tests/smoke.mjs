@@ -27,6 +27,27 @@ await page.evaluate(() => {
   localStorage.setItem("EndlessChase.Hints.v1", JSON.stringify({ howto: true, coach: true }));
 });
 
+await page.waitForFunction(() => !!window.__endlessChase?.getSave, null, { timeout: 15000 });
+
+// Missions board on menu + save shape (v3 tracks)
+await page.waitForSelector("#menu-missions", { timeout: 5000 });
+await page.waitForFunction(() => {
+  const el = document.getElementById("menu-missions");
+  return el && /MISSIONS/i.test(el.textContent || "");
+}, null, { timeout: 5000 });
+const menuMissionsText = await page.textContent("#menu-missions");
+if (!/Visit 1 gas station/i.test(menuMissionsText || "")) {
+  throw new Error("menu missions missing starter gas goal: " + menuMissionsText);
+}
+const missionSave = await page.evaluate(() => window.__endlessChase.getSave());
+const tracks = missionSave?.missions?.tracks;
+if (!tracks?.gasVisits || !tracks?.coins || !tracks?.distance || !tracks?.boosts) {
+  throw new Error("missions.tracks incomplete: " + JSON.stringify(tracks));
+}
+if ((tracks.gasVisits.tier | 0) !== 0 || (tracks.coins.tier | 0) !== 0) {
+  throw new Error("starter mission tiers not zero: " + JSON.stringify(tracks));
+}
+
 // How to Play panel should open from the menu
 await page.click("#btn-howto");
 await page.waitForSelector("#panel-howto:not(.hidden)", { timeout: 3000 });
@@ -40,6 +61,27 @@ await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 5000 });
 
 // Wait out the curb pull-out intro before asserting controls
 await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 8000 });
+
+// Mission HUD + debug grant path (coins tier 0 → 1)
+await page.waitForSelector("#hud-mission", { timeout: 3000 });
+const grantCoins = await page.evaluate(() => {
+  const before = window.__endlessChase.getSave().coins;
+  const r = window.__endlessChase.debugGrantMissionStat("coins", 10);
+  return { before, after: r.coins, tier: r.missions.coins.tier, earned: r.coinsEarned, ok: r.ok };
+});
+if (!grantCoins.ok) throw new Error("debugGrantMissionStat failed: " + JSON.stringify(grantCoins));
+if (grantCoins.earned !== 40) throw new Error("coins mission reward wrong: " + JSON.stringify(grantCoins));
+if (grantCoins.tier !== 1) throw new Error("coins tier did not advance: " + JSON.stringify(grantCoins));
+if (grantCoins.after !== grantCoins.before + 40) {
+  throw new Error("coins balance mismatch after mission: " + JSON.stringify(grantCoins));
+}
+const grantDist = await page.evaluate(() => {
+  const r = window.__endlessChase.debugGrantMissionStat("distance", 300);
+  return { after: r.coins, tier: r.missions.distance.tier, earned: r.coinsEarned };
+});
+if (grantDist.earned !== 40 || grantDist.tier !== 1) {
+  throw new Error("distance mission clear failed: " + JSON.stringify(grantDist));
+}
 
 const laneBefore = await page.evaluate(() => window.__endlessChase.getState().lane);
 
@@ -256,10 +298,43 @@ await page.waitForSelector("#panel-menu:not(.hidden)");
 const menuAfterBest = await page.textContent("#menu-high");
 if (!/BEST\s+350\s*m/.test(menuAfterBest || "")) throw new Error("menu best after run: " + menuAfterBest);
 
+// Mission tiers persist across reload; v2 save without missions still normalizes
+const persisted = await page.evaluate(() => {
+  const key = "EndlessChase.Save.v1";
+  const data = JSON.parse(localStorage.getItem(key));
+  return data?.missions?.tracks;
+});
+if (!persisted?.coins || (persisted.coins.tier | 0) < 1) {
+  throw new Error("mission tiers not persisted: " + JSON.stringify(persisted));
+}
+await page.evaluate(() => {
+  localStorage.setItem("EndlessChase.Save.v1", JSON.stringify({
+    version: 2,
+    coins: 10,
+    highScore: 50,
+    selectedCar: "mobil",
+    unlocked: ["mobil"],
+    cars: { mobil: { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0, brakesLevel: 0 } },
+  }));
+});
+await page.reload({ waitUntil: "networkidle" });
+const migrated = await page.evaluate(() => window.__endlessChase.getSave());
+if (migrated.version !== 3 || !migrated.missions?.tracks?.gasVisits) {
+  throw new Error("v2→v3 mission migrate failed: " + JSON.stringify(migrated));
+}
+if ((migrated.missions.tracks.gasVisits.tier | 0) !== 0) {
+  throw new Error("migrated tiers should start at 0: " + JSON.stringify(migrated.missions));
+}
+await page.waitForSelector("#menu-missions", { timeout: 5000 });
+
 console.log("SMOKE_OK", base, {
   distanceText,
   highScore: 350,
   topSpeedLevel: reloadLvl,
   coins: afterReload.coins,
+  missionTiers: {
+    coins: persisted.coins.tier,
+    distance: persisted.distance?.tier,
+  },
 });
 await browser.close();
