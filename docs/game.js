@@ -26,7 +26,7 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=31";
+} from "./js/constants.js?v=32";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -41,7 +41,7 @@ import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
-} from "./js/nes.js?v=25";
+} from "./js/nes.js?v=30";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,

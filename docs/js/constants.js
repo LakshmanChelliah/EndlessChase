@@ -120,47 +120,50 @@ export const SIREN_OPENING = 0.88;
 export const SIREN_OPENING_FADE = 4.0;
 
 export const NES = {
-  black: 0x000000,
-  navy: 0x1d2b53,
-  sky: 0x83769c,
-  white: 0xfff1e8,
-  red: 0xff004d,
-  orange: 0xffa300,
-  yellow: 0xffec27,
-  green: 0x00e436,
-  asphalt: 0x292a32,
-  curb: 0x5a5a6e,
-  forest: 0x008751,
+  black: 0x2d3142,
+  navy: 0x3d405b,
+  sky: 0x9a8a9e,
+  white: 0xf4f1de,
+  red: 0xe07a5f,
+  orange: 0xe07a5f,
+  yellow: 0xf2cc8f,
+  green: 0x81b29a,
+  asphalt: 0x5c6578,
+  curb: 0xa89888,
+  forest: 0x6b9b7a,
 };
 
-/** Per-biome fog / sky / ground — keeps NES palette, differentiates stretches. */
+/**
+ * Soft watercolor / storybook atmospheres — warm dusk washes, gentle fog.
+ * Still unlit + limited palette; no PBR.
+ */
 export const BIOME_ATMOS = {
   city: {
-    fog: 0x1d2b53,
-    fogNear: 35,
-    fogFar: 95,
-    clear: 0x1d2b53,
-    ground: 0x008751,
-    sky: ["#0f1730", "#1d2b53", "#3a4570", "#5a6588"],
-    stars: "#fff1e8",
+    fog: 0xc4b4a8,
+    fogNear: 28,
+    fogFar: 88,
+    clear: 0xc4b4a8,
+    ground: 0x6b9b7a,
+    sky: ["#5c6b8a", "#8a7b96", "#e8b89a", "#f2d4a8"],
+    stars: "#f4f1de",
   },
   rural: {
-    fog: 0x143028,
-    fogNear: 40,
-    fogFar: 105,
-    clear: 0x143028,
-    ground: 0x0a5a30,
-    sky: ["#101820", "#1a3040", "#2a4840", "#3d6050"],
-    stars: "#fff1e8",
+    fog: 0xb8c4a8,
+    fogNear: 32,
+    fogFar: 95,
+    clear: 0xb8c4a8,
+    ground: 0x7aab7a,
+    sky: ["#6a8090", "#8aa090", "#d4c4a0", "#f0e0c0"],
+    stars: "#f4f1de",
   },
   highway: {
-    fog: 0x222830,
-    fogNear: 48,
-    fogFar: 115,
-    clear: 0x222830,
-    ground: 0x2a3a28,
-    sky: ["#0a0e18", "#161c28", "#2a3040", "#4a5060"],
-    stars: "#c2c3c7",
+    fog: 0xb0b8c4,
+    fogNear: 40,
+    fogFar: 105,
+    clear: 0xb0b8c4,
+    ground: 0x7a9080,
+    sky: ["#4a5a70", "#7a8aa0", "#c8b8a8", "#e8dcc8"],
+    stars: "#e8e4dc",
   },
 };
 

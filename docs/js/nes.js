@@ -1,19 +1,19 @@
 /**
- * NES visual layer — nearest-filter textures, unlit meshes, road segment factory.
+ * Watercolor storybook visual layer — soft unlit meshes + road segment factory.
  *
  * Purpose: build biome tiles (road, curbs, buildings, lights, gas props) and
  * atmosphere overlays without PBR. Textures load from ASSET (constants.js).
- * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
+ * Soft LinearFilter reads more painted than NES nearest crunch.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=29";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=32";
 import { pickTurnBiomes } from "./worldgen.js?v=23";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
     const t = loader.load(`${ASSET}/${file}`);
-    t.magFilter = THREE.NearestFilter;
-    t.minFilter = THREE.NearestFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearFilter;
     t.generateMipmaps = false;
     t.colorSpace = THREE.SRGBColorSpace;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -88,8 +88,8 @@ export function addSky(camera) {
   paintSkyCanvas(ctx, w, h, BIOME_ATMOS.city);
 
   const map = new THREE.CanvasTexture(canvas);
-  map.magFilter = THREE.NearestFilter;
-  map.minFilter = THREE.NearestFilter;
+  map.magFilter = THREE.LinearFilter;
+  map.minFilter = THREE.LinearFilter;
   map.generateMipmaps = false;
   map.colorSpace = THREE.SRGBColorSpace;
   map.needsUpdate = true;
@@ -117,15 +117,18 @@ function paintSkyCanvas(ctx, w, h, atmos) {
   const g = ctx.createLinearGradient(0, 0, 0, h);
   const stops = atmos.sky;
   g.addColorStop(0, stops[0]);
-  g.addColorStop(0.45, stops[1]);
-  g.addColorStop(0.82, stops[2]);
+  g.addColorStop(0.4, stops[1]);
+  g.addColorStop(0.72, stops[2]);
   g.addColorStop(1, stops[3]);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = atmos.stars || "#fff1e8";
-  for (const [x, y] of [[1, 2], [3, 5], [0, 8], [2, 11], [1, 14], [3, 17], [0, 20]]) {
+  // Soft dusk speckles — fewer, cream-tinted
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = atmos.stars || "#f4f1de";
+  for (const [x, y] of [[1, 3], [3, 7], [0, 12], [2, 16]]) {
     ctx.fillRect(x, y, 1, 1);
   }
+  ctx.globalAlpha = 1;
 }
 
 /**
@@ -430,7 +433,7 @@ export function applyMixBiomeOverlay(seg, mixBiome, tex) {
       group.add(house);
     }
   } else if (mixBiome === "city") {
-    const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0x3a3d48));
+    const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0xc4b8a5));
     walk.rotation.x = -Math.PI / 2;
     walk.position.set(side * (half + 4), 0.02, 0);
     group.add(walk);
@@ -567,7 +570,7 @@ function addCrossStreet(root, half, width, biome = "city") {
     arm.position.set(side * (half + armLen / 2), 0.012, 0);
     root.add(arm);
     for (const zSide of [-1, 1]) {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.9, 2.0), basicColor(0x3a3d48));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.9, 2.0), basicColor(0xc4b8a5));
       walk.rotation.x = -Math.PI / 2;
       walk.position.set(side * (half + armLen / 2), 0.018, zSide * (armHalf + 1.05));
       root.add(walk);
@@ -695,7 +698,7 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
 
   const lot = new THREE.Mesh(
     new THREE.PlaneGeometry(7.5, 11),
-    basicColor(0x3a3d48)
+    basicColor(0xc4b8a5)
   );
   lot.rotation.x = -Math.PI / 2;
   lot.position.set(side * padX, 0.03, 0);
@@ -823,8 +826,8 @@ export function makeSegment(tex, biome, opts = {}) {
   roadMat.map.needsUpdate = true;
   roadMat.map.wrapS = roadMat.map.wrapT = THREE.RepeatWrapping;
   roadMat.map.repeat.set(width / 12, 2);
-  roadMat.map.magFilter = THREE.NearestFilter;
-  roadMat.map.minFilter = THREE.NearestFilter;
+  roadMat.map.magFilter = THREE.LinearFilter;
+  roadMat.map.minFilter = THREE.LinearFilter;
   const road = new THREE.Mesh(new THREE.PlaneGeometry(width, SEG_LEN), roadMat);
   road.rotation.x = -Math.PI / 2;
   road.position.y = 0.01;
@@ -857,7 +860,7 @@ export function makeSegment(tex, biome, opts = {}) {
         grass.position.set(side * bermCenter, 0.02, zc);
         root.add(grass);
         if (gasStation || patchLen < 3) continue;
-        const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, Math.min(5.5, patchLen - 0.5)), basicColor(0x4a5a38));
+        const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, Math.min(5.5, patchLen - 0.5)), basicColor(0x8a9a6a));
         pad.rotation.x = -Math.PI / 2;
         const houseX = side * (bermCenter + 0.5);
         pad.position.set(houseX, 0.03, zc + (rnd() - 0.5) * Math.min(2, patchLen * 0.3));
@@ -882,7 +885,7 @@ export function makeSegment(tex, biome, opts = {}) {
           const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.4, 0.35), basicColor(0x3a2a18));
           trunk.position.set(side * (bermCenter + 3.2), 0.7, zc + (rnd() - 0.5) * 3);
           root.add(trunk);
-          const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.6), basicColor(0x006038));
+          const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.6), basicColor(0x6b9b7a));
           canopy.position.set(trunk.position.x, 1.9, trunk.position.z);
           root.add(canopy);
         }
@@ -933,7 +936,7 @@ export function makeSegment(tex, biome, opts = {}) {
     const walkCenter = half + 0.8 + walkW / 2;
     for (const side of [-1, 1]) {
       for (const zc of patchCenters) {
-        const walk = new THREE.Mesh(new THREE.PlaneGeometry(walkW, patchLen), basicColor(0x3a3d48));
+        const walk = new THREE.Mesh(new THREE.PlaneGeometry(walkW, patchLen), basicColor(0xc4b8a5));
         walk.rotation.x = -Math.PI / 2;
         walk.position.set(side * walkCenter, 0.015, zc);
         root.add(walk);
@@ -994,7 +997,7 @@ export function makeSegment(tex, biome, opts = {}) {
       grass.position.set(side * (half + 5), 0.025, 0);
       root.add(grass);
     } else if (mixBiome === "city") {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0x3a3d48));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0xc4b8a5));
       walk.rotation.x = -Math.PI / 2;
       walk.position.set(side * (half + 4), 0.02, 0);
       root.add(walk);
