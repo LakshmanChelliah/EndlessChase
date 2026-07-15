@@ -31,10 +31,10 @@ import {
   tryBuyCar, selectCar, isUnlocked,
 } from "./js/save.js?v=22";
 import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=23";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=23";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=24";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=24";
+} from "./js/carPool.js?v=25";
 import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
@@ -799,9 +799,21 @@ function setNpcBlinkers(t, side /* -1 left, 1 right, 0 off */) {
     R.visible = false;
     return;
   }
-  const on = Math.floor(performance.now() / 140) % 2 === 0;
-  L.visible = side < 0 && on;
-  R.visible = side > 0 && on;
+  // ~3.5 Hz flash — fast enough to catch the eye at chase distance
+  const now = performance.now();
+  const on = Math.floor(now / 130) % 2 === 0;
+  const pulse = 0.7 + 0.3 * Math.abs(Math.sin(now * 0.028));
+  const apply = (blinker, active) => {
+    blinker.visible = active;
+    const glow = blinker.userData && blinker.userData.blinkerGlow;
+    if (glow && glow.material) {
+      glow.material.opacity = active ? pulse : 0;
+      const s = active ? 1.05 + 0.2 * pulse : 1;
+      glow.scale.set(s, s, 1);
+    }
+  };
+  apply(L, side < 0 && on);
+  apply(R, side > 0 && on);
 }
 
 function clearMergeState(t) {

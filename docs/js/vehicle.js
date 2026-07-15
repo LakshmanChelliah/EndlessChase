@@ -184,21 +184,54 @@ export function createVehicle(carId, opts = {}) {
   return root;
 }
 
-/** Tiny orange rear blinkers for NPC lane-merge signaling. */
+/** Hot amber used for merge blinkers — brighter than NES orange so it reads at chase distance. */
+const BLINKER_AMBER = 0xffee55;
+const BLINKER_CORE = 0xffffff;
+
+/**
+ * Rear blinkers for NPC lane-merge signaling.
+ * Oversized core + additive glow plane so the signal is obvious from chase-cam distance.
+ */
 export function ensureBlinkers(root) {
   if (root.userData.blinkerL) return;
   const mk = (x) => {
-    const m = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 0.1, 0.2),
-      new THREE.MeshBasicMaterial({ color: 0xffa300 })
+    const group = new THREE.Group();
+    group.position.set(x, 0.62, -1.55);
+    group.visible = false;
+
+    // Bright core bulb (larger than the old 0.14×0.1 stub)
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(0.32, 0.22, 0.28),
+      new THREE.MeshBasicMaterial({ color: BLINKER_CORE })
     );
-    m.position.set(x, 0.55, -1.55);
-    m.visible = false;
-    root.add(m);
-    return m;
+    // Amber shell slightly larger so the silhouette reads orange, not just white
+    const shell = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.3, 0.22),
+      new THREE.MeshBasicMaterial({ color: BLINKER_AMBER })
+    );
+    shell.position.z = 0.02;
+
+    // Soft glow card facing the chase camera (cars face +Z; camera is behind at −Z)
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.35, 1.0),
+      new THREE.MeshBasicMaterial({
+        color: BLINKER_AMBER,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      })
+    );
+    glow.position.set(0, 0.05, -0.35);
+
+    group.add(shell, core, glow);
+    group.userData.blinkerGlow = glow;
+    root.add(group);
+    return group;
   };
-  root.userData.blinkerL = mk(-0.72);
-  root.userData.blinkerR = mk(0.72);
+  root.userData.blinkerL = mk(-0.78);
+  root.userData.blinkerR = mk(0.78);
 }
 
 function attachBlinkers(root) {
