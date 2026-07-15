@@ -5,11 +5,11 @@
  * Invariants: version ≥ 2 shape; starter car always unlocked; levels clamped
  * to MAX_UPGRADE. v1 flat upgrades migrate into per-car maps.
  */
-import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=28";
-import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=23";
+import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=29";
+import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=24";
 
 function emptyCarLevels() {
-  return { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0 };
+  return { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0, brakesLevel: 0 };
 }
 
 export function defaultSave() {
@@ -29,6 +29,7 @@ function migrateV1(d) {
     topSpeedLevel: d.topSpeedLevel | 0,
     accelerationLevel: d.accelerationLevel | 0,
     handlingLevel: d.handlingLevel | 0,
+    brakesLevel: d.brakesLevel | 0,
   };
   return save;
 }
@@ -51,6 +52,7 @@ function normalizeSave(d) {
       topSpeedLevel: src.topSpeedLevel | 0,
       accelerationLevel: src.accelerationLevel | 0,
       handlingLevel: src.handlingLevel | 0,
+      brakesLevel: src.brakesLevel | 0,
     };
   }
 
@@ -101,6 +103,12 @@ export function handlingFactor(save) {
   const car = getCar(save.selectedCar);
   const lvl = selectedLevels(save).handlingLevel | 0;
   return car.handling * (1 + lvl * 0.1);
+}
+
+export function brakesFactor(save) {
+  const car = getCar(save.selectedCar);
+  const lvl = selectedLevels(save).brakesLevel | 0;
+  return car.brakes * (1 + lvl * 0.1);
 }
 
 export function costFor(level) {

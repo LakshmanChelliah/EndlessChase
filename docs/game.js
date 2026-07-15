@@ -12,7 +12,7 @@
 import * as THREE from "three";
 import {
   SEG_LEN, NES_W, NES_H, NES, MAX_UPGRADE,
-  BRAKE_DURATION, BRAKE_SPEED_MUL,
+  BRAKE_DURATION, BRAKE_SPEED_MUL, BASE_MAX_SPEED, BASE_ACCEL, BASE_BRAKE,
   HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
   INTERSECTION_COOLDOWN_SEGS,
@@ -25,12 +25,12 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=28";
+} from "./js/constants.js?v=29";
 import {
-  loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, costFor, tryUpgrade,
+  loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=22";
-import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=23";
+} from "./js/save.js?v=23";
+import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=24";
 import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=23";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
@@ -100,9 +100,11 @@ const btnCarAction = document.getElementById("btn-car-action");
 const upSpeedLabel = document.getElementById("up-speed-label");
 const upAccelLabel = document.getElementById("up-accel-label");
 const upHandlingLabel = document.getElementById("up-handling-label");
+const upBrakesLabel = document.getElementById("up-brakes-label");
 const btnUpSpeed = document.getElementById("btn-up-speed");
 const btnUpAccel = document.getElementById("btn-up-accel");
 const btnUpHandling = document.getElementById("btn-up-handling");
+const btnUpBrakes = document.getElementById("btn-up-brakes");
 const fxFlash = document.getElementById("fx-flash");
 const fxHeatVignette = document.getElementById("fx-heat-vignette");
 const fxSpeedlines = document.getElementById("fx-speedlines");
@@ -111,6 +113,7 @@ const btnRetry = document.getElementById("btn-retry");
 const upSpeedPips = document.getElementById("up-speed-pips");
 const upAccelPips = document.getElementById("up-accel-pips");
 const upHandlingPips = document.getElementById("up-handling-pips");
+const upBrakesPips = document.getElementById("up-brakes-pips");
 
 /** Garage browse highlight (may differ from equipped selectedCar while shopping). */
 let garageFocusId = save.selectedCar;
@@ -283,7 +286,7 @@ function refreshUpgradesUI() {
     }
   }
 
-  const levels = save.cars[garageFocusId] || { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0 };
+  const levels = save.cars[garageFocusId] || { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0, brakesLevel: 0 };
   const bind = (labelEl, btn, title, key, pipsEl) => {
     const level = levels[key] | 0;
     const cost = costFor(level);
@@ -294,6 +297,7 @@ function refreshUpgradesUI() {
   bind(upSpeedLabel, btnUpSpeed, "SPEED", "topSpeedLevel", upSpeedPips);
   bind(upAccelLabel, btnUpAccel, "ACCEL", "accelerationLevel", upAccelPips);
   bind(upHandlingLabel, btnUpHandling, "HANDL", "handlingLevel", upHandlingPips);
+  bind(upBrakesLabel, btnUpBrakes, "BRAKES", "brakesLevel", upBrakesPips);
 }
 
 // ---------- Renderer ----------
@@ -2456,6 +2460,9 @@ btnUpAccel.onclick = () => {
 btnUpHandling.onclick = () => {
   if (tryUpgrade(save, "handlingLevel", garageFocusId)) refreshUpgradesUI();
 };
+btnUpBrakes.onclick = () => {
+  if (tryUpgrade(save, "brakesLevel", garageFocusId)) refreshUpgradesUI();
+};
 if (btnCarAction) {
   btnCarAction.onclick = () => {
     if (!isUnlocked(save, garageFocusId)) {
@@ -2521,14 +2528,21 @@ function tick(now) {
   if (atPump) {
     updateGasVisit(dt);
   } else if (driving) {
-    // Sticky brake: stays on until swipe up / W. No timed auto-release.
-    let targetSpeed = 18 * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
-    if (braking) targetSpeed *= BRAKE_SPEED_MUL;
-    if (gas <= 0) {
+    // Continuous accel toward per-car limiter; sticky brake decelerates to floor.
+    const limiter = BASE_MAX_SPEED * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
+    const brakeFloor = limiter * BRAKE_SPEED_MUL;
+    const accelRate = BASE_ACCEL * accelFactor(save);
+    const brakeRate = BASE_BRAKE * brakesFactor(save);
+    if (braking) {
+      speed = Math.max(brakeFloor, speed - brakeRate * dt);
+    } else if (gas <= 0) {
       gas = 0;
-      targetSpeed *= GAS_EMPTY_SPEED_MUL;
+      const coast = limiter * GAS_EMPTY_SPEED_MUL;
+      if (speed > coast) speed = Math.max(coast, speed - brakeRate * 0.35 * dt);
+      else speed = Math.min(coast, speed + accelRate * 0.25 * dt);
+    } else {
+      speed = Math.min(limiter, speed + accelRate * dt);
     }
-    speed = THREE.MathUtils.damp(speed, targetSpeed, (braking ? 6 : 3) * accelFactor(save), dt);
     playerZ += speed * dt;
     distance = playerZ;
 

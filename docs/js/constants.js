@@ -21,6 +21,12 @@ export const CARS_ASSET = "assets/cars";
 
 export const BRAKE_DURATION = 0.85;
 export const BRAKE_SPEED_MUL = 0.4;
+/** Coupe stock speed limiter (world units). Effective = BASE_MAX_SPEED * topSpeedFactor. */
+export const BASE_MAX_SPEED = 18;
+/** Coupe stock accel (units/s²). Effective = BASE_ACCEL * accelFactor. */
+export const BASE_ACCEL = 6;
+/** Coupe stock brake deceleration (units/s²). Effective = BASE_BRAKE * brakesFactor. */
+export const BASE_BRAKE = 12;
 export const HEAT_SLOW_THRESHOLD = 10;
 export const HEAT_GRACE = 0.6;
 export const HEAT_RISE = 25;
