@@ -3116,12 +3116,28 @@ window.__endlessChase = {
     if (!seg) seg = activeSegments.find((s) => s.userData.intersection);
     if (!seg) return { ok: false, reason: "no-intersection" };
     seg.userData.lightState = "red";
+    seg.userData.lightTimer = Math.max(seg.userData.lightTimer || 0, LIGHT_RED);
     updateLightVisual(seg);
     const car = spawnCrossVehicle(seg, { hazard, fromLeft: true });
     return {
       ok: !!car,
       segZ: seg.position.z,
       cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
+    };
+  },
+  /** Test helper: force the nearest intersection light phase. */
+  debugSetLight: (state = "green", timer = 2) => {
+    let seg = findAheadIntersection(playerZ - 5, 100);
+    if (!seg) seg = activeSegments.find((s) => s.userData.intersection);
+    if (!seg) return { ok: false, reason: "no-intersection" };
+    seg.userData.lightState = state;
+    seg.userData.lightTimer = timer;
+    updateLightVisual(seg);
+    return {
+      ok: true,
+      light: seg.userData.lightState,
+      timer: seg.userData.lightTimer,
+      z: +seg.position.z.toFixed(1),
     };
   },
   /** Test helper: strip civ traffic / pylons / cross traffic so corridor logic can be asserted. */
