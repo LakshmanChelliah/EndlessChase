@@ -5,7 +5,7 @@
  * and gas spacing stay varied without true chaos. Turn offers are city ↔ rural;
  * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=29";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=32";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {
@@ -53,27 +53,31 @@ export function decideSegment(
   intersectionCooldown = 0,
   gasCooldown = 0
 ) {
-  // Quiet opening stretch
-  if (spawnIndex < 4) return { kind: "", reason: "intro" };
+  // Quiet opening stretch (~160 m) so new runs teach steering before events
+  if (spawnIndex < 8) return { kind: "", reason: "intro" };
+
+  // Event density ramps with segment index (~0 → 1 over ~1400 m past intro)
+  const eventRamp = Math.min(1, Math.max(0, (spawnIndex - 8) / 70));
+  const eventMul = 0.45 + 0.55 * eventRamp;
 
   // Gas stations — roll before turns/lights so they are not starved
-  if (gasCooldown <= 0 && spawnIndex > 10) {
+  if (gasCooldown <= 0 && spawnIndex > 14) {
     const gChance = biome === "city" ? 0.14 : biome === "rural" ? 0.11 : 0.08;
-    if (rng() < gChance) return { kind: "G", reason: "gas" };
+    if (rng() < gChance * eventMul) return { kind: "G", reason: "gas" };
   }
 
   // Turn offers — rhythmic, not every tile
-  if (turnCooldown <= 0 && spawnIndex > 6) {
+  if (turnCooldown <= 0 && spawnIndex > 12) {
     const base = biome === "highway" ? 0.18 : 0.24;
     // Wave the chance so clusters of straight road feel intentional
     const wave = 0.08 * Math.sin(spawnIndex * 0.37);
-    if (rng() < base + wave) return { kind: "T", reason: "turn" };
+    if (rng() < (base + wave) * eventMul) return { kind: "T", reason: "turn" };
   }
 
   // Intersections — denser in city, rare on highway; never back-to-back
   if (intersectionCooldown > 0) return { kind: "", reason: "light-gap" };
   const iChance = biome === "city" ? 0.14 : biome === "rural" ? 0.1 : 0.05;
-  if (spawnIndex > 3 && rng() < iChance) return { kind: "I", reason: "light" };
+  if (spawnIndex > 8 && rng() < iChance * eventMul) return { kind: "I", reason: "light" };
 
   return { kind: "", reason: "straight" };
 }
