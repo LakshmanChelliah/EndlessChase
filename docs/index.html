@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=26" />
+  <link rel="stylesheet" href="styles.css?v=27" />
 </head>
 <body>
   <div id="game-root">
@@ -40,6 +40,7 @@
             <li><span>GAS</span> OUTER LANE · TAP STATION</li>
           </ul>
         </div>
+        <p id="menu-high" class="menu-high" aria-label="High score">BEST 0 m</p>
         <button type="button" id="btn-play" class="btn primary">Start Engine</button>
         <button type="button" id="btn-howto" class="btn">How to Play</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
@@ -59,6 +60,7 @@
       <section id="panel-hud" class="panel hud hidden">
         <div class="hud-row">
           <span id="hud-distance">0 m</span>
+          <span id="hud-high" class="hud-high">BEST 0 m</span>
           <span id="hud-coins">$0</span>
         </div>
 
@@ -125,6 +127,7 @@
       <section id="panel-gameover" class="panel hidden">
         <h2 id="go-title">Busted!</h2>
         <p id="go-score">0 m</p>
+        <p id="go-high" class="go-high">BEST 0 m</p>
         <p id="go-coins">+$0</p>
         <button type="button" id="btn-retry" class="btn primary" disabled>Retry</button>
         <button type="button" id="btn-upgrades-go" class="btn">Garage</button>
@@ -179,6 +182,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=52"></script>
+  <script type="module" src="game.js?v=53"></script>
 </body>
 </html>

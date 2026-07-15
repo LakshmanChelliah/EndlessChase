@@ -1,5 +1,5 @@
 /**
- * localStorage persistence for coins, unlocked cars, and per-car upgrades.
+ * localStorage persistence for coins, high score, unlocked cars, and per-car upgrades.
  *
  * Flow: loadSave() → migrate/normalize → gameplay mutates → writeSave().
  * Invariants: version ≥ 2 shape; starter car always unlocked; levels clamped
@@ -16,6 +16,7 @@ export function defaultSave() {
   return {
     version: 2,
     coins: 0,
+    highScore: 0,
     selectedCar: STARTER_CAR,
     unlocked: [STARTER_CAR],
     cars: { [STARTER_CAR]: emptyCarLevels() },
@@ -25,6 +26,7 @@ export function defaultSave() {
 function migrateV1(d) {
   const save = defaultSave();
   save.coins = d.coins | 0;
+  save.highScore = Math.max(0, d.highScore | 0);
   save.cars[STARTER_CAR] = {
     topSpeedLevel: d.topSpeedLevel | 0,
     accelerationLevel: d.accelerationLevel | 0,
@@ -62,10 +64,20 @@ function normalizeSave(d) {
   return {
     version: 2,
     coins: d.coins | 0,
+    highScore: Math.max(0, d.highScore | 0),
     selectedCar: selected,
     unlocked,
     cars,
   };
+}
+
+/** Returns true when distance sets a new personal best. */
+export function trySetHighScore(save, distanceMeters) {
+  const scored = Math.max(0, Math.floor(distanceMeters));
+  if (scored <= (save.highScore | 0)) return false;
+  save.highScore = scored;
+  writeSave(save);
+  return true;
 }
 
 export function loadSave() {

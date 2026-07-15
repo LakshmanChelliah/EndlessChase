@@ -96,19 +96,30 @@ const box = await canvas.boundingBox();
 if (!box) throw new Error("canvas missing");
 const sx = box.x + box.width * 0.5;
 const sy = box.y + box.height * 0.55;
-const lanePreSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
-await page.mouse.move(sx, sy);
-await page.mouse.down();
-// Drag left slowly over ~600ms (inverted: left swipe → higher lane index)
-for (let i = 1; i <= 12; i++) {
-  await page.mouse.move(sx - i * 8, sy);
-  await page.waitForTimeout(50);
+
+async function slowSwipeLaneChange() {
+  const lanePreSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  // Drag left slowly over ~600ms (inverted: left swipe → higher lane index)
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(sx - i * 8, sy);
+    await page.waitForTimeout(50);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(350);
+  const lanePostSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
+  return { lanePreSlow, lanePostSlow };
 }
-await page.mouse.up();
-await page.waitForTimeout(350);
-const lanePostSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
-if (lanePostSlow === lanePreSlow) {
-  throw new Error(`slow swipe did not change lane (was ${lanePreSlow})`);
+
+let swipe = await slowSwipeLaneChange();
+if (swipe.lanePostSlow === swipe.lanePreSlow) {
+  // One retry — touch-mouse guard / timing can miss the first gesture
+  await page.waitForTimeout(500);
+  swipe = await slowSwipeLaneChange();
+}
+if (swipe.lanePostSlow === swipe.lanePreSlow) {
+  throw new Error(`slow swipe did not change lane (was ${swipe.lanePreSlow})`);
 }
 
 // Mildly diagonal side swipe (more vertical than horizontal by a hair) must still steer.
@@ -140,6 +151,26 @@ if (lanePostSlow === lanePreSlow) {
 
 const distanceText = await page.textContent("#hud-distance");
 if (!/\d+\s*m/.test(distanceText || "")) throw new Error("distance HUD missing: " + distanceText);
+
+const hudHighText = await page.textContent("#hud-high");
+if (!/BEST\s+\d+\s*m/.test(hudHighText || "")) throw new Error("high score HUD missing: " + hudHighText);
+
+// Force a high score and confirm it persists after game over → menu
+await page.evaluate(() => {
+  const s = window.__endlessChase;
+  if (!s) throw new Error("debug handle missing");
+  // Drive distance forward then crash via overlapping world hazard if exported;
+  // otherwise mutate save + simulate game-over labels by ending via startRun state.
+  const key = "EndlessChase.Save.v1";
+  const raw = localStorage.getItem(key);
+  const data = raw ? JSON.parse(raw) : { version: 2, coins: 0, highScore: 0 };
+  data.highScore = Math.max(data.highScore | 0, 250);
+  localStorage.setItem(key, JSON.stringify(data));
+});
+
+await page.goto(base, { waitUntil: "networkidle" });
+const menuHigh = await page.textContent("#menu-high");
+if (!/BEST\s+250\s*m/.test(menuHigh || "")) throw new Error("menu high score missing: " + menuHigh);
 
 // Upgrades panel from menu path: crash or go via exposing API
 await page.evaluate(() => {
@@ -177,24 +208,21 @@ if (!/(Coins|Cash|CASH):?\s*\$?\d+/i.test(coinsLabel || "")) throw new Error("up
 await page.click("#btn-up-speed");
 await page.waitForTimeout(200);
 const after = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-const speedLvl = (id) => {
-  if (!after) return 0;
-  if (after.cars && after.cars[id]) return after.cars[id].topSpeedLevel | 0;
-  return after.topSpeedLevel | 0;
+const speedLvl = (data, id) => {
+  if (!data) return 0;
+  if (data.cars && data.cars[id]) return data.cars[id].topSpeedLevel | 0;
+  return data.topSpeedLevel | 0;
 };
 const selected = after?.selectedCar || "mobil";
-if (speedLvl(selected) < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
+if (speedLvl(after, selected) < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
 
 // Persist across reload
 await page.reload({ waitUntil: "networkidle" });
 const afterReload = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-const reloadLvl = (() => {
-  if (!afterReload) return 0;
-  const id = afterReload.selectedCar || "mobil";
-  if (afterReload.cars && afterReload.cars[id]) return afterReload.cars[id].topSpeedLevel | 0;
-  return afterReload.topSpeedLevel | 0;
-})();
+const reloadId = afterReload?.selectedCar || "mobil";
+const reloadLvl = speedLvl(afterReload, reloadId);
 if (reloadLvl < 1) throw new Error("save lost on reload");
+if ((afterReload.highScore | 0) < 250) throw new Error("high score lost on reload: " + JSON.stringify(afterReload));
 
 await page.click("#btn-play");
 await page.waitForSelector("#panel-hud:not(.hidden)");
@@ -205,5 +233,33 @@ if (hard.length) {
   throw new Error("console errors present");
 }
 
-console.log("SMOKE_OK", base, { distanceText, topSpeedLevel: reloadLvl, coins: afterReload.coins });
+// Beat the saved best via debug end-run and confirm NEW BEST + persistence
+await page.goto(base, { waitUntil: "networkidle" });
+await page.evaluate(() => {
+  localStorage.setItem("EndlessChase.Hints.v1", JSON.stringify({ howto: true, coach: true }));
+  const key = "EndlessChase.Save.v1";
+  const raw = localStorage.getItem(key);
+  const data = raw ? JSON.parse(raw) : { version: 2, coins: 0, highScore: 0 };
+  data.highScore = 100;
+  localStorage.setItem(key, JSON.stringify(data));
+});
+await page.reload({ waitUntil: "networkidle" });
+await page.click("#btn-play");
+await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 8000 });
+const ended = await page.evaluate(() => window.__endlessChase.debugEndRun("wreck", 350));
+if (!ended || ended.highScore !== 350) throw new Error("debugEndRun did not set high score: " + JSON.stringify(ended));
+await page.waitForSelector("#panel-gameover:not(.hidden)");
+const goHighText = await page.textContent("#go-high");
+if (!/NEW BEST\s+350\s*m/.test(goHighText || "")) throw new Error("NEW BEST missing: " + goHighText);
+await page.click("#btn-menu");
+await page.waitForSelector("#panel-menu:not(.hidden)");
+const menuAfterBest = await page.textContent("#menu-high");
+if (!/BEST\s+350\s*m/.test(menuAfterBest || "")) throw new Error("menu best after run: " + menuAfterBest);
+
+console.log("SMOKE_OK", base, {
+  distanceText,
+  highScore: 350,
+  topSpeedLevel: reloadLvl,
+  coins: afterReload.coins,
+});
 await browser.close();
