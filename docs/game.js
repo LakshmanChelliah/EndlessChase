@@ -336,7 +336,8 @@ function flushMissions() {
 function noteMissionStat(key, delta = 1) {
   if (!TRACK_KEYS.includes(key)) return { completed: [], coinsEarned: 0 };
   if (key === "distance") {
-    runStats.distance = Math.max(0, Math.floor(distance));
+    // Monotonic within a run so debug grants are not wiped by the next tick
+    runStats.distance = Math.max(runStats.distance | 0, Math.floor(distance));
   } else {
     runStats[key] = Math.max(0, (runStats[key] | 0) + (delta | 0));
   }
@@ -3571,14 +3572,13 @@ window.__endlessChase = {
       missions: trackSnapshot(save),
     };
   },
-  /** Test helper: grant mission progress through the real note/flush path. */
+  /** Test helper: grant mission progress through the real flush path (does not teleport). */
   debugGrantMissionStat: (key, amount = 1) => {
     if (!TRACK_KEYS.includes(key)) return { ok: false, reason: "bad-key" };
     const n = Math.max(0, amount | 0);
     if (key === "distance") {
-      distance = Math.max(distance, n);
-      playerZ = Math.max(playerZ, n);
-      runStats.distance = Math.max(0, Math.floor(distance));
+      // Raise mission distance only — keep playerZ so world/lane tests stay valid
+      runStats.distance = Math.max(runStats.distance | 0, n);
     } else {
       runStats[key] = Math.max(0, (runStats[key] | 0) + n);
     }
