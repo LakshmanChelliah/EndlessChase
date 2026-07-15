@@ -73,6 +73,26 @@ if (lanePostSlow === lanePreSlow) {
 const distanceText = await page.textContent("#hud-distance");
 if (!/\d+\s*m/.test(distanceText || "")) throw new Error("distance HUD missing: " + distanceText);
 
+const hudHighText = await page.textContent("#hud-high");
+if (!/BEST\s+\d+\s*m/.test(hudHighText || "")) throw new Error("high score HUD missing: " + hudHighText);
+
+// Force a high score and confirm it persists after game over → menu
+await page.evaluate(() => {
+  const s = window.__endlessChase;
+  if (!s) throw new Error("debug handle missing");
+  // Drive distance forward then crash via overlapping world hazard if exported;
+  // otherwise mutate save + simulate game-over labels by ending via startRun state.
+  const key = "EndlessChase.Save.v1";
+  const raw = localStorage.getItem(key);
+  const data = raw ? JSON.parse(raw) : { version: 2, coins: 0, highScore: 0 };
+  data.highScore = Math.max(data.highScore | 0, 250);
+  localStorage.setItem(key, JSON.stringify(data));
+});
+
+await page.goto(base, { waitUntil: "networkidle" });
+const menuHigh = await page.textContent("#menu-high");
+if (!/BEST\s+250\s*m/.test(menuHigh || "")) throw new Error("menu high score missing: " + menuHigh);
+
 // Upgrades panel from menu path: crash or go via exposing API
 await page.evaluate(() => {
   window.__endlessChase?.getState();
@@ -109,12 +129,21 @@ if (!/(Coins|Cash|CASH):?\s*\$?\d+/i.test(coinsLabel || "")) throw new Error("up
 await page.click("#btn-up-speed");
 await page.waitForTimeout(200);
 const after = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-if (!after || after.topSpeedLevel < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
+const speedLevel = after?.cars?.[after.selectedCar || "sedan"]?.topSpeedLevel
+  ?? after?.cars?.mobil?.topSpeedLevel
+  ?? after?.topSpeedLevel
+  ?? 0;
+if (!after || speedLevel < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
 
 // Persist across reload
 await page.reload({ waitUntil: "networkidle" });
 const afterReload = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-if (afterReload.topSpeedLevel < 1) throw new Error("save lost on reload");
+const speedLevelReload = afterReload?.cars?.[afterReload.selectedCar || "sedan"]?.topSpeedLevel
+  ?? afterReload?.cars?.mobil?.topSpeedLevel
+  ?? afterReload?.topSpeedLevel
+  ?? 0;
+if (speedLevelReload < 1) throw new Error("save lost on reload");
+if ((afterReload.highScore | 0) < 250) throw new Error("high score lost on reload: " + JSON.stringify(afterReload));
 
 await page.click("#btn-play");
 await page.waitForSelector("#panel-hud:not(.hidden)");
@@ -125,5 +154,10 @@ if (hard.length) {
   throw new Error("console errors present");
 }
 
-console.log("SMOKE_OK", base, { distanceText, topSpeedLevel: afterReload.topSpeedLevel, coins: afterReload.coins });
+console.log("SMOKE_OK", base, {
+  distanceText,
+  highScore: afterReload.highScore,
+  topSpeedLevel: speedLevelReload,
+  coins: afterReload.coins,
+});
 await browser.close();

@@ -154,8 +154,22 @@ html, body {
 }
 
 #panel-menu .tag {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.45rem;
   font-size: 0.5rem;
+}
+
+.menu-high {
+  margin: 0 0 0.75rem;
+  font-size: 0.55rem;
+  line-height: 1.5;
+  color: var(--nes-yellow);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.hud-high {
+  color: var(--nes-orange);
+  font-size: 0.55rem;
+  opacity: 0.95;
 }
 
 .panel.hud {
@@ -852,6 +866,18 @@ html, body {
   font-size: 0.85rem;
   color: var(--nes-yellow);
   text-shadow: 2px 2px 0 #000;
+}
+
+.go-high {
+  margin: 0.35rem 0 0;
+  font-size: 0.55rem;
+  color: var(--nes-orange);
+  text-shadow: 2px 2px 0 #000;
+}
+
+.go-high.is-new {
+  color: var(--nes-green);
+  animation: cue-pop 0.35s steps(3);
 }
 
 /* FX overlays — NES juice */

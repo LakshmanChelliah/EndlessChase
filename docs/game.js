@@ -28,9 +28,9 @@ import {
   layoutFor, biomeLabel, poolKey,
 } from "./js/constants.js?v=31";
 import {
-  loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
+  loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=25";
+} from "./js/save.js?v=26";
 import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=26";
 import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=26";
 import {
@@ -73,7 +73,9 @@ const panels = {
   pump: document.getElementById("panel-pump"),
 };
 const hudDistance = document.getElementById("hud-distance");
+const hudHigh = document.getElementById("hud-high");
 const hudCoins = document.getElementById("hud-coins");
+const menuHigh = document.getElementById("menu-high");
 const hudBoost = document.getElementById("hud-boost");
 const hudLight = document.getElementById("hud-light");
 const hudHeatFill = document.getElementById("hud-heat-fill");
@@ -93,6 +95,7 @@ const pumpHeatFill = document.getElementById("pump-heat-fill");
 const btnPumpHold = document.getElementById("btn-pump-hold");
 const goTitle = document.getElementById("go-title");
 const goScore = document.getElementById("go-score");
+const goHigh = document.getElementById("go-high");
 const goCoins = document.getElementById("go-coins");
 const upCoins = document.getElementById("up-coins");
 const upCarName = document.getElementById("up-car-name");
@@ -190,6 +193,21 @@ function renderUpgradePips(el, level) {
   }
 }
 
+function formatHighScore(meters) {
+  return `BEST ${Math.max(0, meters | 0)} m`;
+}
+
+function refreshHighScoreUI({ isNew = false } = {}) {
+  const best = save.highScore | 0;
+  const label = formatHighScore(best);
+  if (menuHigh) menuHigh.textContent = label;
+  if (hudHigh) hudHigh.textContent = label;
+  if (goHigh) {
+    goHigh.textContent = isNew ? `NEW BEST ${best} m` : label;
+    goHigh.classList.toggle("is-new", !!isNew);
+  }
+}
+
 function showPanel(name) {
   for (const k of Object.keys(panels)) {
     if (!panels[k]) continue;
@@ -211,6 +229,7 @@ function showPanel(name) {
   if (name !== "gameover" && panels.gameover) {
     panels.gameover.classList.remove("go-wreck", "go-bust");
   }
+  if (name === "menu" || name === "hud") refreshHighScoreUI();
 }
 
 function showPumpPanel(show) {
@@ -1905,7 +1924,9 @@ function endRun(reason) {
   goScoreDisplay = 0;
   if (goScore) goScore.textContent = `0 m`;
   goCoins.textContent = `+$${runCoins}`;
+  const isNewBest = trySetHighScore(save, goScoreTarget);
   writeSave(save);
+  refreshHighScoreUI({ isNew: isNewBest });
   fromGameOver = true;
   setupMenuScene(); // rebuild city title street under game-over UI
   if (panels.gameover) {
@@ -1917,6 +1938,8 @@ function endRun(reason) {
     goRetryTimer = 0.45;
   }
   showPanel("gameover");
+  // Keep NEW BEST label after showPanel('gameover') — menu/hud refresh path skipped
+  refreshHighScoreUI({ isNew: isNewBest });
   updateHeatVignette();
 }
 
@@ -3074,7 +3097,7 @@ window.__endlessChase = {
   getPlayer: () => player,
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
-    biome: activeBiome, heat, gas, braking, coins: save.coins,
+    biome: activeBiome, heat, gas, braking, coins: save.coins, highScore: save.highScore | 0,
     nearbyStation: !!nearbyStation,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
     transitioning, transitionQueue: transitionQueue.length,

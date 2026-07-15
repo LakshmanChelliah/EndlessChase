@@ -9,6 +9,7 @@ Mobile-first **8-bit getaway endless runner**: weave through traffic, outrun the
 - **Biome lanes** — City (4 lanes, 2 opposing), rural (2-way), highway (2 one-way); prompted turns via on-ramps
 - **Risk / reward** — Red-light NOS + cross traffic, heat/pursuit busts, curb-lane gas stations (hold-to-fill while cops approach)
 - **Garage meta** — Coins, car unlocks, per-car upgrades persisted in `localStorage`
+- **High score** — Best distance run saved and shown on menu, HUD, and game over
 - **NES presentation** — 320×180 nearest-neighbor upscale, CRT scanlines, procedural CC0 pixel textures, Press Start 2P UI
 - **Touch-safe WebGL** — Swipe steering (inverted), sticky brake, no pull-to-refresh / page scroll on the canvas
 
