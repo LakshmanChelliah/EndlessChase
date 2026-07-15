@@ -12,10 +12,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#000000" />
   <title>Endless Chase</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=26" />
+  <link rel="stylesheet" href="styles.css?v=27" />
 </head>
 <body>
   <div id="game-root">
@@ -30,10 +31,30 @@
     <div id="ui">
       <section id="panel-menu" class="panel">
         <h1 class="brand">Endless <span>Chase</span></h1>
-        <p class="tag">SWIPE TO STEER · TAP STATIONS TO REFUEL · TAKE TURNS</p>
+        <div class="menu-controls" aria-label="Controls">
+          <p class="menu-controls-title">CONTROLS</p>
+          <ul class="menu-controls-list">
+            <li><span>STEER</span> SWIPE L/R · A/D</li>
+            <li><span>BRAKE</span> SWIPE DOWN · S</li>
+            <li><span>GO</span> SWIPE UP · W/SPACE</li>
+            <li><span>GAS</span> OUTER LANE · TAP STATION</li>
+          </ul>
+        </div>
         <p id="menu-high" class="menu-high" aria-label="High score">BEST 0 m</p>
         <button type="button" id="btn-play" class="btn primary">Start Engine</button>
+        <button type="button" id="btn-howto" class="btn">How to Play</button>
         <button type="button" id="btn-upgrades-menu" class="btn">Garage</button>
+      </section>
+
+      <section id="panel-howto" class="panel howto-panel hidden" aria-modal="true" role="dialog" aria-labelledby="howto-title">
+        <p id="howto-step" class="howto-step">1 / 5</p>
+        <h2 id="howto-title" class="howto-title">STEER</h2>
+        <p id="howto-body" class="howto-body">Swipe left/right or press A/D to change lanes. Keep left of the double yellow in the city.</p>
+        <div id="howto-callout" class="howto-callout" aria-hidden="true"></div>
+        <div class="howto-actions">
+          <button type="button" id="btn-howto-next" class="btn primary">Next</button>
+          <button type="button" id="btn-howto-skip" class="btn ghost">Skip</button>
+        </div>
       </section>
 
       <section id="panel-hud" class="panel hud hidden">
@@ -49,23 +70,35 @@
             <div id="hud-heat-fill" class="police-fill"></div>
           </div>
           <div class="police-siren police-siren-r" aria-hidden="true"></div>
+          <span class="police-label">COPS</span>
         </div>
 
-        <div id="hud-boost" class="boost hidden">BOOST</div>
-        <div id="hud-light" class="light-hint hidden"></div>
-        <div id="hud-turn" class="turn-cue hidden"></div>
-        <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
-        <div id="hud-gas-hint" class="gas-hint hidden">Move closer to enter</div>
+        <div id="hud-cue-stack" class="hud-cue-stack" aria-live="polite">
+          <div id="hud-boost" class="boost hidden">BOOST</div>
+          <div id="hud-light" class="light-hint hidden"></div>
+          <div id="hud-turn" class="turn-cue hidden"></div>
+          <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
+          <div id="hud-gas-hint" class="gas-hint hidden">Move closer to enter</div>
+          <div id="hud-coach" class="hud-coach hidden" aria-live="polite">
+            <p id="hud-coach-text" class="hud-coach-text"></p>
+            <button type="button" id="btn-coach-next" class="btn small primary">Got it</button>
+          </div>
+        </div>
 
         <div id="hud-cluster" class="gauge-cluster" aria-label="Gauges">
           <div id="hud-gas-block" class="gas-gauge ok" aria-label="Fuel">
-            <div class="fuel-icon" aria-hidden="true">
-              <span class="fuel-nozzle"></span>
-              <span class="fuel-body"></span>
-              <span class="fuel-base"></span>
+            <div class="gauge-labels">
+              <span class="gauge-label">FUEL</span>
             </div>
-            <div id="hud-gas" class="gas-bar">
-              <div id="hud-gas-fill" class="gas-fill"></div>
+            <div class="fuel-row">
+              <div class="fuel-icon" aria-hidden="true">
+                <span class="fuel-nozzle"></span>
+                <span class="fuel-body"></span>
+                <span class="fuel-base"></span>
+              </div>
+              <div id="hud-gas" class="gas-bar">
+                <div id="hud-gas-fill" class="gas-fill"></div>
+              </div>
             </div>
           </div>
           <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
@@ -149,6 +182,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=47"></script>
+  <script type="module" src="game.js?v=52"></script>
 </body>
 </html>

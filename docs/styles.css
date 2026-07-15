@@ -115,6 +115,10 @@ html, body {
   animation: panel-in-menu 0.18s steps(3);
 }
 
+#panel-howto.panel-enter {
+  animation: panel-in 0.18s steps(3);
+}
+
 .panel.hud.panel-enter {
   animation: panel-in-hud 0.2s steps(3);
 }
@@ -170,6 +174,99 @@ html, body {
   color: var(--nes-orange);
   font-size: 0.55rem;
   opacity: 0.95;
+}
+
+.menu-controls {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.5rem 0.45rem;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid #3a3d48;
+}
+
+.menu-controls-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.45rem;
+  color: var(--nes-yellow);
+  letter-spacing: 0.06em;
+}
+
+.menu-controls-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.menu-controls-list li {
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  margin: 0.28rem 0;
+  font-size: 0.4rem;
+  line-height: 1.45;
+  color: var(--nes-white);
+}
+
+.menu-controls-list li span {
+  flex: 0 0 3.2rem;
+  color: var(--nes-orange);
+}
+
+/* How-to-play tips */
+.howto-panel {
+  width: min(94vw, 360px);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: left;
+  z-index: 7;
+}
+
+.howto-step {
+  margin: 0 0 0.45rem;
+  font-size: 0.4rem;
+  color: var(--nes-gray);
+  letter-spacing: 0.08em;
+}
+
+.howto-title {
+  margin: 0 0 0.55rem;
+  font-size: 0.75rem;
+  color: var(--nes-yellow);
+  line-height: 1.35;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.howto-body {
+  margin: 0 0 0.7rem;
+  font-size: 0.48rem;
+  line-height: 1.7;
+  color: var(--nes-white);
+  min-height: 4.2rem;
+}
+
+.howto-callout {
+  display: none;
+  margin: 0 0 0.7rem;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.4rem;
+  line-height: 1.55;
+  color: var(--nes-black);
+  background: var(--nes-yellow);
+  border: 2px solid var(--nes-white);
+}
+
+.howto-callout.show {
+  display: block;
+}
+
+.howto-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.howto-actions .btn {
+  margin: 0.25rem 0;
 }
 
 .panel.hud {
@@ -277,44 +374,75 @@ html, body {
   text-shadow: 2px 2px 0 #000;
 }
 
+/* Single cue stack under police bar — avoids overlapping absolute tips */
+.hud-cue-stack {
+  position: absolute;
+  top: calc(4.35rem + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: min(90vw, 300px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  pointer-events: none;
+}
+
 .boost {
-  margin-top: 0.35rem;
+  position: static;
+  transform: none;
+  margin-top: 0;
   display: inline-block;
-  padding: 0.2rem 0.4rem;
+  padding: 0.25rem 0.55rem;
   background: var(--nes-orange);
   color: var(--nes-black);
-  font-size: 0.5rem;
+  font-size: 0.55rem;
+  border: 2px solid var(--nes-black);
+  box-shadow: 2px 2px 0 #000;
+  pointer-events: none;
   animation: cue-pop 0.28s steps(3);
 }
 
 .boost.brake-mode {
-  background: var(--nes-gray);
-  color: var(--nes-white);
+  background: var(--nes-yellow);
+  color: var(--nes-black);
+  animation: brake-blink 0.45s steps(2) infinite;
 }
 
-.light-hint {
-  margin-top: 0.35rem;
-  font-size: 0.55rem;
-  text-shadow: 2px 2px 0 #000;
-  animation: cue-pop 0.28s steps(3);
+@keyframes brake-blink {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.25); }
 }
 
-/* Top-center police proximity — sirens, no text */
+/* Top-center police proximity */
 .police-bar {
   position: absolute;
-  top: calc(2.35rem + env(safe-area-inset-top, 0px));
+  top: calc(2.15rem + env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: center;
+  gap: 0.3rem 0.35rem;
   width: min(78vw, 260px);
-  padding: 0.28rem 0.35rem;
+  padding: 0.28rem 0.35rem 0.2rem;
   background: rgba(0, 0, 0, 0.78);
   border: 3px solid #1a1a22;
   box-shadow: 0 0 0 2px var(--nes-red);
   z-index: 2;
   pointer-events: none;
+}
+
+.police-label {
+  flex: 1 0 100%;
+  order: 3;
+  margin: 0;
+  font-size: 0.32rem;
+  letter-spacing: 0.14em;
+  color: var(--nes-gray);
+  text-align: center;
 }
 
 .police-bar.hot {
@@ -377,7 +505,7 @@ html, body {
   display: flex;
   align-items: flex-end;
   gap: 0.45rem;
-  padding: 0.4rem 0.5rem 0.35rem;
+  padding: 0.35rem 0.5rem 0.35rem;
   background: rgba(0, 0, 0, 0.82);
   border: 3px solid var(--nes-white);
   box-shadow: inset 0 0 0 2px #3a3d48;
@@ -387,9 +515,27 @@ html, body {
 
 .gas-gauge {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  min-width: 5.5rem;
+}
+
+.gauge-labels {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.gauge-label {
+  font-size: 0.32rem;
+  letter-spacing: 0.12em;
+  color: var(--nes-gray);
+}
+
+.fuel-row {
+  display: flex;
   align-items: center;
   gap: 0.35rem;
-  min-width: 5.5rem;
 }
 
 .fuel-icon {
@@ -610,18 +756,38 @@ html, body {
 }
 
 .gas-hint {
-  position: absolute;
-  top: calc(4.1rem + env(safe-area-inset-top, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(90vw, 280px);
+  position: static;
+  transform: none;
+  width: 100%;
   text-align: center;
   color: var(--nes-orange);
   font-size: 0.42rem;
   line-height: 1.45;
   text-shadow: 2px 2px 0 #000;
-  z-index: 3;
   pointer-events: none;
+}
+
+.hud-coach {
+  width: 100%;
+  padding: 0.55rem 0.5rem 0.5rem;
+  background: rgba(29, 43, 83, 0.94);
+  border: 3px solid var(--nes-white);
+  box-shadow: 0 0 0 3px #000, 4px 4px 0 #000;
+  pointer-events: auto;
+  text-align: center;
+}
+
+.hud-coach-text {
+  margin: 0 0 0.45rem;
+  font-size: 0.42rem;
+  line-height: 1.65;
+  color: var(--nes-white);
+}
+
+.hud-coach .btn {
+  width: auto;
+  margin: 0 auto;
+  min-width: 5.5rem;
 }
 
 .pump-bar-now {
@@ -690,7 +856,10 @@ html, body {
 }
 
 .turn-cue {
-  margin-top: 0.4rem;
+  position: static;
+  transform: none;
+  width: 100%;
+  margin-top: 0;
   padding: 0.3rem 0.4rem;
   background: rgba(0, 0, 0, 0.75);
   border: 2px solid var(--nes-yellow);
@@ -698,15 +867,33 @@ html, body {
   font-size: 0.45rem;
   line-height: 1.5;
   text-shadow: 2px 2px 0 #000;
+  pointer-events: none;
+  text-align: center;
   animation: cue-pop 0.32s steps(3), cue-flash 0.9s steps(2) infinite;
 }
 
 .lane-warn {
-  margin-top: 0.3rem;
+  position: static;
+  transform: none;
+  margin-top: 0;
+  padding: 0.25rem 0.45rem;
+  background: rgba(0, 0, 0, 0.82);
+  border: 2px solid var(--nes-red);
   color: var(--nes-red);
-  font-size: 0.5rem;
+  font-size: 0.55rem;
   text-shadow: 2px 2px 0 #000;
+  pointer-events: none;
   animation: cue-pop 0.28s steps(3), cue-flash 0.5s steps(2) infinite;
+}
+
+.light-hint {
+  position: static;
+  transform: none;
+  margin-top: 0;
+  font-size: 0.55rem;
+  text-shadow: 2px 2px 0 #000;
+  pointer-events: none;
+  animation: cue-pop 0.28s steps(3);
 }
 
 @keyframes cue-pop {

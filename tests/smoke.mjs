@@ -22,6 +22,19 @@ await page.waitForSelector("#btn-play", { timeout: 15000 });
 const title = await page.title();
 if (!title.includes("Endless Chase")) throw new Error("bad title: " + title);
 
+// First-play howto gates Start Engine — mark tips seen for the drive path
+await page.evaluate(() => {
+  localStorage.setItem("EndlessChase.Hints.v1", JSON.stringify({ howto: true, coach: true }));
+});
+
+// How to Play panel should open from the menu
+await page.click("#btn-howto");
+await page.waitForSelector("#panel-howto:not(.hidden)", { timeout: 3000 });
+const howtoTitle = await page.textContent("#howto-title");
+if (!howtoTitle || !/STEER/i.test(howtoTitle)) throw new Error("howto missing steer step: " + howtoTitle);
+await page.click("#btn-howto-skip");
+await page.waitForSelector("#panel-menu:not(.hidden)", { timeout: 3000 });
+
 await page.click("#btn-play");
 await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 5000 });
 
@@ -29,6 +42,34 @@ await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 5000 });
 await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 8000 });
 
 const laneBefore = await page.evaluate(() => window.__endlessChase.getState().lane);
+
+// Rapid successive lane changes must stack while the spring is still in flight.
+// (Regression: syncing lane from physical X mid-swipe ate every other side input.)
+{
+  let start = await page.evaluate(() => window.__endlessChase.getState().lane);
+  // Nudge toward a forward lane with room for two inverted-left steps (higher index)
+  for (let i = 0; i < 3 && start > 1; i++) {
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(450);
+    start = await page.evaluate(() => window.__endlessChase.getState().lane);
+  }
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(40); // still mid-spring
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(60);
+  const rapid = await page.evaluate(() => window.__endlessChase.getState());
+  const want = Math.min(3, start + 2);
+  if (rapid.lane !== want) {
+    throw new Error(
+      `rapid side input did not stack: from ${start} got lane=${rapid.lane} target=${rapid.laneTargetX}, want ${want}`
+    );
+  }
+  // Settle back toward the starting corridor before the rest of the suite
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(350);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(350);
+}
 
 // Drive lanes via keyboard
 await page.keyboard.press("ArrowRight");
@@ -79,6 +120,33 @@ if (swipe.lanePostSlow === swipe.lanePreSlow) {
 }
 if (swipe.lanePostSlow === swipe.lanePreSlow) {
   throw new Error(`slow swipe did not change lane (was ${swipe.lanePreSlow})`);
+}
+
+// Mildly diagonal side swipe (more vertical than horizontal by a hair) must still steer.
+// Thumbs often arc; abs(dx)>abs(dy) alone used to classify these as brake/resume.
+{
+  const pre = await page.evaluate(() => window.__endlessChase.getState().lane);
+  // Ensure room to move left (higher index) at least once
+  if (pre >= 3) {
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(400);
+  }
+  const lanePreDiag = await page.evaluate(() => window.__endlessChase.getState().lane);
+  const dx = box.x + box.width * 0.5;
+  const dy = box.y + box.height * 0.55;
+  await page.mouse.move(dx, dy);
+  await page.mouse.down();
+  // ~48px left, ~56px down — vertical wins a pure comparison, but lateral bias should steer
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(dx - i * 6, dy + i * 7);
+    await page.waitForTimeout(20);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const lanePostDiag = await page.evaluate(() => window.__endlessChase.getState().lane);
+  if (lanePostDiag === lanePreDiag) {
+    throw new Error(`diagonal side swipe did not change lane (was ${lanePreDiag})`);
+  }
 }
 
 const distanceText = await page.textContent("#hud-distance");
@@ -140,20 +208,20 @@ if (!/(Coins|Cash|CASH):?\s*\$?\d+/i.test(coinsLabel || "")) throw new Error("up
 await page.click("#btn-up-speed");
 await page.waitForTimeout(200);
 const after = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-const speedLevel = after?.cars?.[after.selectedCar || "sedan"]?.topSpeedLevel
-  ?? after?.cars?.mobil?.topSpeedLevel
-  ?? after?.topSpeedLevel
-  ?? 0;
-if (!after || speedLevel < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
+const speedLvl = (data, id) => {
+  if (!data) return 0;
+  if (data.cars && data.cars[id]) return data.cars[id].topSpeedLevel | 0;
+  return data.topSpeedLevel | 0;
+};
+const selected = after?.selectedCar || "mobil";
+if (speedLvl(after, selected) < 1) throw new Error("upgrade did not persist: " + JSON.stringify(after));
 
 // Persist across reload
 await page.reload({ waitUntil: "networkidle" });
 const afterReload = await page.evaluate(() => JSON.parse(localStorage.getItem("EndlessChase.Save.v1")));
-const speedLevelReload = afterReload?.cars?.[afterReload.selectedCar || "sedan"]?.topSpeedLevel
-  ?? afterReload?.cars?.mobil?.topSpeedLevel
-  ?? afterReload?.topSpeedLevel
-  ?? 0;
-if (speedLevelReload < 1) throw new Error("save lost on reload");
+const reloadId = afterReload?.selectedCar || "mobil";
+const reloadLvl = speedLvl(afterReload, reloadId);
+if (reloadLvl < 1) throw new Error("save lost on reload");
 if ((afterReload.highScore | 0) < 250) throw new Error("high score lost on reload: " + JSON.stringify(afterReload));
 
 await page.click("#btn-play");
@@ -168,6 +236,7 @@ if (hard.length) {
 // Beat the saved best via debug end-run and confirm NEW BEST + persistence
 await page.goto(base, { waitUntil: "networkidle" });
 await page.evaluate(() => {
+  localStorage.setItem("EndlessChase.Hints.v1", JSON.stringify({ howto: true, coach: true }));
   const key = "EndlessChase.Save.v1";
   const raw = localStorage.getItem(key);
   const data = raw ? JSON.parse(raw) : { version: 2, coins: 0, highScore: 0 };
@@ -190,7 +259,7 @@ if (!/BEST\s+350\s*m/.test(menuAfterBest || "")) throw new Error("menu best afte
 console.log("SMOKE_OK", base, {
   distanceText,
   highScore: 350,
-  topSpeedLevel: speedLevelReload,
+  topSpeedLevel: reloadLvl,
   coins: afterReload.coins,
 });
 await browser.close();
