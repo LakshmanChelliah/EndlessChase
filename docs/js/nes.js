@@ -6,7 +6,7 @@
  * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=28";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=29";
 import { pickTurnBiomes } from "./worldgen.js?v=23";
 
 export function createTextures(loader = new THREE.TextureLoader()) {

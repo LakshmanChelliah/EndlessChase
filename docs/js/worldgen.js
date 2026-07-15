@@ -5,7 +5,7 @@
  * and gas spacing stay varied without true chaos. Turn offers are city ↔ rural;
  * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=28";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=29";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {

@@ -30,6 +30,8 @@ export function resetTrafficRoleFlags(car) {
   u.police = false;
   u.hazard = false;
   u.crossKind = null;
+  u.crossSeg = null;
+  u.cruiseVx = 0;
   u.vx = 0;
   u.dir = 1;
   u.lane = 0;
