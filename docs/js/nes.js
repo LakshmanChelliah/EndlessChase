@@ -20,9 +20,17 @@ export function createTextures(loader = new THREE.TextureLoader()) {
     t.repeat.set(repeatX, repeatY);
     return t;
   }
+  const buildings = [
+    loadTex("building_a.png"),
+    loadTex("building_b.png"),
+    loadTex("building_c.png"),
+    loadTex("building_d.png"),
+  ];
   return {
     road: loadTex("road.png", { repeatX: 1, repeatY: 2 }),
-    building: loadTex("building.png"),
+    /** @deprecated prefer buildings[] — kept for mix overlays / callers */
+    building: buildings[0],
+    buildings,
     house: loadTex("house.png"),
     sky: loadTex("sky.png"),
     player: loadTex("car_player.png"),
@@ -35,6 +43,26 @@ export function createTextures(loader = new THREE.TextureLoader()) {
     light: loadTex("traffic_light.png"),
     curb: loadTex("curb.png", { repeatX: 1, repeatY: 4 }),
   };
+}
+
+/** Silhouette + facade presets for the 4 city building variants. */
+const BUILDING_VARIANTS = [
+  { w: 3.6, d: 5.5, hMin: 5, hSpan: 4 }, // A brick mid-rise
+  { w: 3.0, d: 4.2, hMin: 7, hSpan: 5 }, // B tall concrete office
+  { w: 4.2, d: 5.0, hMin: 3, hSpan: 3 }, // C wide stucco storefront
+  { w: 3.2, d: 4.0, hMin: 6, hSpan: 4 }, // D slate tower
+];
+
+/**
+ * Pick one of the 4 building textures + silhouette using seeded rnd.
+ * @param {{buildings?: THREE.Texture[], building?: THREE.Texture}} tex
+ * @param {() => number} rnd
+ */
+function pickBuildingVariant(tex, rnd) {
+  const list = tex.buildings?.length ? tex.buildings : [tex.building];
+  const i = Math.min(list.length - 1, (rnd() * list.length) | 0);
+  const preset = BUILDING_VARIANTS[i] || BUILDING_VARIANTS[0];
+  return { map: list[i], preset, index: i };
 }
 
 export function basic(map, color = 0xffffff) {
@@ -406,8 +434,10 @@ export function applyMixBiomeOverlay(seg, mixBiome, tex) {
     walk.rotation.x = -Math.PI / 2;
     walk.position.set(side * (half + 4), 0.02, 0);
     group.add(walk);
-    const h = 5;
-    const b = new THREE.Mesh(new THREE.BoxGeometry(3, h, 4), basic(tex.building));
+    const mixRnd = () => Math.random();
+    const { map, preset } = pickBuildingVariant(tex, mixRnd);
+    const h = preset.hMin + 1;
+    const b = new THREE.Mesh(new THREE.BoxGeometry(preset.w * 0.85, h, preset.d * 0.85), basic(map));
     b.position.set(side * (half + 4), h / 2, 0);
     group.add(b);
   }
@@ -908,31 +938,48 @@ export function makeSegment(tex, biome, opts = {}) {
         walk.position.set(side * walkCenter, 0.015, zc);
         root.add(walk);
         if (gasStation || patchLen < 3.5) continue;
-        const h1 = 5 + (rnd() * 4) | 0;
-        const b1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, h1, Math.min(5.5, patchLen - 0.5)), basic(tex.building));
-        b1.position.set(side * (walkCenter - 0.5), h1 / 2, zc);
-        root.add(b1);
-        // Lit window strips — neon NES blocks on the facade
-        const winRows = Math.max(2, (h1 / 1.6) | 0);
-        for (let r = 0; r < winRows; r++) {
-          if (rnd() < 0.35) continue;
-          const lit = rnd() > 0.45;
-          const win = new THREE.Mesh(
-            new THREE.BoxGeometry(2.2, 0.35, 0.08),
-            basicColor(lit ? NES.yellow : 0x2a2a38)
+        // Pack 2–3 random facade variants along each curb (left & right)
+        const slots = patchLen >= 14 ? 3 : patchLen >= 8 ? 2 : 1;
+        const slotSpan = patchLen / slots;
+        for (let slot = 0; slot < slots; slot++) {
+          const v = pickBuildingVariant(tex, rnd);
+          const h = v.preset.hMin + ((rnd() * v.preset.hSpan) | 0);
+          const depth = Math.min(v.preset.d, slotSpan - 0.6);
+          const zOff = zc - patchLen / 2 + slotSpan * (slot + 0.5);
+          const b = new THREE.Mesh(
+            new THREE.BoxGeometry(v.preset.w, h, depth),
+            basic(v.map)
           );
-          win.position.set(
-            side * (walkCenter - 0.5) - side * 1.85,
-            1.1 + r * 1.45,
-            zc
-          );
-          root.add(win);
-        }
-        if (!intersection && rnd() > 0.3) {
-          const h2 = 4 + (rnd() * 3) | 0;
-          const b2 = new THREE.Mesh(new THREE.BoxGeometry(3.0, h2, 4.5), basic(tex.building));
-          b2.position.set(side * (walkCenter + 1.5), h2 / 2, 5);
-          root.add(b2);
+          b.position.set(side * (walkCenter - 0.5), h / 2, zOff);
+          root.add(b);
+          // Lit window strips — neon NES blocks on the street-facing facade
+          const winRows = Math.max(2, (h / 1.6) | 0);
+          const winW = Math.min(2.4, v.preset.w * 0.65);
+          for (let r = 0; r < winRows; r++) {
+            if (rnd() < 0.35) continue;
+            const lit = rnd() > 0.45;
+            const win = new THREE.Mesh(
+              new THREE.BoxGeometry(winW, 0.35, 0.08),
+              basicColor(lit ? NES.yellow : 0x2a2a38)
+            );
+            win.position.set(
+              side * (walkCenter - 0.5) - side * (v.preset.w * 0.5 + 0.05),
+              1.1 + r * 1.45,
+              zOff
+            );
+            root.add(win);
+          }
+          // Occasional back-row building for denser skyline (independent variant)
+          if (!intersection && rnd() > 0.45) {
+            const v2 = pickBuildingVariant(tex, rnd);
+            const h2 = v2.preset.hMin + ((rnd() * v2.preset.hSpan) | 0);
+            const b2 = new THREE.Mesh(
+              new THREE.BoxGeometry(v2.preset.w * 0.9, h2, Math.min(v2.preset.d, depth)),
+              basic(v2.map)
+            );
+            b2.position.set(side * (walkCenter + 1.5), h2 / 2, zOff + (rnd() - 0.5));
+            root.add(b2);
+          }
         }
       }
     }
@@ -951,8 +998,12 @@ export function makeSegment(tex, biome, opts = {}) {
       walk.rotation.x = -Math.PI / 2;
       walk.position.set(side * (half + 4), 0.02, 0);
       root.add(walk);
-      const h = 4 + (rnd() * 3) | 0;
-      const b = new THREE.Mesh(new THREE.BoxGeometry(3, h, 4), basic(tex.building));
+      const { map, preset } = pickBuildingVariant(tex, rnd);
+      const h = preset.hMin + ((rnd() * preset.hSpan) | 0);
+      const b = new THREE.Mesh(
+        new THREE.BoxGeometry(preset.w * 0.85, h, preset.d * 0.85),
+        basic(map)
+      );
       b.position.set(side * (half + 4), h / 2, 0);
       root.add(b);
     }
