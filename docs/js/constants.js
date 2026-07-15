@@ -118,7 +118,7 @@ export const CROSS_ENTER_CUTOFF = 0.9;
 export const GAS_START_MIN = 88;
 export const GAS_START_MAX = 96;
 /** % drained per second at Coupe stock cruise (BASE_MAX_SPEED) */
-export const GAS_DRAIN_PER_SEC = 1.55;
+export const GAS_DRAIN_PER_SEC = 1.24;
 export const GAS_DRAIN_BOOST_MUL = 1.7;
 export const GAS_DRAIN_BRAKE_MUL = 0.35;
 /** Soft fail: empty tank forces a coast that builds heat */
