@@ -48,7 +48,7 @@ import {
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
 } from "./js/nes.js?v=27";
-import { makeCrewMember, crewSeatWorld } from "./js/crew.js?v=1";
+import { makeCrewMember, crewSeatWorld } from "./js/crew.js?v=2";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
@@ -602,8 +602,8 @@ const INTRO_DURATION = 2.05;
 /** Crew run from bank doors into the car before pull-out. */
 const BOARDING_DURATION = 2.0;
 
-const _menuCamPos = new THREE.Vector3(-3.6, 2.75, -3.4);
-const _menuCamLook = new THREE.Vector3(-11.0, 0.85, 5.4);
+const _menuCamPos = new THREE.Vector3(-2.8, 3.1, -2.2);
+const _menuCamLook = new THREE.Vector3(-11.4, 1.0, 4.8);
 const _camLook = new THREE.Vector3().copy(_menuCamLook);
 const _tmpV = new THREE.Vector3();
 const _tmpV2 = new THREE.Vector3();
@@ -2357,8 +2357,9 @@ function spawnMenuCrewAtDoor() {
       coat: i === 0 ? NES.black : NES.navy,
       bag: i === 0 ? NES.yellow : NES.green,
     });
-    crew.position.set(door.x - 0.15 * i, 0, door.z + 0.35 * i);
-    crew.rotation.y = Math.PI / 2;
+    // Idle just outside the doors, street-facing so the menu cam reads them
+    crew.position.set(door.x + 0.55 + 0.2 * i, 0, door.z - 0.15 + 0.5 * i);
+    crew.rotation.y = -0.55;
     crew.visible = true;
     scene.add(crew);
     menuCrew.push(crew);
@@ -2619,21 +2620,22 @@ function beginBoarding() {
 
   const members = menuCrew.map((mesh, i) => {
     const seat = crewSeatWorld(MENU_PARK.x, MENU_PARK.z, i);
+    // Start at door, swing out toward the street so the run is camera-facing
     const from = new THREE.Vector3(
-      door.x - 0.1 * i,
+      door.x + 0.8 + 0.25 * i,
       0,
-      door.z + 0.4 * i
+      door.z - 0.2 + 0.55 * i
     );
     mesh.position.copy(from);
     mesh.visible = true;
     mesh.scale.set(1, 1, 1);
-    mesh.rotation.y = Math.PI / 2;
+    mesh.rotation.y = -0.4;
     return {
       mesh,
       from,
       to: new THREE.Vector3(seat.x, seat.y, seat.z),
-      delay: i * 0.28,
-      enterAt: 0.82 + i * 0.06,
+      delay: i * 0.32,
+      enterAt: 0.78 + i * 0.08,
       seated: false,
     };
   });
@@ -2676,14 +2678,23 @@ function updateBoarding(dt) {
     exhaustFlicker.material.color.setHex(NES.orange);
   }
 
-  // Soft camera hold with a tiny punch when the last crew enters
+  // Soft camera hold — slight nudge toward the door so crew stay readable
   const bob = Math.sin(boarding.t * 1.1) * 0.04;
-  camera.position.set(_menuCamPos.x + bob * 0.3, _menuCamPos.y + bob * 0.15, _menuCamPos.z);
+  const lookNudge = Math.min(1, boarding.t * 0.55) * 0.55;
+  camera.position.set(
+    _menuCamPos.x + bob * 0.25,
+    _menuCamPos.y + bob * 0.12,
+    _menuCamPos.z + lookNudge * 0.35
+  );
   if (boarding.punch > 0) {
     boarding.punch = Math.max(0, boarding.punch - dt);
-    camera.position.z -= boarding.punch * 0.35;
+    camera.position.z -= boarding.punch * 0.25;
   }
-  setCameraLook(_menuCamLook.x, _menuCamLook.y, _menuCamLook.z);
+  setCameraLook(
+    _menuCamLook.x + lookNudge * 0.15,
+    _menuCamLook.y,
+    _menuCamLook.z - lookNudge * 0.2
+  );
 
   let allSeated = true;
   for (const m of boarding.members) {
