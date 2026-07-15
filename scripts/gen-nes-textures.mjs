@@ -93,7 +93,28 @@ function save(img, name) {
   save(img, "road.png");
 }
 
-// --- Building face 32x48 ---
+// --- Building faces 32x48 (4 city variants) ---
+const concrete = [0x8a, 0x8b, 0x96, 255];
+const concreteD = [0x5a, 0x5b, 0x68, 255];
+const stucco = [0xd4, 0xb8, 0x8a, 255];
+const stuccoD = [0xa8, 0x8a, 0x5e, 255];
+const slate = [0x3a, 0x4a, 0x6a, 255];
+const slateD = [0x22, 0x2e, 0x48, 255];
+const teal = [0x2a, 0x6a, 0x6e, 255];
+
+function drawWindow(img, wx, wy, w, h, lit) {
+  rect(img, wx, wy, w, h, lit ? C.window : C.navy);
+  for (let x = wx; x < wx + w; x++) {
+    set(img, x, wy, C.dark);
+    set(img, x, wy + h - 1, C.dark);
+  }
+  for (let y = wy; y < wy + h; y++) {
+    set(img, wx, y, C.dark);
+    set(img, wx + w - 1, y, C.dark);
+  }
+}
+
+// A — classic brick mid-rise (original look)
 {
   const img = png(32, 48);
   fill(img, 0, 0, 32, 48, C.brick);
@@ -105,17 +126,68 @@ function save(img, name) {
   }
   for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 3; col++) {
-      const wx = 3 + col * 10;
-      const wy = 4 + row * 9;
-      rect(img, wx, wy, 6, 5, (row + col) % 2 === 0 ? C.window : C.navy);
-      // window frame
-      for (let x = wx; x < wx + 6; x++) {
-        set(img, x, wy, C.dark);
-        set(img, x, wy + 4, C.dark);
-      }
+      drawWindow(img, 3 + col * 10, 4 + row * 9, 6, 5, (row + col) % 2 === 0);
     }
   }
-  save(img, "building.png");
+  save(img, "building_a.png");
+  save(img, "building.png"); // legacy alias
+}
+
+// B — gray concrete office, dense horizontal bands
+{
+  const img = png(32, 48);
+  fill(img, 0, 0, 32, 48, concrete);
+  for (let y = 0; y < 48; y += 4) fill(img, 0, y, 32, y + 1, concreteD);
+  // ground floor lobby stripe
+  fill(img, 0, 40, 32, 48, concreteD);
+  rect(img, 10, 41, 12, 6, C.dark);
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 4; col++) {
+      drawWindow(img, 2 + col * 8, 2 + row * 6, 5, 3, (row * 3 + col) % 5 !== 0);
+    }
+  }
+  save(img, "building_b.png");
+}
+
+// C — tan stucco storefront + upper apartments
+{
+  const img = png(32, 48);
+  fill(img, 0, 0, 32, 48, stucco);
+  // cornice / roof ledge
+  fill(img, 0, 0, 32, 3, stuccoD);
+  // storefront band
+  fill(img, 0, 34, 32, 48, C.brown);
+  rect(img, 2, 36, 12, 10, C.navy);
+  rect(img, 18, 36, 12, 10, C.window);
+  // awning
+  fill(img, 1, 33, 31, 35, C.crimson);
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      drawWindow(img, 3 + col * 10, 5 + row * 9, 6, 6, col !== 1 || row === 0);
+    }
+  }
+  save(img, "building_c.png");
+}
+
+// D — slate/teal tower, tall vertical windows
+{
+  const img = png(32, 48);
+  fill(img, 0, 0, 32, 48, slate);
+  for (let x = 0; x < 32; x += 2) {
+    if (x % 4 === 0) fill(img, x, 0, x + 1, 48, slateD);
+  }
+  // accent stripe
+  fill(img, 0, 22, 32, 25, teal);
+  for (let col = 0; col < 4; col++) {
+    const wx = 2 + col * 8;
+    for (let row = 0; row < 4; row++) {
+      if (row === 2) continue; // skip accent band
+      drawWindow(img, wx, 2 + row * 10, 4, 8, (col + row) % 3 !== 1);
+    }
+  }
+  // rooftop mechanical
+  fill(img, 10, 0, 22, 2, concreteD);
+  save(img, "building_d.png");
 }
 
 // --- Suburb house 32x32 ---

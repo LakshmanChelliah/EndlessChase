@@ -18,6 +18,7 @@ import {
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
+  CROSS_STOP_PAD, CROSS_ENTER_CUTOFF,
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
   GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
   GAS_COLOR_OK, GAS_COLOR_LOW,
@@ -25,22 +26,22 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=30";
+} from "./js/constants.js?v=31";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=24";
-import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=25";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=23";
+} from "./js/save.js?v=25";
+import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=26";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=26";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=24";
+} from "./js/carPool.js?v=28";
 import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
-} from "./js/nes.js?v=24";
+} from "./js/nes.js?v=25";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
@@ -803,9 +804,28 @@ function setNpcBlinkers(t, side /* -1 left, 1 right, 0 off */) {
     R.visible = false;
     return;
   }
-  const on = Math.floor(performance.now() / 140) % 2 === 0;
-  L.visible = side < 0 && on;
-  R.visible = side > 0 && on;
+  // ~3 Hz flash with longer ON duty so the amber blob sticks in peripheral vision
+  const now = performance.now();
+  const phase = now % 280;
+  const on = phase < 180;
+  const pulse = 0.75 + 0.25 * Math.abs(Math.sin(now * 0.03));
+  const apply = (blinker, active) => {
+    blinker.visible = active;
+    const glow = blinker.userData && blinker.userData.blinkerGlow;
+    const bloom = blinker.userData && blinker.userData.blinkerBloom;
+    if (glow && glow.material) {
+      glow.material.opacity = active ? 0.85 + 0.15 * pulse : 0;
+      const s = active ? 2.6 + 0.6 * pulse : 2.8;
+      glow.scale.set(s, s, 1);
+    }
+    if (bloom && bloom.material) {
+      bloom.material.opacity = active ? 0.45 + 0.35 * pulse : 0;
+      const s = active ? 4.6 + 1.2 * pulse : 5;
+      bloom.scale.set(s, s, 1);
+    }
+  };
+  apply(L, side < 0 && on);
+  apply(R, side > 0 && on);
 }
 
 function clearMergeState(t) {
@@ -1726,10 +1746,28 @@ function findNearbyRedIntersection() {
   return best;
 }
 
+/** True while main-road red still has enough time for cross traffic to enter. */
+function crossMayEnter(seg) {
+  return (
+    !!seg &&
+    seg.userData.lightState === "red" &&
+    seg.userData.lightTimer > CROSS_ENTER_CUTOFF
+  );
+}
+
+/** Absolute X of the cross-street stop line for a given travel direction. */
+function crossStopX(seg, fromLeft) {
+  const half = roadHalfForSegment(seg);
+  const edge = half + CROSS_STOP_PAD;
+  return fromLeft ? -edge : edge;
+}
+
 /** Spawn cross traffic far off-screen so approach is visible (no curb teleport). */
 function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5 } = {}) {
   if (activeCross.length >= CROSS_MAX && !hazard) return null;
   if (activeCross.length >= CROSS_MAX + 1) return null;
+  // Ambient cross cars need time to reach the box before main goes green
+  if (!hazard && !crossMayEnter(seg)) return null;
   const car = rentCross(scene);
   const speed = hazard ? CROSS_HAZARD_SPEED : CROSS_SPEED * (0.85 + Math.random() * 0.3);
   const laneZ = seg.position.z + (Math.random() - 0.5) * 3.2;
@@ -1737,10 +1775,14 @@ function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5
   car.position.set(startX, 0, laneZ);
   car.rotation.y = fromLeft ? Math.PI / 2 : -Math.PI / 2;
   car.userData.vx = fromLeft ? speed : -speed;
+  car.userData.cruiseVx = car.userData.vx;
   car.userData.crossKind = "van";
+  car.userData.crossSeg = seg;
+  car.userData.fromLeft = fromLeft;
   car.userData.hazard = hazard;
   car.userData.police = false;
   car.userData.pursuit = false;
+  car.userData.stopped = false;
   activeCross.push(car);
   return car;
 }
@@ -2851,6 +2893,53 @@ function tick(now) {
 
     for (let i = activeCross.length - 1; i >= 0; i--) {
       const t = activeCross[i];
+      // Ambient cross traffic obeys the signal: stop before the box when main
+      // is green/yellow (or red is about to end). Hazard cars always barge.
+      if (!t.userData.hazard) {
+        const seg = t.userData.crossSeg;
+        const cruise = Math.abs(t.userData.cruiseVx || t.userData.vx) || CROSS_SPEED;
+        const fromLeft = t.userData.fromLeft ?? ((t.userData.cruiseVx || t.userData.vx) >= 0);
+        const sign = fromLeft ? 1 : -1;
+        const segLive = seg && seg.userData.intersection && activeSegments.includes(seg);
+        if (!segLive) {
+          // Intersection recycled — don't sit forever on a dead stop line
+          if (t.userData.stopped || Math.abs(t.position.x) < CROSS_SPAWN_X) {
+            activeCross.splice(i, 1);
+            returnCross(t);
+            continue;
+          }
+        } else {
+          const stopX = crossStopX(seg, fromLeft);
+          const distToStop = fromLeft ? stopX - t.position.x : t.position.x - stopX;
+          const pastStop = distToStop < -0.35;
+          if (!pastStop) {
+            if (crossMayEnter(seg)) {
+              const next = THREE.MathUtils.damp(Math.abs(t.userData.vx), cruise, 4, dt);
+              t.userData.vx = sign * next;
+              t.userData.stopped = false;
+            } else {
+              // Brake hard enough to settle on the stop line (no box overshoot)
+              let target = 0;
+              if (distToStop > 0.35) {
+                const maxV = Math.sqrt(2 * 14 * distToStop);
+                target = Math.min(cruise, maxV);
+              }
+              const next = THREE.MathUtils.damp(Math.abs(t.userData.vx), target, 10, dt);
+              t.userData.vx = sign * (next < 0.2 ? 0 : next);
+              t.userData.stopped = Math.abs(t.userData.vx) < 0.25;
+              if (distToStop <= 0.35 || (t.userData.stopped && distToStop < 1.4)) {
+                t.position.x = stopX;
+                t.userData.vx = 0;
+                t.userData.stopped = true;
+              }
+            }
+          } else if (Math.abs(t.userData.vx) < cruise * 0.85) {
+            // Already committed through the box — finish clearing at cruise
+            t.userData.vx = sign * THREE.MathUtils.damp(Math.abs(t.userData.vx), cruise, 5, dt);
+            t.userData.stopped = false;
+          }
+        }
+      }
       t.position.x += t.userData.vx * dt;
       if (Math.abs(t.position.x) > CROSS_SPAWN_X + 4) {
         activeCross.splice(i, 1);
@@ -3044,6 +3133,8 @@ window.__endlessChase = {
     x: +c.position.x.toFixed(2),
     z: +c.position.z.toFixed(2),
     vx: c.userData.vx,
+    stopped: !!c.userData.stopped,
+    hazard: !!c.userData.hazard,
     kind: c.userData.crossKind,
   })),
   getIntersections: () => activeSegments
@@ -3058,12 +3149,28 @@ window.__endlessChase = {
     if (!seg) seg = activeSegments.find((s) => s.userData.intersection);
     if (!seg) return { ok: false, reason: "no-intersection" };
     seg.userData.lightState = "red";
+    seg.userData.lightTimer = Math.max(seg.userData.lightTimer || 0, LIGHT_RED);
     updateLightVisual(seg);
     const car = spawnCrossVehicle(seg, { hazard, fromLeft: true });
     return {
       ok: !!car,
       segZ: seg.position.z,
       cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
+    };
+  },
+  /** Test helper: force the nearest intersection light phase. */
+  debugSetLight: (state = "green", timer = 2) => {
+    let seg = findAheadIntersection(playerZ - 5, 100);
+    if (!seg) seg = activeSegments.find((s) => s.userData.intersection);
+    if (!seg) return { ok: false, reason: "no-intersection" };
+    seg.userData.lightState = state;
+    seg.userData.lightTimer = timer;
+    updateLightVisual(seg);
+    return {
+      ok: true,
+      light: seg.userData.lightState,
+      timer: seg.userData.lightTimer,
+      z: +seg.position.z.toFixed(1),
     };
   },
   /** Test helper: strip civ traffic / pylons / cross traffic so corridor logic can be asserted. */

@@ -61,6 +61,13 @@ export const CROSS_SPEED = 14;
 export const CROSS_HAZARD_SPEED = 22;
 export const CROSS_MAX = 3;
 export const CROSS_SPAWN_INTERVAL = 1.15;
+/** Stop short of the main-road edge (beyond road half) */
+export const CROSS_STOP_PAD = 1.6;
+/**
+ * Last seconds of main-road red: cross NPCs must not enter the box.
+ * Prevents cars still rolling through when the light flips green.
+ */
+export const CROSS_ENTER_CUTOFF = 0.9;
 
 /** Gas resource — drain, stations, hold-to-fill */
 export const GAS_START_MIN = 88;

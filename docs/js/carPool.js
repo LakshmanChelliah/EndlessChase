@@ -5,7 +5,7 @@
  * curb-parked, and cross roles never leak into the next life (frozen / no collide).
  */
 import { pickCivilianCarId } from "./cars.js?v=23";
-import { createVehicle, ensureBlinkers } from "./vehicle.js?v=23";
+import { createVehicle, ensureBlinkers } from "./vehicle.js?v=26";
 
 /** @type {Record<string, import("three").Object3D[]>} */
 const civFree = Object.create(null);
@@ -30,6 +30,8 @@ export function resetTrafficRoleFlags(car) {
   u.police = false;
   u.hazard = false;
   u.crossKind = null;
+  u.crossSeg = null;
+  u.cruiseVx = 0;
   u.vx = 0;
   u.dir = 1;
   u.lane = 0;
