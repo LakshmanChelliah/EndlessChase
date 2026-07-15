@@ -71,7 +71,49 @@ const panels = {
   gameover: document.getElementById("panel-gameover"),
   upgrades: document.getElementById("panel-upgrades"),
   pump: document.getElementById("panel-pump"),
+  howto: document.getElementById("panel-howto"),
 };
+const HINTS_KEY = "EndlessChase.Hints.v1";
+const HOWTO_STEPS = [
+  {
+    title: "STEER",
+    body: "Swipe left/right or press A/D to change lanes. In the city, stay LEFT of the double yellow — the right lanes are oncoming.",
+    callout: "",
+  },
+  {
+    title: "BRAKE & GO",
+    body: "Swipe down or press S for a sticky brake. Swipe up, W, or Space to go again. Braking cools speed but heats up the cops.",
+    callout: "",
+  },
+  {
+    title: "THE GETAWAY",
+    body: "Weave traffic, take turn ramps into new biomes, and grab cash for the Garage. Crash or get caught = run over.",
+    callout: "",
+  },
+  {
+    title: "HUD BARS",
+    body: "Top COPS bar fills when you slow, brake, or run empty — full bar means Busted. Bottom FUEL drains while you drive.",
+    callout: "COPS = police heat · FUEL = tank · MPH = speed",
+  },
+  {
+    title: "FILL GAS",
+    body: "Pull into the outer curb lane near a station, tap FILL UP TANK, then HOLD TO FILL. Cops close in while you pump — release and merge before you get busted.",
+    callout: "Empty tank forces a slow coast that fills the COPS bar.",
+  },
+];
+const howtoStepEl = document.getElementById("howto-step");
+const howtoTitleEl = document.getElementById("howto-title");
+const howtoBodyEl = document.getElementById("howto-body");
+const howtoCalloutEl = document.getElementById("howto-callout");
+const btnHowtoNext = document.getElementById("btn-howto-next");
+const btnHowtoSkip = document.getElementById("btn-howto-skip");
+const hudCoach = document.getElementById("hud-coach");
+const hudCoachText = document.getElementById("hud-coach-text");
+const btnCoachNext = document.getElementById("btn-coach-next");
+let howtoIndex = 0;
+let howtoThenPlay = false;
+let coachQueue = [];
+let coachActive = false;
 const hudDistance = document.getElementById("hud-distance");
 const hudCoins = document.getElementById("hud-coins");
 const hudBoost = document.getElementById("hud-boost");
@@ -211,6 +253,106 @@ function showPanel(name) {
   if (name !== "gameover" && panels.gameover) {
     panels.gameover.classList.remove("go-wreck", "go-bust");
   }
+}
+
+function loadHintsSeen() {
+  try {
+    const raw = localStorage.getItem(HINTS_KEY);
+    if (!raw) return { howto: false, coach: false };
+    const d = JSON.parse(raw);
+    return { howto: !!d.howto, coach: !!d.coach };
+  } catch {
+    return { howto: false, coach: false };
+  }
+}
+
+function writeHintsSeen(partial) {
+  const cur = loadHintsSeen();
+  const next = { ...cur, ...partial };
+  localStorage.setItem(HINTS_KEY, JSON.stringify(next));
+}
+
+function renderHowtoStep() {
+  const step = HOWTO_STEPS[howtoIndex];
+  if (!step) return;
+  if (howtoStepEl) howtoStepEl.textContent = `${howtoIndex + 1} / ${HOWTO_STEPS.length}`;
+  if (howtoTitleEl) howtoTitleEl.textContent = step.title;
+  if (howtoBodyEl) howtoBodyEl.textContent = step.body;
+  if (howtoCalloutEl) {
+    const has = !!step.callout;
+    howtoCalloutEl.textContent = step.callout || "";
+    howtoCalloutEl.classList.toggle("show", has);
+    howtoCalloutEl.setAttribute("aria-hidden", has ? "false" : "true");
+  }
+  if (btnHowtoNext) {
+    const last = howtoIndex >= HOWTO_STEPS.length - 1;
+    btnHowtoNext.textContent = howtoThenPlay
+      ? (last ? "Start Engine" : "Next")
+      : (last ? "Got it" : "Next");
+  }
+  if (btnHowtoSkip) {
+    btnHowtoSkip.textContent = howtoThenPlay ? "Skip & Drive" : "Back";
+  }
+}
+
+function openHowto({ thenPlay = false, startIndex = 0 } = {}) {
+  howtoThenPlay = !!thenPlay;
+  howtoIndex = Math.max(0, Math.min(HOWTO_STEPS.length - 1, startIndex | 0));
+  renderHowtoStep();
+  showPanel("howto");
+}
+
+function finishHowto({ play }) {
+  writeHintsSeen({ howto: true });
+  if (play) {
+    unlockSirenAudio();
+    startRun();
+    maybeStartCoach();
+  } else {
+    setupMenuScene();
+    showPanel("menu");
+  }
+}
+
+function hideCoach() {
+  coachActive = false;
+  coachQueue = [];
+  if (hudCoach) hudCoach.classList.add("hidden");
+}
+
+function showCoachTip(text) {
+  if (!hudCoach || !hudCoachText) return;
+  coachActive = true;
+  hudCoachText.textContent = text;
+  hudCoach.classList.remove("hidden");
+}
+
+function advanceCoach() {
+  if (!coachQueue.length) {
+    hideCoach();
+    writeHintsSeen({ coach: true });
+    return;
+  }
+  showCoachTip(coachQueue.shift());
+}
+
+function maybeStartCoach() {
+  const seen = loadHintsSeen();
+  if (seen.coach) return;
+  coachQueue = [
+    "Top bar = COPS. Slowing or braking fills it — full = Busted!",
+    "Bottom green = FUEL. Keep it topped at curb stations or you will coast into the cops.",
+  ];
+  // Defer until the pull-out intro finishes so the tip sits on a live HUD
+  const wait = () => {
+    if (!alive) return;
+    if (intro) {
+      requestAnimationFrame(wait);
+      return;
+    }
+    if (running) advanceCoach();
+  };
+  requestAnimationFrame(wait);
 }
 
 function showPumpPanel(show) {
@@ -1895,6 +2037,7 @@ function endRun(reason) {
   alive = false;
   running = false;
   intro = null;
+  hideCoach();
   sirenOpeningT = 0;
   stopSiren();
   sirenSmoothVol = 0;
@@ -2472,15 +2615,40 @@ document.body.addEventListener("touchmove", (e) => {
 
 document.getElementById("btn-play").onclick = () => {
   unlockSirenAudio();
+  if (!loadHintsSeen().howto) {
+    openHowto({ thenPlay: true });
+    return;
+  }
   startRun();
+  maybeStartCoach();
 };
+document.getElementById("btn-howto")?.addEventListener("click", () => {
+  openHowto({ thenPlay: false });
+});
+btnHowtoNext?.addEventListener("click", () => {
+  if (howtoIndex < HOWTO_STEPS.length - 1) {
+    howtoIndex += 1;
+    renderHowtoStep();
+    return;
+  }
+  finishHowto({ play: howtoThenPlay });
+});
+btnHowtoSkip?.addEventListener("click", () => {
+  finishHowto({ play: howtoThenPlay });
+});
+btnCoachNext?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  advanceCoach();
+});
 document.getElementById("btn-retry").onclick = () => {
   unlockSirenAudio();
+  hideCoach();
   if (btnRetry) btnRetry.disabled = false;
   startRun({ instant: true });
 };
 // pointerdown unlocks earlier than click — critical for mobile Safari audio
-for (const id of ["btn-play", "btn-retry"]) {
+for (const id of ["btn-play", "btn-retry", "btn-howto-next", "btn-howto-skip"]) {
   const el = document.getElementById(id);
   if (!el) continue;
   el.addEventListener("pointerdown", () => unlockSirenAudio(), { passive: true });
@@ -2488,6 +2656,7 @@ for (const id of ["btn-play", "btn-retry"]) {
 }
 document.getElementById("btn-menu").onclick = () => {
   fromGameOver = false;
+  hideCoach();
   setupMenuScene();
   showPanel("menu");
 };

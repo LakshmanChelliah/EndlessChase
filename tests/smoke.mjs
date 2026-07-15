@@ -22,6 +22,19 @@ await page.waitForSelector("#btn-play", { timeout: 15000 });
 const title = await page.title();
 if (!title.includes("Endless Chase")) throw new Error("bad title: " + title);
 
+// First-play howto gates Start Engine — mark tips seen for the drive path
+await page.evaluate(() => {
+  localStorage.setItem("EndlessChase.Hints.v1", JSON.stringify({ howto: true, coach: true }));
+});
+
+// How to Play panel should open from the menu
+await page.click("#btn-howto");
+await page.waitForSelector("#panel-howto:not(.hidden)", { timeout: 3000 });
+const howtoTitle = await page.textContent("#howto-title");
+if (!howtoTitle || !/STEER/i.test(howtoTitle)) throw new Error("howto missing steer step: " + howtoTitle);
+await page.click("#btn-howto-skip");
+await page.waitForSelector("#panel-menu:not(.hidden)", { timeout: 3000 });
+
 await page.click("#btn-play");
 await page.waitForSelector("#panel-hud:not(.hidden)", { timeout: 5000 });
 
