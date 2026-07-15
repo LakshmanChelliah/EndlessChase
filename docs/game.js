@@ -35,7 +35,7 @@ import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/
 import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=23";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=24";
+} from "./js/carPool.js?v=25";
 import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
