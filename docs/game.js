@@ -13,7 +13,7 @@ import * as THREE from "three";
 import {
   SEG_LEN, NES_W, NES_H, NES, MAX_UPGRADE,
   BRAKE_DURATION, BRAKE_SPEED_MUL, BASE_MAX_SPEED, BASE_ACCEL, BASE_BRAKE,
-  HEAT_SLOW_THRESHOLD, HEAT_GRACE, HEAT_RISE, HEAT_DECAY,
+  HEAT_SLOW_THRESHOLD, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
@@ -25,8 +25,10 @@ import {
   GAS_HOLD_FILL_PER_SEC, GAS_VISIT_HEAT_PER_SEC, GAS_MERGE_HEAT_PER_SEC, GAS_HOLD_HEAT_PER_SEC, GAS_PULL_DURATION, GAS_CAM_PAN,
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
+  TRAFFIC_TIMER_START,
+  difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=31";
+} from "./js/constants.js?v=32";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -45,7 +47,7 @@ import {
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=23";
+} from "./js/worldgen.js?v=24";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -1978,9 +1980,8 @@ function spawnTrafficCar() {
     if (layout.dirs[i] === -1) oncomingIdx.push(i);
     else sameIdx.push(i);
   }
-  // Ease early chase: fewer oncoming cars while players learn inverted steering
-  const oncomingChance = distance < 220 ? 0.22 : distance < 450 ? 0.35 : 0.45;
-  const wantOncoming = oncomingIdx.length > 0 && Math.random() < oncomingChance;
+  // Progressive curve: sparse early, full oncoming pressure later in the run
+  const wantOncoming = oncomingIdx.length > 0 && Math.random() < trafficOncomingChance(distance);
   const poolLanes = wantOncoming ? oncomingIdx : sameIdx;
   if (!poolLanes.length) return;
 
@@ -2018,10 +2019,12 @@ function spawnTrafficCar() {
   let x = clampTrafficX(layout.xs[tLane], aheadSeg);
   car.position.set(x, 0, zTry);
   car.rotation.y = dir === -1 ? Math.PI : 0;
+  // Early runs: slightly slower NPCs so gaps stay readable
+  const speedScale = 0.72 + 0.28 * difficulty01(distance);
   if (dir === -1) {
-    car.userData.speed = 14 + Math.random() * 8;
+    car.userData.speed = (14 + Math.random() * 8) * speedScale;
   } else {
-    car.userData.speed = 6 + Math.random() * 6;
+    car.userData.speed = (6 + Math.random() * 6) * speedScale;
   }
   car.userData.cruiseSpeed = car.userData.speed;
   car.userData.police = false;
@@ -2189,9 +2192,9 @@ function resetRunState() {
   heat = 0;
   gas = randomStartGas();
   slowTimer = 0;
-  turnCooldown = 6;
-  intersectionCooldown = 3;
-  gasCooldown = 14;
+  turnCooldown = 10;
+  intersectionCooldown = 6;
+  gasCooldown = 18;
   turnActive = null;
   nearbyStation = null;
   gasVisit = null;
@@ -2245,7 +2248,7 @@ function startRun(opts = {}) {
   ensureExhaustFlicker();
   updateHeatUI();
   updateGasUI();
-  trafficTimer = 0.8;
+  trafficTimer = TRAFFIC_TIMER_START;
 
   const toCam = gameplayCamPos(laneX, 0).clone();
   const toLook = gameplayCamLook(laneX, 0).clone();
@@ -2799,7 +2802,9 @@ function tick(now) {
 
     if (speed < HEAT_SLOW_THRESHOLD || braking || gas <= 0) {
       slowTimer += dt;
-      if (slowTimer > HEAT_GRACE) heat = Math.min(100, heat + HEAT_RISE * dt);
+      if (slowTimer > heatGraceFor(distance)) {
+        heat = Math.min(100, heat + HEAT_RISE * heatPressureMul(distance) * dt);
+      }
     } else {
       slowTimer = 0;
       heat = Math.max(0, heat - HEAT_DECAY * dt);
@@ -2955,7 +2960,7 @@ function tick(now) {
               if (goingFast) {
                 boostTimer = 2.5;
                 boostMul = 1.35;
-                heat = Math.min(100, heat + 22);
+                heat = Math.min(100, heat + 22 * heatPressureMul(distance));
                 spawnCrossVehicle(seg, { hazard: true, fromLeft: Math.random() < 0.5 });
                 hudLight.textContent = "RED! BOOST";
                 hudLight.style.color = "#ff004d";
@@ -2965,7 +2970,7 @@ function tick(now) {
               }
               hudLight.classList.remove("hidden");
             } else if (state === "yellow" && goingFast) {
-              heat = Math.min(100, heat + 8);
+              heat = Math.min(100, heat + 8 * heatPressureMul(distance));
               hudLight.textContent = "YELLOW!";
               hudLight.style.color = "#ffec27";
               hudLight.classList.remove("hidden");
@@ -2982,7 +2987,8 @@ function tick(now) {
 
     crossSpawnTimer -= dt;
     if (crossSpawnTimer <= 0) {
-      crossSpawnTimer = CROSS_SPAWN_INTERVAL;
+      // Cross traffic densifies with distance so early red lights are calmer
+      crossSpawnTimer = CROSS_SPAWN_INTERVAL * (1.35 - 0.35 * difficulty01(distance));
       const redSeg = findNearbyRedIntersection();
       if (redSeg && activeCross.length < CROSS_MAX) {
         spawnCrossVehicle(redSeg, { hazard: false });
@@ -2991,7 +2997,7 @@ function tick(now) {
 
     trafficTimer -= dt;
     if (trafficTimer <= 0) {
-      trafficTimer = Math.max(0.55, 1.35 - distance / 2000);
+      trafficTimer = trafficSpawnInterval(distance);
       spawnTrafficCar();
     }
 
@@ -3275,6 +3281,10 @@ window.__endlessChase = {
   getPlayer: () => player,
   getState: () => ({
     running, alive, intro: !!intro, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
+    difficulty: +difficulty01(distance).toFixed(3),
+    trafficInterval: +trafficSpawnInterval(distance).toFixed(2),
+    turnActive: !!turnActive,
+    controlUsable: playerControlLayout().usable.slice(),
     biome: activeBiome, heat, gas, braking, coins: save.coins,
     nearbyStation: !!nearbyStation,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,

@@ -31,6 +31,51 @@ export const HEAT_SLOW_THRESHOLD = 10;
 export const HEAT_GRACE = 0.6;
 export const HEAT_RISE = 25;
 export const HEAT_DECAY = 12;
+
+/**
+ * Progressive difficulty — quiet opening, full pressure by DIFFICULTY_RAMP_DIST.
+ * difficulty01 ease-in keeps the first ~hundreds of meters forgiving.
+ */
+export const DIFFICULTY_RAMP_DIST = 2800;
+/** First ambient traffic spawn delay after pull-out (seconds) */
+export const TRAFFIC_TIMER_START = 1.65;
+export const TRAFFIC_INTERVAL_EASY = 2.25;
+export const TRAFFIC_INTERVAL_HARD = 0.5;
+export const TRAFFIC_ONCOMING_EASY = 0.12;
+export const TRAFFIC_ONCOMING_HARD = 0.5;
+/** Extra heat-grace seconds at distance 0 (added on top of HEAT_GRACE) */
+export const HEAT_GRACE_EASY_BONUS = 0.75;
+/** Heat rise multiplier at distance 0 (ramps to 1) */
+export const HEAT_RISE_EASY_MUL = 0.55;
+
+/** @param {number} distance meters traveled this run */
+export function difficulty01(distance) {
+  const t = Math.max(0, Math.min(1, Number(distance) / DIFFICULTY_RAMP_DIST || 0));
+  // Mild ease-in: forgiving opening, solid mid-run pressure, full by ramp end
+  return t ** 1.25;
+}
+
+/** Ambient traffic respawn interval (seconds) */
+export function trafficSpawnInterval(distance) {
+  const d = difficulty01(distance);
+  return TRAFFIC_INTERVAL_EASY - d * (TRAFFIC_INTERVAL_EASY - TRAFFIC_INTERVAL_HARD);
+}
+
+/** Chance a traffic spawn uses an oncoming lane when one is available */
+export function trafficOncomingChance(distance) {
+  const d = difficulty01(distance);
+  return TRAFFIC_ONCOMING_EASY + d * (TRAFFIC_ONCOMING_HARD - TRAFFIC_ONCOMING_EASY);
+}
+
+/** Seconds before slow/brake starts building heat */
+export function heatGraceFor(distance) {
+  return HEAT_GRACE + (1 - difficulty01(distance)) * HEAT_GRACE_EASY_BONUS;
+}
+
+/** Multiplier on heat gain (slowing, lights, etc.) */
+export function heatPressureMul(distance) {
+  return HEAT_RISE_EASY_MUL + difficulty01(distance) * (1 - HEAT_RISE_EASY_MUL);
+}
 export const TURN_COOLDOWN_SEGS = 10;
 export const TURN_WINDOW = 1.25;
 export const TURN_YAW = (25 * Math.PI) / 180;
