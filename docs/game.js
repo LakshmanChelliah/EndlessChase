@@ -1845,8 +1845,8 @@ function spawnTrafficCar() {
     if (Math.abs(o.position.z - zTry) < HEADWAY_GAP + 1.5) return;
   }
 
-  const police = !wantOncoming && Math.random() < 0.12;
-  const car = police ? rentPolice(scene) : rentCivilian(scene);
+  // Police only via chase/pursuit/gas threat — never as random traffic NPCs.
+  const car = rentCivilian(scene);
   const dir = layout.dirs[tLane];
   let x = clampTrafficX(layout.xs[tLane], aheadSeg);
   car.position.set(x, 0, zTry);
@@ -1854,10 +1854,10 @@ function spawnTrafficCar() {
   if (dir === -1) {
     car.userData.speed = 14 + Math.random() * 8;
   } else {
-    car.userData.speed = police ? speed * 0.9 : 6 + Math.random() * 6;
+    car.userData.speed = 6 + Math.random() * 6;
   }
   car.userData.cruiseSpeed = car.userData.speed;
-  car.userData.police = police;
+  car.userData.police = false;
   // Role flags must be cleared — pool reuse can leave curbParked / chase /
   // gasThreat set, which freezes the car and skips player collision.
   car.userData.pursuit = false;
