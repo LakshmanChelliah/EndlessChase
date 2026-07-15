@@ -616,12 +616,24 @@ function adoptBiomeFromSegment(seg) {
 }
 
 /**
- * Sync `lane` to a layout index only when laneX is already on that center.
+ * Keep `lane` coherent with the commanded target / physical X.
  * Never moves laneX / laneTargetX — lane indices are not portable across biomes
  * (city lane 1 ≠ rural lane 1), so index validity alone must not retarget the spring.
+ *
+ * Important: while a swipe spring is in flight, prefer `laneTargetX` over physical
+ * `laneX`. Inferring from laneX mid-change snapped the index back to the old lane
+ * and ate rapid side-to-side swipes.
  */
 function syncPlayerLaneIndexIfAligned() {
   const { layout, usable } = playerControlLayout();
+  // Commanded lane center wins while the spring is still heading there
+  for (let i = 0; i < layout.count; i++) {
+    if (Math.abs(laneTargetX - layout.xs[i]) < 0.75) {
+      lane = i;
+      return;
+    }
+  }
+  // Orphaned target (closed / biome flip): infer from physical X only
   if (lane >= 0 && lane < layout.count && Math.abs(laneX - layout.xs[lane]) < 0.75) {
     return;
   }
@@ -637,6 +649,14 @@ function syncPlayerLaneIndexIfAligned() {
       return;
     }
   }
+}
+
+/** Lane index implied by the active spring target (falls back to `lane`). */
+function commandedLaneIndex(layout) {
+  for (let i = 0; i < layout.count; i++) {
+    if (Math.abs(laneTargetX - layout.xs[i]) < 0.75) return i;
+  }
+  return lane;
 }
 
 function clearAheadTrafficSoft() {
@@ -2215,10 +2235,12 @@ function onSwipe(dir) {
   // Inverted side-to-side: swipe left → move right lane, swipe right → move left
   if (dir === "left" || dir === "right") {
     const delta = dir === "left" ? 1 : -1;
-    let next = lane + delta;
+    // Use commanded target so mid-spring swipes stack instead of re-issuing the same lane
+    const current = commandedLaneIndex(layout);
+    let next = current + delta;
     // Walk toward the swipe until we hit a usable lane; block if none
     while (next >= 0 && next < layout.count && !usable.includes(next)) next += delta;
-    if (next >= 0 && next < layout.count && usable.includes(next) && next !== lane) {
+    if (next >= 0 && next < layout.count && usable.includes(next) && next !== current) {
       lane = next;
       laneTargetX = layout.xs[lane];
       // Stronger yaw kick into the lane change
@@ -2231,7 +2253,11 @@ function onSwipe(dir) {
 }
 
 function emitSwipeFromDelta(dx, dy) {
-  if (Math.abs(dx) > Math.abs(dy)) onSwipe(dx > 0 ? "right" : "left");
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  // Prefer lateral steering: thumbs often arc slightly vertical on phones, and a
+  // pure abs(dx)>abs(dy) check turned many side swipes into brake/resume.
+  if (ax >= ay * 0.85) onSwipe(dx > 0 ? "right" : "left");
   else onSwipe(dy > 0 ? "down" : "up");
 }
 
