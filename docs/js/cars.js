@@ -2,7 +2,7 @@
  * Lowpoly car catalog — unlock costs, baseline stats, NPC spawn weights.
  * Paths resolve under CARS_ASSET (see constants.js). Police is NPC-only.
  */
-import { CARS_ASSET } from "./constants.js?v=31";
+import { CARS_ASSET } from "./constants.js?v=32";
 
 export { CARS_ASSET };
 export const STARTER_CAR = "mobil";
