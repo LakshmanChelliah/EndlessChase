@@ -185,53 +185,93 @@ export function createVehicle(carId, opts = {}) {
 }
 
 /** Hot amber used for merge blinkers — brighter than NES orange so it reads at chase distance. */
-const BLINKER_AMBER = 0xffee55;
+const BLINKER_AMBER = 0xfff066;
 const BLINKER_CORE = 0xffffff;
+
+/** Soft radial disc for sprite glow (generated once). */
+let blinkerSpriteMap = null;
+function getBlinkerSpriteMap() {
+  if (blinkerSpriteMap) return blinkerSpriteMap;
+  const s = 64;
+  const c = document.createElement("canvas");
+  c.width = s;
+  c.height = s;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.25, "rgba(255,240,100,0.95)");
+  g.addColorStop(0.55, "rgba(255,180,40,0.55)");
+  g.addColorStop(1, "rgba(255,120,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  blinkerSpriteMap = new THREE.CanvasTexture(c);
+  blinkerSpriteMap.magFilter = THREE.NearestFilter;
+  blinkerSpriteMap.minFilter = THREE.LinearFilter;
+  return blinkerSpriteMap;
+}
 
 /**
  * Rear blinkers for NPC lane-merge signaling.
- * Oversized core + additive glow plane so the signal is obvious from chase-cam distance.
+ * Bright bulbs + camera-facing additive sprites (chase cam is high; flat Z-planes read edge-on).
  */
 export function ensureBlinkers(root) {
   if (root.userData.blinkerL) return;
+  const map = getBlinkerSpriteMap();
   const mk = (x) => {
     const group = new THREE.Group();
-    group.position.set(x, 0.62, -1.55);
+    // Sit proud of the rear bumper so the glow clears the body mesh
+    group.position.set(x, 0.75, -1.78);
     group.visible = false;
 
-    // Bright core bulb (larger than the old 0.14×0.1 stub)
-    const core = new THREE.Mesh(
-      new THREE.BoxGeometry(0.32, 0.22, 0.28),
-      new THREE.MeshBasicMaterial({ color: BLINKER_CORE })
-    );
-    // Amber shell slightly larger so the silhouette reads orange, not just white
+    // Solid amber shell + white core — readable even without the bloom
     const shell = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.3, 0.22),
-      new THREE.MeshBasicMaterial({ color: BLINKER_AMBER })
+      new THREE.BoxGeometry(0.7, 0.5, 0.35),
+      new THREE.MeshBasicMaterial({ color: BLINKER_AMBER, fog: false })
     );
-    shell.position.z = 0.02;
-
-    // Soft glow card facing the chase camera (cars face +Z; camera is behind at −Z)
-    const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.35, 1.0),
-      new THREE.MeshBasicMaterial({
-        color: BLINKER_AMBER,
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
-      })
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.3, 0.4),
+      new THREE.MeshBasicMaterial({ color: BLINKER_CORE, fog: false })
     );
-    glow.position.set(0, 0.05, -0.35);
 
-    group.add(shell, core, glow);
+    // Camera-facing bloom (Sprite) — stays round from the high chase cam
+    const glowMat = new THREE.SpriteMaterial({
+      map,
+      color: BLINKER_AMBER,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    });
+    const glow = new THREE.Sprite(glowMat);
+    glow.scale.set(2.8, 2.8, 1);
+    glow.position.set(0, 0.15, -0.15);
+    glow.renderOrder = 10;
+
+    const bloomMat = new THREE.SpriteMaterial({
+      map,
+      color: 0xffcc44,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    });
+    const bloom = new THREE.Sprite(bloomMat);
+    bloom.scale.set(5.0, 5.0, 1);
+    bloom.position.set(0, 0.2, -0.25);
+    bloom.renderOrder = 9;
+
+    group.add(shell, core, glow, bloom);
     group.userData.blinkerGlow = glow;
+    group.userData.blinkerBloom = bloom;
     root.add(group);
     return group;
   };
-  root.userData.blinkerL = mk(-0.78);
-  root.userData.blinkerR = mk(0.78);
+  root.userData.blinkerL = mk(-0.85);
+  root.userData.blinkerR = mk(0.85);
 }
 
 function attachBlinkers(root) {
