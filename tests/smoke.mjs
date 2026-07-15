@@ -43,6 +43,34 @@ await page.waitForFunction(() => window.__endlessChase?.getState()?.running === 
 
 const laneBefore = await page.evaluate(() => window.__endlessChase.getState().lane);
 
+// Rapid successive lane changes must stack while the spring is still in flight.
+// (Regression: syncing lane from physical X mid-swipe ate every other side input.)
+{
+  let start = await page.evaluate(() => window.__endlessChase.getState().lane);
+  // Nudge toward a forward lane with room for two inverted-left steps (higher index)
+  for (let i = 0; i < 3 && start > 1; i++) {
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(450);
+    start = await page.evaluate(() => window.__endlessChase.getState().lane);
+  }
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(40); // still mid-spring
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(60);
+  const rapid = await page.evaluate(() => window.__endlessChase.getState());
+  const want = Math.min(3, start + 2);
+  if (rapid.lane !== want) {
+    throw new Error(
+      `rapid side input did not stack: from ${start} got lane=${rapid.lane} target=${rapid.laneTargetX}, want ${want}`
+    );
+  }
+  // Settle back toward the starting corridor before the rest of the suite
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(350);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(350);
+}
+
 // Drive lanes via keyboard
 await page.keyboard.press("ArrowRight");
 await page.waitForTimeout(400);
@@ -81,6 +109,33 @@ await page.waitForTimeout(350);
 const lanePostSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
 if (lanePostSlow === lanePreSlow) {
   throw new Error(`slow swipe did not change lane (was ${lanePreSlow})`);
+}
+
+// Mildly diagonal side swipe (more vertical than horizontal by a hair) must still steer.
+// Thumbs often arc; abs(dx)>abs(dy) alone used to classify these as brake/resume.
+{
+  const pre = await page.evaluate(() => window.__endlessChase.getState().lane);
+  // Ensure room to move left (higher index) at least once
+  if (pre >= 3) {
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(400);
+  }
+  const lanePreDiag = await page.evaluate(() => window.__endlessChase.getState().lane);
+  const dx = box.x + box.width * 0.5;
+  const dy = box.y + box.height * 0.55;
+  await page.mouse.move(dx, dy);
+  await page.mouse.down();
+  // ~48px left, ~56px down — vertical wins a pure comparison, but lateral bias should steer
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(dx - i * 6, dy + i * 7);
+    await page.waitForTimeout(20);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const lanePostDiag = await page.evaluate(() => window.__endlessChase.getState().lane);
+  if (lanePostDiag === lanePreDiag) {
+    throw new Error(`diagonal side swipe did not change lane (was ${lanePreDiag})`);
+  }
 }
 
 const distanceText = await page.textContent("#hud-distance");

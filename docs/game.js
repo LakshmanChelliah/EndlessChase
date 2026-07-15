@@ -764,7 +764,7 @@ function adoptBiomeFromSegment(seg) {
  *
  * Important: while a swipe spring is in flight, prefer `laneTargetX` over physical
  * `laneX`. Inferring from laneX mid-change snapped the index back to the old lane
- * and ate rapid swipes / smoke assertions.
+ * and ate rapid side-to-side swipes / smoke assertions.
  */
 function syncPlayerLaneIndexIfAligned() {
   const { layout, usable } = playerControlLayout();
@@ -791,6 +791,14 @@ function syncPlayerLaneIndexIfAligned() {
       return;
     }
   }
+}
+
+/** Lane index implied by the active spring target (falls back to `lane`). */
+function commandedLaneIndex(layout) {
+  for (let i = 0; i < layout.count; i++) {
+    if (Math.abs(laneTargetX - layout.xs[i]) < 0.75) return i;
+  }
+  return lane;
 }
 
 function clearAheadTrafficSoft() {
@@ -2004,8 +2012,8 @@ function spawnTrafficCar() {
     if (Math.abs(o.position.z - zTry) < HEADWAY_GAP + 1.5) return;
   }
 
-  const police = !wantOncoming && Math.random() < 0.12;
-  const car = police ? rentPolice(scene) : rentCivilian(scene);
+  // Police only via chase/pursuit/gas threat — never as random traffic NPCs.
+  const car = rentCivilian(scene);
   const dir = layout.dirs[tLane];
   let x = clampTrafficX(layout.xs[tLane], aheadSeg);
   car.position.set(x, 0, zTry);
@@ -2013,10 +2021,10 @@ function spawnTrafficCar() {
   if (dir === -1) {
     car.userData.speed = 14 + Math.random() * 8;
   } else {
-    car.userData.speed = police ? speed * 0.9 : 6 + Math.random() * 6;
+    car.userData.speed = 6 + Math.random() * 6;
   }
   car.userData.cruiseSpeed = car.userData.speed;
-  car.userData.police = police;
+  car.userData.police = false;
   // Role flags must be cleared — pool reuse can leave curbParked / chase /
   // gasThreat set, which freezes the car and skips player collision.
   car.userData.pursuit = false;
@@ -2375,10 +2383,12 @@ function onSwipe(dir) {
   // Inverted side-to-side: swipe left → move right lane, swipe right → move left
   if (dir === "left" || dir === "right") {
     const delta = dir === "left" ? 1 : -1;
-    let next = lane + delta;
+    // Use commanded target so mid-spring swipes stack instead of re-issuing the same lane
+    const current = commandedLaneIndex(layout);
+    let next = current + delta;
     // Walk toward the swipe until we hit a usable lane; block if none
     while (next >= 0 && next < layout.count && !usable.includes(next)) next += delta;
-    if (next >= 0 && next < layout.count && usable.includes(next) && next !== lane) {
+    if (next >= 0 && next < layout.count && usable.includes(next) && next !== current) {
       lane = next;
       laneTargetX = layout.xs[lane];
       // Stronger yaw kick into the lane change
@@ -2391,7 +2401,11 @@ function onSwipe(dir) {
 }
 
 function emitSwipeFromDelta(dx, dy) {
-  if (Math.abs(dx) > Math.abs(dy)) onSwipe(dx > 0 ? "right" : "left");
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  // Prefer lateral steering: thumbs often arc slightly vertical on phones, and a
+  // pure abs(dx)>abs(dy) check turned many side swipes into brake/resume.
+  if (ax >= ay * 0.85) onSwipe(dx > 0 ? "right" : "left");
   else onSwipe(dy > 0 ? "down" : "up");
 }
 
