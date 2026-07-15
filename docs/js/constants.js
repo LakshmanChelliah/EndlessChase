@@ -21,8 +21,8 @@ export const CARS_ASSET = "assets/cars";
 
 export const BRAKE_DURATION = 0.85;
 export const BRAKE_SPEED_MUL = 0.4;
-/** Coupe stock speed limiter (world units). Effective = BASE_MAX_SPEED * topSpeedFactor. */
-export const BASE_MAX_SPEED = 18;
+/** Coupe stock speed limiter (world units). HUD = round(world × 4) → Coupe stock reads 75. */
+export const BASE_MAX_SPEED = 18.75;
 /** Coupe stock accel (units/s²). Effective = BASE_ACCEL * accelFactor. */
 export const BASE_ACCEL = 6;
 /** Coupe stock brake deceleration (units/s²). Effective = BASE_BRAKE * brakesFactor. */
@@ -65,7 +65,7 @@ export const CROSS_SPAWN_INTERVAL = 1.15;
 /** Gas resource — drain, stations, hold-to-fill */
 export const GAS_START_MIN = 88;
 export const GAS_START_MAX = 96;
-/** % drained per second at cruise speed (~18) */
+/** % drained per second at Coupe stock cruise (BASE_MAX_SPEED) */
 export const GAS_DRAIN_PER_SEC = 1.55;
 export const GAS_DRAIN_BOOST_MUL = 1.7;
 export const GAS_DRAIN_BRAKE_MUL = 0.35;

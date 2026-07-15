@@ -25,12 +25,12 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=29";
+} from "./js/constants.js?v=30";
 import {
   loadSave, writeSave, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
-} from "./js/save.js?v=23";
-import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=24";
+} from "./js/save.js?v=24";
+import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=25";
 import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=23";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
@@ -2548,7 +2548,7 @@ function tick(now) {
 
     // Drain gas while moving; boost burns more, brake burns less
     if (speed > 0.5 && gas > 0) {
-      let drain = GAS_DRAIN_PER_SEC * (speed / 18) * dt;
+      let drain = GAS_DRAIN_PER_SEC * (speed / BASE_MAX_SPEED) * dt;
       if (boostTimer > 0) drain *= GAS_DRAIN_BOOST_MUL;
       if (braking) drain *= GAS_DRAIN_BRAKE_MUL;
       gas = Math.max(0, gas - drain);

@@ -5,8 +5,8 @@
  * Invariants: version ≥ 2 shape; starter car always unlocked; levels clamped
  * to MAX_UPGRADE. v1 flat upgrades migrate into per-car maps.
  */
-import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=29";
-import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=24";
+import { SAVE_KEY, MAX_UPGRADE, COSTS } from "./constants.js?v=30";
+import { STARTER_CAR, getCar, BUYABLE_CARS } from "./cars.js?v=25";
 
 function emptyCarLevels() {
   return { topSpeedLevel: 0, accelerationLevel: 0, handlingLevel: 0, brakesLevel: 0 };
