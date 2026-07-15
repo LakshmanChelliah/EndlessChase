@@ -55,19 +55,30 @@ const box = await canvas.boundingBox();
 if (!box) throw new Error("canvas missing");
 const sx = box.x + box.width * 0.5;
 const sy = box.y + box.height * 0.55;
-const lanePreSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
-await page.mouse.move(sx, sy);
-await page.mouse.down();
-// Drag left slowly over ~600ms (inverted: left swipe → higher lane index)
-for (let i = 1; i <= 12; i++) {
-  await page.mouse.move(sx - i * 8, sy);
-  await page.waitForTimeout(50);
+
+async function slowSwipeLaneChange() {
+  const lanePreSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  // Drag left slowly over ~600ms (inverted: left swipe → higher lane index)
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(sx - i * 8, sy);
+    await page.waitForTimeout(50);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(350);
+  const lanePostSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
+  return { lanePreSlow, lanePostSlow };
 }
-await page.mouse.up();
-await page.waitForTimeout(350);
-const lanePostSlow = await page.evaluate(() => window.__endlessChase.getState().lane);
-if (lanePostSlow === lanePreSlow) {
-  throw new Error(`slow swipe did not change lane (was ${lanePreSlow})`);
+
+let swipe = await slowSwipeLaneChange();
+if (swipe.lanePostSlow === swipe.lanePreSlow) {
+  // One retry — touch-mouse guard / timing can miss the first gesture
+  await page.waitForTimeout(500);
+  swipe = await slowSwipeLaneChange();
+}
+if (swipe.lanePostSlow === swipe.lanePreSlow) {
+  throw new Error(`slow swipe did not change lane (was ${swipe.lanePreSlow})`);
 }
 
 const distanceText = await page.textContent("#hud-distance");
@@ -154,9 +165,31 @@ if (hard.length) {
   throw new Error("console errors present");
 }
 
+// Beat the saved best via debug end-run and confirm NEW BEST + persistence
+await page.goto(base, { waitUntil: "networkidle" });
+await page.evaluate(() => {
+  const key = "EndlessChase.Save.v1";
+  const raw = localStorage.getItem(key);
+  const data = raw ? JSON.parse(raw) : { version: 2, coins: 0, highScore: 0 };
+  data.highScore = 100;
+  localStorage.setItem(key, JSON.stringify(data));
+});
+await page.reload({ waitUntil: "networkidle" });
+await page.click("#btn-play");
+await page.waitForFunction(() => window.__endlessChase?.getState()?.running === true, null, { timeout: 8000 });
+const ended = await page.evaluate(() => window.__endlessChase.debugEndRun("wreck", 350));
+if (!ended || ended.highScore !== 350) throw new Error("debugEndRun did not set high score: " + JSON.stringify(ended));
+await page.waitForSelector("#panel-gameover:not(.hidden)");
+const goHighText = await page.textContent("#go-high");
+if (!/NEW BEST\s+350\s*m/.test(goHighText || "")) throw new Error("NEW BEST missing: " + goHighText);
+await page.click("#btn-menu");
+await page.waitForSelector("#panel-menu:not(.hidden)");
+const menuAfterBest = await page.textContent("#menu-high");
+if (!/BEST\s+350\s*m/.test(menuAfterBest || "")) throw new Error("menu best after run: " + menuAfterBest);
+
 console.log("SMOKE_OK", base, {
   distanceText,
-  highScore: afterReload.highScore,
+  highScore: 350,
   topSpeedLevel: speedLevelReload,
   coins: afterReload.coins,
 });

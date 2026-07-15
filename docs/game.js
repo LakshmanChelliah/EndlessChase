@@ -3214,4 +3214,13 @@ window.__endlessChase = {
     heat = 0;
     return { traffic, obstaclesCleared: true };
   },
+  /** Test helper: end the run optionally at a forced distance (for high-score checks). */
+  debugEndRun: (reason = "wreck", meters) => {
+    if (typeof meters === "number" && Number.isFinite(meters)) {
+      distance = Math.max(0, meters);
+      playerZ = distance;
+    }
+    endRun(reason === "bust" ? "bust" : "wreck");
+    return { distance: Math.floor(distance), highScore: save.highScore | 0 };
+  },
 };
