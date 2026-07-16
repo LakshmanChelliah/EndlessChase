@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=30";
+} from "./js/nes.js?v=32";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
@@ -4139,6 +4139,79 @@ window.__endlessChase = {
       ok: !!car,
       segZ: seg.position.z,
       cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
+    };
+  },
+  /** Inspect gas pylons on active station tiles (flicker / spawn checks). */
+  getGasStations: () => activeSegments
+    .filter((s) => s.userData.gasStation && s.userData.gasGroup)
+    .map((s) => {
+      const g = s.userData.gasGroup;
+      const glow = g.getObjectByName("gasSignGlow");
+      return {
+        z: +s.position.z.toFixed(1),
+        dz: +(s.position.z - playerZ).toFixed(1),
+        side: s.userData.gasSide < 0 ? -1 : 1,
+        resolved: !!s.userData.gasResolved,
+        hasPylon: !!g.getObjectByName("gasPylon"),
+        glowOpacity: glow ? +glow.material.opacity.toFixed(3) : null,
+        requiredLane: requiredLaneForStation(s),
+      };
+    }),
+  /** Test helper: attempt curb-lane swipe enter without a real gesture. */
+  debugTrySwipeEnterGas: (dir = "left") => {
+    const stations = activeSegments
+      .filter((s) => s.userData.gasStation && !s.userData.gasResolved)
+      .map((s) => ({
+        dz: +(s.position.z - playerZ).toFixed(2),
+        side: s.userData.gasSide,
+        laneOk: playerInStationLane(s),
+        req: requiredLaneForStation(s),
+      }));
+    const ok = trySwipeEnterGas(dir);
+    return {
+      ok,
+      dir,
+      lane,
+      running,
+      alive,
+      nearbyStation: !!nearbyStation,
+      gasVisit: gasVisit ? gasVisit.phase : null,
+      stations,
+    };
+  },
+  /** Test helper: stamp a gas station on a clear segment ahead. */
+  debugSpawnGas: (side = 1, preferDz = 18) => {
+    side = side < 0 ? -1 : 1;
+    const target = Math.max(12, preferDz);
+    let seg = null;
+    let best = Infinity;
+    for (const s of activeSegments) {
+      if (s.userData.intersection || s.userData.turnOffer || s.userData.transitionPhase) continue;
+      const dz = s.position.z - playerZ;
+      if (dz < 10 || dz > 55) continue;
+      const err = Math.abs(dz - target);
+      if (err < best) {
+        best = err;
+        seg = s;
+      }
+    }
+    if (!seg) return { ok: false, reason: "no-seg" };
+    if (seg.userData.gasGroup) {
+      seg.remove(seg.userData.gasGroup);
+      seg.userData.gasGroup = null;
+    }
+    seg.userData.gasStation = true;
+    seg.userData.gasResolved = false;
+    seg.userData.gasSide = side;
+    const half = (seg.userData.baseWidth || layoutForSegment(seg).width) / 2;
+    seg.userData.gasGroup = addGasStationVisuals(seg, half, seg.userData.biome, side);
+    nearbyStation = null;
+    return {
+      ok: true,
+      side,
+      z: +seg.position.z.toFixed(1),
+      dz: +(seg.position.z - playerZ).toFixed(1),
+      requiredLane: requiredLaneForStation(seg),
     };
   },
   /** Test helper: force the nearest intersection light phase. */
