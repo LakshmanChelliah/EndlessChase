@@ -81,11 +81,11 @@ export const TURN_WINDOW = 1.25;
 /** Cosmetic lane-change yaw kick (radians). */
 export const TURN_YAW = (25 * Math.PI) / 180;
 /** Locked intersection drift duration (seconds). */
-export const TURN_DRIFT_DURATION = 1.05;
+export const TURN_DRIFT_DURATION = 1.25;
 /** Peak yaw during a full intersection drift (±π/2). */
 export const TURN_DRIFT_YAW = Math.PI / 2;
-/** How far into the cross-street arm the drift arcs (meters past road half). */
-export const TURN_DRIFT_ARC = 7.5;
+/** Lateral bulge into the cross-street mid-drift (meters). */
+export const TURN_DRIFT_ARC = 6.5;
 /**
  * Show turn cue / accept turn swipe when intersection center is within this
  * Z distance ahead (and until just past center). Must last the whole approach —

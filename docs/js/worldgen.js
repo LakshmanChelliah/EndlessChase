@@ -5,7 +5,7 @@
  * and gas spacing stay varied without true chaos. Transition plans taper usable
  * lanes for optional biome corridors (highway on-ramp flow deferred).
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=33";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=35";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {

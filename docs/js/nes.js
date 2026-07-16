@@ -6,7 +6,7 @@
  * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=33";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=35";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -717,14 +717,16 @@ function addCrossZebra(root, armW, x) {
 }
 
 /**
- * Reference-style junction: asphalt arms, paint, stop bars, zebras, curb corners.
+ * Reference-style junction: asphalt arms, paint, stop bars, zebras, curb corners,
+ * and roadside buildings so cross streets read as continuing city blocks (not dead ends).
  * City gets 4-lane cross; rural/highway get 2-lane cross.
  */
-function addCrossStreet(root, half, width, biome = "city") {
+function addCrossStreet(root, half, width, biome = "city", tex = null) {
   const fourLane = biome === "city";
-  const armLen = 15;
+  const armLen = 32;
   const armW = fourLane ? Math.max(12, width * 0.85) : Math.max(8, width * 0.75);
   const armHalf = armW / 2;
+  const rnd = () => Math.random();
 
   for (const side of [-1, 1]) {
     const arm = new THREE.Mesh(new THREE.PlaneGeometry(armLen, armW), basicColor(NES.asphalt));
@@ -732,9 +734,9 @@ function addCrossStreet(root, half, width, biome = "city") {
     arm.position.set(side * (half + armLen / 2), 0.012, 0);
     root.add(arm);
     for (const zSide of [-1, 1]) {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.9, 2.0), basicColor(0x3a3d48));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.95, 3.2), basicColor(0x3a3d48));
       walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * (half + armLen / 2), 0.018, zSide * (armHalf + 1.05));
+      walk.position.set(side * (half + armLen / 2), 0.018, zSide * (armHalf + 1.65));
       root.add(walk);
     }
   }
@@ -753,7 +755,7 @@ function addCrossStreet(root, half, width, biome = "city") {
     }
     if (fourLane) {
       for (const oz of [-2.0, 2.0]) {
-        for (let xi = 0; xi < 4; xi++) {
+        for (let xi = 0; xi < 8; xi++) {
           const dash = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.04, 0.16), basicColor(NES.white));
           dash.position.set(xMid - armLen / 2 + 2 + xi * 3.5, 0.04, oz);
           root.add(dash);
@@ -782,6 +784,52 @@ function addCrossStreet(root, half, width, biome = "city") {
           sz * (armHalf + 0.3 + (2 - k) * 0.4)
         );
         root.add(curb);
+      }
+    }
+  }
+
+  // Continue the streetscape along each arm so junctions don't look like voids
+  addCrossStreetBuildings(root, half, armLen, armHalf, biome, tex, rnd);
+}
+
+/** Buildings / berm props flanking both cross-street arms. */
+function addCrossStreetBuildings(root, half, armLen, armHalf, biome, tex, rnd) {
+  const slots = 4;
+  for (const xSide of [-1, 1]) {
+    for (const zSide of [-1, 1]) {
+      for (let i = 0; i < slots; i++) {
+        const t = (i + 0.55) / slots;
+        const bx = xSide * (half + 3.5 + t * (armLen - 5));
+        const bz = zSide * (armHalf + 4.2);
+        if (biome === "city" && tex) {
+          const v = pickBuildingVariant(tex, rnd);
+          const h = v.preset.hMin + ((rnd() * v.preset.hSpan) | 0);
+          const b = makeBuildingBox(v.preset.w * 0.9, h, Math.min(v.preset.d, 4.2), v.map);
+          b.position.set(bx, h / 2, bz);
+          root.add(b);
+          if (rnd() > 0.4) {
+            const v2 = pickBuildingVariant(tex, rnd);
+            const h2 = v2.preset.hMin + ((rnd() * v2.preset.hSpan) | 0);
+            const b2 = makeBuildingBox(v2.preset.w * 0.75, h2, Math.min(v2.preset.d, 3.6), v2.map);
+            b2.position.set(bx + xSide * 2.2, h2 / 2, bz + zSide * 2.4);
+            root.add(b2);
+          }
+        } else if (biome === "rural") {
+          const grass = new THREE.Mesh(new THREE.PlaneGeometry(6.5, 5.5), basicColor(NES.forest));
+          grass.rotation.x = -Math.PI / 2;
+          grass.position.set(bx, 0.02, bz);
+          root.add(grass);
+          if (tex?.house && rnd() > 0.25) {
+            const house = makeBuildingBox(3.0, 2.4, 3.6, tex.house);
+            house.position.set(bx, 1.2, bz);
+            root.add(house);
+          }
+        } else {
+          // Highway berm + rail stub along the cross arm
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.55, 0.14), basicColor(0xc2c3c7));
+          rail.position.set(bx, 0.35, zSide * (armHalf + 1.2));
+          root.add(rail);
+        }
       }
     }
   }
@@ -1185,7 +1233,7 @@ export function makeSegment(tex, biome, opts = {}) {
 
   let lightGroup = null;
   if (intersection) {
-    addCrossStreet(root, half, width, biome);
+    addCrossStreet(root, half, width, biome, tex);
     lightGroup = addThreeLampSignal(root, half, tex);
   }
 

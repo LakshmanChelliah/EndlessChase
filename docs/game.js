@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=34";
+} from "./js/constants.js?v=35";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=30";
+} from "./js/nes.js?v=31";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, decideSegment, buildTransitionPlan,
@@ -740,7 +740,8 @@ let turnWindow = null;
  *   t: number,
  *   duration: number,
  *   fromX: number,
- *   toX: number,
+ *   landLane: number,
+ *   landX: number,
  *   fromZ: number,
  *   fromYaw: number,
  * }}
@@ -1014,18 +1015,23 @@ function clearNearbyTrafficForTurn() {
 
 /**
  * Begin a locked ~90° intersection drift (same biome; world stays +Z).
+ * Lands in the curb forward lane matching the turn side.
  * @param {-1|1} side −1 left (−X), +1 right (+X)
  * @param {object} seg intersection segment
  */
 function beginIntersectionDrift(side, seg) {
-  const half = roadHalfForSegment(seg);
+  const layout = currentLayout();
+  const usable = [...Array(layout.count).keys()];
+  const landLane = turnLaneForSide(layout, side, usable);
+  const landX = landLane >= 0 ? layout.xs[landLane] : layout.xs[layout.defaultLane];
   intersectionTurn = {
     side,
     seg,
     t: 0,
     duration: TURN_DRIFT_DURATION,
     fromX: laneX,
-    toX: side * (half + TURN_DRIFT_ARC),
+    landLane: landLane >= 0 ? landLane : layout.defaultLane,
+    landX,
     fromZ: playerZ,
     fromYaw: turnYaw || player.rotation.y || 0,
   };
@@ -1046,22 +1052,25 @@ function beginIntersectionDrift(side, seg) {
   setSpeedlines(true);
 }
 
-/** Advance drift pose; on complete snap heading back to +Z and resume normal drive. */
+/** Advance drift pose; ease into the landing curb lane and straighten by the end. */
 function updateIntersectionTurn(dt) {
   if (!intersectionTurn) return false;
   const tr = intersectionTurn;
   tr.t += dt;
   const u = easeInOutCubic(Math.min(1, tr.t / tr.duration));
   // Three.js +Y yaw: positive turns toward +X (screen right). Left turn (−X) needs negative yaw.
-  const yawTarget = tr.side < 0 ? -TURN_DRIFT_YAW : TURN_DRIFT_YAW;
-  // Hold Z progress through the junction while arcing into the cross street
-  laneX = THREE.MathUtils.lerp(tr.fromX, tr.toX, u);
+  const yawPeak = tr.side < 0 ? -TURN_DRIFT_YAW : TURN_DRIFT_YAW;
+  // Peak mid-turn, return to straight by the end for a smooth merge into the curb lane
+  const yawAmt = Math.sin(Math.PI * u);
+  turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawPeak, yawAmt);
+  turnYawVel = 0;
+  // Blend toward landing curb lane while bulging into the cross street mid-arc
+  const baseX = THREE.MathUtils.lerp(tr.fromX, tr.landX, u);
+  laneX = baseX + tr.side * TURN_DRIFT_ARC * Math.sin(Math.PI * u);
   laneVel = 0;
   playerZ = tr.fromZ + speed * Math.min(tr.t, tr.duration) * 0.55;
   distance = playerZ;
-  turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawTarget, u);
-  turnYawVel = 0;
-  const bank = tr.side * 0.22 * Math.sin(u * Math.PI);
+  const bank = tr.side * 0.22 * Math.sin(Math.PI * u);
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(bank * 0.35, turnYaw, bank);
 
@@ -1085,12 +1094,13 @@ function updateIntersectionTurn(dt) {
 }
 
 function finishIntersectionDrift() {
+  const tr = intersectionTurn;
   const layout = currentLayout();
-  const usable = [...Array(layout.count).keys()];
-  const land = nearestUsableLane(layout, layout.xs[layout.defaultLane], usable, true);
-  lane = land;
-  laneTargetX = layout.xs[land];
-  laneX = laneTargetX;
+  const land = tr?.landLane ?? turnLaneForSide(layout, tr?.side || -1);
+  const landX = tr?.landX ?? layout.xs[Math.max(0, land)];
+  lane = land >= 0 ? land : layout.defaultLane;
+  laneTargetX = landX;
+  laneX = landX;
   laneVel = 0;
   turnYaw = 0;
   turnYawVel = 0;
