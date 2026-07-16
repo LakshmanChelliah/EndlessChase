@@ -78,6 +78,10 @@ export function heatPressureMul(distance) {
 }
 export const TURN_COOLDOWN_SEGS = 10;
 export const TURN_WINDOW = 1.25;
+/** Longer offer window at traffic-light intersections (seconds). */
+export const INTERSECTION_TURN_WINDOW = 4.0;
+/** Start showing intersection turn cue this far ahead (meters). */
+export const INTERSECTION_TURN_AHEAD = 26;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
 /** Max duration for a tap (gas station). Swipes have no time limit. */

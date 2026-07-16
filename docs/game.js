@@ -16,7 +16,7 @@ import {
   BRAKE_DURATION, BRAKE_SPEED_MUL, BASE_MAX_SPEED, BASE_ACCEL, BASE_BRAKE,
   HEAT_SLOW_THRESHOLD, HEAT_RISE, HEAT_DECAY,
   TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
-  INTERSECTION_COOLDOWN_SEGS,
+  INTERSECTION_COOLDOWN_SEGS, INTERSECTION_TURN_WINDOW, INTERSECTION_TURN_AHEAD,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   CROSS_STOP_PAD, CROSS_ENTER_CUTOFF,
@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=34";
+} from "./js/constants.js?v=35";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -48,12 +48,12 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=32";
+} from "./js/nes.js?v=33";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=27";
+} from "./js/worldgen.js?v=28";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -3083,16 +3083,31 @@ function onSwipe(dir) {
     return;
   }
   pendingSwipe = null;
+
+  // If no live turn cue yet, but an intersection/on-ramp is in range, arm it now
+  // so a deliberate L/R swipe at the junction still counts.
+  if (!turnActive && (dir === "left" || dir === "right")) {
+    const armed = armNearbyTurnOffer();
+    if (armed) turnActive = armed;
+  }
+
   if (turnActive && (dir === "left" || dir === "right")) {
     const biome = dir === "left" ? turnActive.left : turnActive.right;
-    turnYawVel = dir === "left" ? TURN_YAW * 4 : -TURN_YAW * 4;
+    const fromIx = !!turnActive.fromIntersection;
+    turnYawVel = dir === "left" ? TURN_YAW * (fromIx ? 6 : 4) : -TURN_YAW * (fromIx ? 6 : 4);
     turnActive.seg.userData.turnResolved = true;
     if (turnActive.seg.userData.intersection) {
       // Consumed as a turn — don't also resolve red-light boost on this tile
       turnActive.seg.userData.resolved = true;
     }
     turnActive = null;
-    if (hudTurn) hudTurn.classList.add("hidden");
+    if (hudTurn) {
+      hudTurn.textContent = `TURNED → ${biomeLabel(biome)}`;
+      hudTurn.classList.remove("hidden");
+      setTimeout(() => { if (hudTurn) hudTurn.classList.add("hidden"); }, 1200);
+    }
+    triggerShake(0.18, 0.2);
+    triggerFlash("boost");
     applyBiomeSwitch(biome);
     return;
   }
@@ -3115,6 +3130,31 @@ function onSwipe(dir) {
   }
   if (dir === "down") startBrake();
   if (dir === "up") resumeThrottle();
+}
+
+/** Find a nearby turn offer / intersection and build a turnActive payload. */
+function armNearbyTurnOffer() {
+  for (const seg of activeSegments) {
+    const isIx = !!seg.userData.intersection;
+    const can =
+      (seg.userData.turnOffer || isIx) &&
+      seg.userData.turnLeftBiome &&
+      !seg.userData.turnResolved;
+    if (!can) continue;
+    const dz = seg.position.z - playerZ;
+    const ahead = isIx ? INTERSECTION_TURN_AHEAD : 12;
+    const past = isIx ? -4 : -2;
+    if (dz < ahead && dz > past) {
+      return {
+        seg,
+        left: seg.userData.turnLeftBiome,
+        right: seg.userData.turnRightBiome,
+        timer: isIx ? INTERSECTION_TURN_WINDOW : TURN_WINDOW,
+        fromIntersection: isIx,
+      };
+    }
+  }
+  return null;
 }
 
 function emitSwipeFromDelta(dx, dy) {
@@ -3628,33 +3668,41 @@ function tick(now) {
       }
 
       // Turn choice: on-ramp offers OR intersections (L/R onto a new road)
+      const isIxTurn = !!seg.userData.intersection;
       const canTurn =
-        (seg.userData.turnOffer || seg.userData.intersection) &&
+        (seg.userData.turnOffer || isIxTurn) &&
         seg.userData.turnLeftBiome &&
         !seg.userData.turnResolved;
       if (!gasVisit && canTurn) {
         const dz = seg.position.z - playerZ;
-        if (dz < 12 && dz > -2) {
+        const ahead = isIxTurn ? INTERSECTION_TURN_AHEAD : 12;
+        const past = isIxTurn ? -4 : -2;
+        if (dz < ahead && dz > past) {
           if (!turnActive || turnActive.seg !== seg) {
             turnActive = {
               seg,
               left: seg.userData.turnLeftBiome,
               right: seg.userData.turnRightBiome,
-              timer: TURN_WINDOW,
-              fromIntersection: !!seg.userData.intersection,
+              timer: isIxTurn ? INTERSECTION_TURN_WINDOW : TURN_WINDOW,
+              fromIntersection: isIxTurn,
             };
             if (hudTurn) {
-              const verb = turnActive.fromIntersection ? "TURN" : "";
-              hudTurn.textContent = verb
-                ? `← ${biomeLabel(turnActive.left)}  TURN  ${biomeLabel(turnActive.right)} →`
+              hudTurn.textContent = isIxTurn
+                ? `← TURN ${biomeLabel(turnActive.left)}   ·   TURN ${biomeLabel(turnActive.right)} →`
                 : `← ${biomeLabel(turnActive.left)}  ·  ${biomeLabel(turnActive.right)} →`;
               hudTurn.classList.remove("hidden");
+              hudTurn.classList.remove("cue-replay");
+              void hudTurn.offsetWidth;
+              hudTurn.classList.add("cue-replay");
             }
+            if (isIxTurn && hudLight) hudLight.classList.add("hidden");
           }
         }
         if (turnActive && turnActive.seg === seg) {
-          turnActive.timer -= dt;
-          if (turnActive.timer <= 0 || dz < -2) {
+          // Intersection turns stay offered until you pass — timer is a soft hint only
+          if (!isIxTurn) turnActive.timer -= dt;
+          const timedOut = !isIxTurn && turnActive.timer <= 0;
+          if (timedOut || dz <= past) {
             seg.userData.turnResolved = true;
             turnActive = null;
             if (hudTurn) hudTurn.classList.add("hidden");
@@ -4161,8 +4209,63 @@ window.__endlessChase = {
     .map((s) => ({
       z: +s.position.z.toFixed(1),
       light: s.userData.lightState,
+      left: s.userData.turnLeftBiome || null,
+      right: s.userData.turnRightBiome || null,
+      turnResolved: !!s.userData.turnResolved,
       dz: +(s.position.z - playerZ).toFixed(1),
     })),
+  /** Test helper: arm the nearest intersection turn and take it. */
+  debugTakeIntersectionTurn: (side = "left") => {
+    let armed = armNearbyTurnOffer();
+    if (!armed) {
+      let best = null;
+      for (const seg of activeSegments) {
+        if (!seg.userData.intersection || !seg.userData.turnLeftBiome || seg.userData.turnResolved) continue;
+        const dz = seg.position.z - playerZ;
+        if (dz < -4) continue;
+        if (!best || Math.abs(dz) < Math.abs(best.dz)) best = { seg, dz };
+      }
+      if (!best) return { ok: false, reason: "no-intersection" };
+      if (best.dz > INTERSECTION_TURN_AHEAD - 1) {
+        playerZ = best.seg.position.z - (INTERSECTION_TURN_AHEAD - 2);
+        distance = playerZ;
+      }
+      turnActive = {
+        seg: best.seg,
+        left: best.seg.userData.turnLeftBiome,
+        right: best.seg.userData.turnRightBiome,
+        timer: INTERSECTION_TURN_WINDOW,
+        fromIntersection: true,
+      };
+    } else {
+      turnActive = armed;
+    }
+    onSwipe(side === "right" ? "right" : "left");
+    return { ok: true, biome: activeBiome, transitioning, turnActive: !!turnActive };
+  },
+  /** Test helper: place an intersection just ahead with L/R turn biomes. */
+  debugSpawnIntersectionAhead: () => {
+    intersectionCooldown = 0;
+    turnCooldown = Math.max(turnCooldown, 2);
+    gasCooldown = Math.max(gasCooldown, 3);
+    const biome = activeBiome;
+    const key = poolKey(biome, "I");
+    const seg = segmentPool[key].rent();
+    stampSegmentDefaults(seg);
+    const pair = pickTurnBiomes(biome, distance);
+    seg.userData.turnLeftBiome = pair.left;
+    seg.userData.turnRightBiome = pair.right;
+    const saveZ = nextSpawnZ;
+    nextSpawnZ = playerZ + 22;
+    placeSegment(seg);
+    nextSpawnZ = Math.max(saveZ, nextSpawnZ);
+    return {
+      ok: true,
+      z: +seg.position.z.toFixed(1),
+      left: seg.userData.turnLeftBiome,
+      right: seg.userData.turnRightBiome,
+    };
+  },
   debugSpawnCross: (hazard = false) => {
     let seg = findAheadIntersection(playerZ - 5, 100);
     if (!seg) seg = activeSegments.find((s) => s.userData.intersection);

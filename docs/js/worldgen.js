@@ -6,7 +6,7 @@
  * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
  * Intersections also offer left/right turns onto new roads (same NES aesthetic).
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=34";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=35";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {
@@ -77,8 +77,8 @@ export function decideSegment(
 
   // Intersections — denser in city (also double as L/R turn choices onto new roads)
   if (intersectionCooldown > 0) return { kind: "", reason: "light-gap" };
-  const iChance = biome === "city" ? 0.18 : biome === "rural" ? 0.12 : 0.06;
-  if (spawnIndex > 8 && rng() < iChance * eventMul) return { kind: "I", reason: "light" };
+  const iChance = biome === "city" ? 0.22 : biome === "rural" ? 0.14 : 0.07;
+  if (spawnIndex > 6 && rng() < iChance * eventMul) return { kind: "I", reason: "light" };
 
   return { kind: "", reason: "straight" };
 }
