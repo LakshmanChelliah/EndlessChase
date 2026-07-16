@@ -56,7 +56,8 @@ import {
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=8";
+} from "./js/siren.js?v=9";
+import { playCoinPickup } from "./js/sfx.js?v=1";
 
 /** How far ahead NPCs scan for closed lanes; actual merge trigger is jittered per car. */
 const MERGE_LOOKAHEAD = 28;
@@ -3904,6 +3905,7 @@ function tick(now) {
         save.coins += 1;
         writeSave(save);
         noteMissionStat("coins", 1);
+        playCoinPickup();
       }
     }
 
@@ -4050,6 +4052,7 @@ window.__endlessChase = {
   startRun,
   setupMenuScene,
   beginBiomeTransition,
+  playCoinPickup,
   getSave: () => ({
     ...save,
     unlocked: [...save.unlocked],

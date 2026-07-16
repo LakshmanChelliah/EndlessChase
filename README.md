@@ -20,7 +20,7 @@ Mobile-first **8-bit getaway endless runner**: weave through traffic, outrun the
 |-------|--------|
 | Playable client | Vanilla ES modules + [Three.js](https://threejs.org/) 0.160 (CDN import map) |
 | Hosting | GitHub Pages (`docs/` as site root) |
-| Audio | Web Audio API (procedural siren) |
+| Audio | Web Audio API (procedural siren + coin pickup) |
 | Persistence | `localStorage` (`EndlessChase.Save.v1`) |
 | Tests | Playwright smoke (`tests/smoke.mjs`) |
 | Future port | Unity 2022.3 LTS C# (`Assets/Scripts/`) — not required to play |
@@ -92,7 +92,7 @@ Manual QA: [design/UITestChecklist.md](design/UITestChecklist.md).
 1. **Seeded worldgen** — Segment kinds hash off tile index (`worldgen.js`) so the road feels random but stays structured and reproducible.
 2. **Pool hygiene** — Traffic cars clear role flags on return (`carPool.js`) so recycled chase/gas/deco vehicles never stay frozen or uncollidable.
 3. **Mobile input contract** — Swipes fire on distance (no max-duration gate); touch/mouse guard avoids ghost clicks; inverted lane mapping matches thumb-friendly steering.
-4. **Heat-gated audio** — Siren unlocks inside the Play gesture (iOS requirement), then volume tracks the police-proximity bar after an opening cue.
+4. **Heat-gated audio** — Siren unlocks inside the Play gesture (iOS requirement), then volume tracks the police-proximity bar after an opening cue. Coin pickups share that AudioContext with a short ascending square blip.
 5. **Dual-stack foreshadowing** — Browser client ships today; Unity scripts mirror lane/pool/risk/save domains for a later iOS WebGL→native path.
 
 ## Controls (short)

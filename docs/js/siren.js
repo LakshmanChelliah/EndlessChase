@@ -35,6 +35,11 @@ function ensureCtx() {
   return ctx;
 }
 
+/** Shared AudioContext for other procedural SFX (coins, etc.). */
+export function getGameAudioContext() {
+  return ensureCtx();
+}
+
 /**
  * Must run synchronously inside a click/touch/pointer handler.
  * Creates the context, resumes it, and plays a tiny silent buffer —
