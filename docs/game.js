@@ -1182,23 +1182,28 @@ function setBrakeLights(root, on) {
   apply(R);
 }
 
-/** True when longitudinal speed is falling or the car is held at a stop. */
+/** True when longitudinal speed is falling, held well below cruise, or stopped. */
 function isNpcBraking(t, dt) {
-  if (t.userData.stopped) return true;
   const speed = t.userData.speed || 0;
+  const cruise = t.userData.cruiseSpeed || 0;
   const prev = t.userData._prevSpeed;
   t.userData._prevSpeed = speed;
+  if (t.userData.stopped) return true;
+  // Crawl / hold (light, headway, merge wait) — not only the decelerating frames
+  if (cruise > 0.5 && speed < cruise * 0.82) return true;
   if (prev == null) return false;
   const decel = (prev - speed) / Math.max(dt, 1e-4);
   return decel > 1.2;
 }
 
-/** Cross-traffic braking from |vx| drop or stop-line hold. */
+/** Cross-traffic braking from |vx| drop, crawl below cruise, or stop-line hold. */
 function isCrossBraking(t, dt) {
-  if (t.userData.stopped) return true;
   const absV = Math.abs(t.userData.vx || 0);
+  const cruise = Math.abs(t.userData.cruiseVx || 0);
   const prev = t.userData._prevAbsVx;
   t.userData._prevAbsVx = absV;
+  if (t.userData.stopped) return true;
+  if (cruise > 0.5 && absV < cruise * 0.82) return true;
   if (prev == null) return false;
   const decel = (prev - absV) / Math.max(dt, 1e-4);
   return decel > 1.2;
