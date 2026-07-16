@@ -66,11 +66,10 @@ export function decideSegment(
     if (rng() < gChance * eventMul) return { kind: "G", reason: "gas" };
   }
 
-  // Turn offers — rhythmic, not every tile
-  if (turnCooldown <= 0 && spawnIndex > 12) {
-    const base = biome === "highway" ? 0.18 : 0.24;
-    // Wave the chance so clusters of straight road feel intentional
-    const wave = 0.08 * Math.sin(spawnIndex * 0.37);
+  // Turn offers — less frequent so each biome stretch feels substantial
+  if (turnCooldown <= 0 && spawnIndex > 16) {
+    const base = biome === "highway" ? 0.12 : 0.16;
+    const wave = 0.05 * Math.sin(spawnIndex * 0.37);
     if (rng() < (base + wave) * eventMul) return { kind: "T", reason: "turn" };
   }
 
@@ -155,10 +154,10 @@ export function buildTransitionPlan(fromBiome, toBiome) {
   const narrowing = fromLayout.width > toLayout.width;
   const plan = [];
 
-  // Exit ramp — still fully in from-biome
+  // Exit — foreshadow; stay on straight mainline (no decorative on-ramp strip)
   plan.push({
     biome: fromBiome,
-    kind: "R",
+    kind: "",
     phase: "exit",
     adopt: false,
     usableLanes: allFrom.slice(),
@@ -167,8 +166,10 @@ export function buildTransitionPlan(fromBiome, toBiome) {
     closedLaneXs: [],
     fromBiome,
     toBiome,
-    mixBiome: null,
+    mixBiome: toBiome,
+    mixWeight: 0.25,
     layoutBiome: fromBiome,
+    atmosT: 0.05,
   });
 
   for (let i = 0; i < taperSteps; i++) {
@@ -192,28 +193,18 @@ export function buildTransitionPlan(fromBiome, toBiome) {
         )
       );
       closedLaneXs = closedSoFar.map((li) => fromLayout.xs[li]);
-      // Prefer placing denser cones on newly closed lanes (caller can use both)
       void newly;
     } else {
-      // Widening: road expands; all to-lanes become usable near the end
-      const openCount = Math.min(
-        toLayout.count,
-        Math.max(
-          fromLayout.count,
-          Math.ceil(((i + 1) / taperSteps) * toLayout.count)
-        )
-      );
-      usableLanes = allTo.slice(0, openCount);
-      if (usableLanes.length < fromLayout.count) {
-        usableLanes = allFrom.slice();
-      }
-      // During widen taper still drive with from-lane indices until enter
+      // Widening: road expands; keep from-lane indices until enter
       if (fromLayout.count <= toLayout.count) {
         usableLanes = allFrom.slice();
         layoutBiome = fromBiome;
+      } else {
+        usableLanes = allTo.slice();
       }
     }
 
+    const mixWeight = 0.3 + 0.55 * t1;
     plan.push({
       biome: fromBiome,
       kind: "",
@@ -225,16 +216,18 @@ export function buildTransitionPlan(fromBiome, toBiome) {
       closedLaneXs,
       fromBiome,
       toBiome,
-      mixBiome: i >= taperSteps - 2 ? toBiome : null,
+      mixBiome: toBiome,
+      mixWeight,
       layoutBiome,
       markT: t1,
+      atmosT: 0.1 + 0.75 * t1,
     });
   }
 
-  // Enter ramp — new biome visuals; player adopts when crossing this tile
+  // Enter — new biome visuals; player adopts when crossing this tile
   plan.push({
     biome: toBiome,
-    kind: "R",
+    kind: "",
     phase: "enter",
     adopt: true,
     usableLanes: allTo.slice(),
@@ -244,7 +237,9 @@ export function buildTransitionPlan(fromBiome, toBiome) {
     fromBiome,
     toBiome,
     mixBiome: fromBiome,
+    mixWeight: 0.35,
     layoutBiome: toBiome,
+    atmosT: 0.92,
   });
 
   for (let s = 0; s < 2; s++) {
@@ -260,7 +255,9 @@ export function buildTransitionPlan(fromBiome, toBiome) {
       fromBiome,
       toBiome,
       mixBiome: null,
+      mixWeight: 0,
       layoutBiome: toBiome,
+      atmosT: 1,
     });
   }
 
