@@ -231,10 +231,11 @@ export function buildTransitionPlan(fromBiome, toBiome) {
 
   function pushStep(partial) {
     const atmosT = easeInOut(corridorProgress(stepIndex, totalSteps));
-    // Scenery crossfade starts early and reaches ~1 by enter
-    const sceneryBlend = easeInOut(
-      Math.min(1, Math.max(0, (stepIndex - 0.2) / Math.max(1, taperSteps + 0.6)))
-    );
+    // Scenery crossfade starts on exit foreshadow and reaches ~1 by enter
+    const rawBlend = (stepIndex + 0.9) / Math.max(1, taperSteps + 0.9);
+    let sceneryBlend = easeInOut(Math.min(1, Math.max(0, rawBlend)));
+    // Exit always shows a readable destination hint
+    if (stepIndex === 0) sceneryBlend = Math.max(sceneryBlend, 0.22);
     const markStyle = markStyleFor(fromBiome, toBiome, atmosT);
     plan.push({
       mixBiome: sceneryBlend > 0.15 && sceneryBlend < 0.92 ? toBiome : null,

@@ -1359,6 +1359,16 @@ function updateNpcLaneMerge(t, dt) {
 function beginBiomeTransition(toBiome) {
   if (transitioning && transitionTo === toBiome) return;
   const from = activeBiome;
+  // Drop any still-queued steps from a prior corridor and scrub ahead transition tiles
+  // so a new merge never stacks on leftover exit/taper/enter metadata.
+  transitionQueue.length = 0;
+  for (const seg of activeSegments) {
+    if (!seg.userData?.transitionPhase) continue;
+    if (seg.position.z + SEG_LEN / 2 < playerZ - 2) continue;
+    clearMixBiomeOverlay(seg);
+    resetRoadTaper(seg);
+    stampSegmentDefaults(seg);
+  }
   transitionFrom = from;
   transitionTo = toBiome;
   transitionQueue = buildTransitionPlan(from, toBiome);
@@ -1460,7 +1470,7 @@ function spawnTransitionStep(plan) {
   const needsTaper =
     plan.widthStart != null &&
     plan.widthEnd != null &&
-    (plan.phase === "taper" || Math.abs(plan.widthStart - plan.widthEnd) > 0.01);
+    Math.abs(plan.widthStart - plan.widthEnd) > 0.01;
   if (needsTaper) {
     applyRoadTaper(seg, plan.widthStart, plan.widthEnd, plan.markT);
   } else if (plan.phase === "exit" || plan.phase === "taper") {
@@ -4123,12 +4133,28 @@ window.__endlessChase = {
       biome: s.userData.biome,
       usable: s.userData.usableLanes,
       closed: s.userData.closedLaneXs,
+      newlyClosed: s.userData.newlyClosedXs,
+      gore: s.userData.goreXs,
       tapered: !!s.userData.tapered,
       mix: !!s.userData.mixGroup,
       taperMarks: !!s.userData.taperMarkGroup,
       ground: !!s.userData.taperGround,
+      atmosT: s.userData.atmosT ?? null,
+      sceneryBlend: s.userData.sceneryBlend ?? null,
+      markStyle: s.userData.markStyle ?? null,
+      widthStart: s.userData.widthStart ?? null,
+      widthEnd: s.userData.widthEnd ?? null,
       z: +s.position.z.toFixed(1),
     })),
+  /** Debug: jump the player forward so corridor tiles can be sampled quickly. */
+  debugAdvance: (meters = 40) => {
+    const d = Math.max(0, +meters || 0);
+    playerZ += d;
+    distance = playerZ;
+    player.position.z = playerZ;
+    while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
+    return { playerZ, distance, queue: transitionQueue.length, transitioning };
+  },
   getCross: () => activeCross.map((c) => ({
     x: +c.position.x.toFixed(2),
     z: +c.position.z.toFixed(2),
