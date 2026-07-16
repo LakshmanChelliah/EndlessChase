@@ -4179,4 +4179,10 @@ window.__endlessChase = {
       missions: trackSnapshot(save),
     };
   },
+  /** Test helper: set tank % and refresh HUD (for low-fuel UI checks). */
+  debugSetGas: (pct) => {
+    gas = Math.max(0, Math.min(100, Number(pct) || 0));
+    updateGasUI();
+    return { gas, critical: gas < GAS_COLOR_LOW };
+  },
 };
