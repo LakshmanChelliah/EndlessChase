@@ -6,8 +6,7 @@
  * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=32";
-import { pickTurnBiomes } from "./worldgen.js?v=24";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=33";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -685,24 +684,6 @@ function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
   }
 }
 
-function addTurnOfferVisuals(root, layout) {
-  const half = layout.width / 2;
-  const stubL = new THREE.Mesh(new THREE.PlaneGeometry(6, 8), basicColor(NES.asphalt));
-  stubL.rotation.x = -Math.PI / 2;
-  stubL.position.set(-(half + 3), 0.005, 0);
-  const stubR = stubL.clone();
-  stubR.position.x = half + 3;
-  root.add(stubL, stubR);
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      const chev = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 1.2), basicColor(NES.yellow));
-      chev.position.set(side * (half - 1.2 - i * 0.4), 0.05, -2 + i * 1.5);
-      chev.rotation.y = side * 0.35;
-      root.add(chev);
-    }
-  }
-}
-
 /** Cross-street gap half-length (local Z) — no buildings through the junction. */
 const CROSS_GAP = 5;
 
@@ -970,12 +951,11 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
 /**
  * @param {object} tex texture atlas
  * @param {string} biome
- * @param {{intersection?:boolean,turnOffer?:boolean,onRamp?:boolean,gasStation?:boolean,distance?:number,widthOverride?:number,mixBiome?:string|null,seed?:number,transition?:boolean}} opts
+ * @param {{intersection?:boolean,onRamp?:boolean,gasStation?:boolean,distance?:number,widthOverride?:number,mixBiome?:string|null,seed?:number,transition?:boolean}} opts
  */
 export function makeSegment(tex, biome, opts = {}) {
   const {
     intersection = false,
-    turnOffer = false,
     onRamp = false,
     gasStation = false,
     gasSide: gasSideOpt = null,
@@ -1211,23 +1191,13 @@ export function makeSegment(tex, biome, opts = {}) {
 
   let gasGroup = null;
   // Visuals added at place-time so L/R can be chosen per spawn
-  if (gasStation && !intersection && !turnOffer) {
+  if (gasStation && !intersection) {
     gasGroup = addGasStationVisuals(root, half, biome, gasSide);
-  }
-
-  let turnLeftBiome = null;
-  let turnRightBiome = null;
-  if (turnOffer) {
-    const pair = pickTurnBiomes(biome, distance);
-    turnLeftBiome = pair.left;
-    turnRightBiome = pair.right;
-    addTurnOfferVisuals(root, { ...layout, width });
   }
 
   root.userData = {
     biome,
     intersection,
-    turnOffer,
     onRamp,
     gasStation,
     gasSide,
@@ -1240,8 +1210,6 @@ export function makeSegment(tex, biome, opts = {}) {
     resolved: false,
     turnResolved: false,
     gasResolved: false,
-    turnLeftBiome,
-    turnRightBiome,
     layoutWidth: width,
     baseWidth: width,
     roadMesh: road,

@@ -11,7 +11,8 @@
 - [ ] Swipe down / S brakes; heat rises → pursuit → **Busted!**
 - [ ] Swipe up / W / Space resumes after sticky brake
 - [ ] Collision shows **Wrecked!**; **Retry** works
-- [ ] Turn cue; swipe L/R switches biome via on-ramp
+- [ ] Intersection turn: outermost forward lane + swipe L/R drifts ~90° then continues same biome
+- [ ] Wrong-lane swipe at a light only changes lanes (or shows GET IN TURN LANE); no swipe = straight through
 - [ ] Gas station on L or R; must be in matching outer lane or see "Move closer to enter"
 - [ ] Pull-in anim → hold to fill; cops approach; release or full tank pulls out
 - [ ] Holding until heat 100 → Busted

@@ -6,7 +6,7 @@ Mobile-first **8-bit getaway endless runner**: weave through traffic, outrun the
 
 ## Features
 
-- **Biome lanes** — City (4 lanes, 2 opposing), rural (2-way), highway (2 one-way); prompted turns via on-ramps
+- **Biome lanes** — City (4 lanes, 2 opposing), rural (2-way), highway (2 one-way); drift turns at traffic-light intersections
 - **Risk / reward** — Red-light NOS + cross traffic, heat/pursuit busts, curb-lane gas stations (hold-to-fill while cops approach)
 - **Garage meta** — Coins, car unlocks, per-car upgrades persisted in `localStorage`
 - **Missions** — Four progressive tracks (gas visits, coins, distance, red-light boosts); clear a tier in one run for bonus coins, then the goal keeps advancing
@@ -102,7 +102,7 @@ Manual QA: [design/UITestChecklist.md](design/UITestChecklist.md).
 | Swipe L/R · A/D | Change lanes (inverted) |
 | Swipe down · S | Brake (sticky until up) |
 | Swipe up · W · Space | Resume / speed up |
-| Turn cues | Swipe onto on-ramp to switch biome |
+| Turn cues | Outer forward lane + swipe at a light to drift-turn |
 | Gas stations | Outer curb lane → pull in → hold to fill |
 
 ## License & disclaimer

@@ -14,7 +14,8 @@ import {
   SEG_LEN, NES_W, NES_H, NES, MAX_UPGRADE,
   BRAKE_DURATION, BRAKE_SPEED_MUL, BASE_MAX_SPEED, BASE_ACCEL, BASE_BRAKE,
   HEAT_SLOW_THRESHOLD, HEAT_RISE, HEAT_DECAY,
-  TURN_COOLDOWN_SEGS, TURN_WINDOW, TURN_YAW, MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
+  TURN_WINDOW, TURN_YAW, TURN_DRIFT_DURATION, TURN_DRIFT_YAW, TURN_DRIFT_ARC, TURN_HUD_AHEAD,
+  MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
@@ -28,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=32";
+} from "./js/constants.js?v=33";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -47,12 +48,12 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=29";
+} from "./js/nes.js?v=30";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
-  mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
-  nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=24";
+  mulberry32, hash2, decideSegment, buildTransitionPlan,
+  nearestUsableLane, getTransitionDef, turnLaneForSide,
+} from "./js/worldgen.js?v=25";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -99,13 +100,18 @@ const HOWTO_STEPS = [
   },
   {
     title: "THE GETAWAY",
-    body: "Weave traffic, take turn ramps into new biomes, and grab cash for the Garage. Crash or get caught = run over.",
+    body: "Weave traffic, drift through intersection turns when you're in the curb lane, and grab cash for the Garage. Crash or get caught = run over.",
     callout: "",
   },
   {
     title: "HUD BARS",
     body: "Top COPS bar fills when you slow, brake, or run empty — full bar means Busted. Bottom FUEL drains while you drive.",
     callout: "COPS = police heat · FUEL = tank · MPH = speed",
+  },
+  {
+    title: "INTERSECTION TURNS",
+    body: "At a light, move into the outermost forward lane on the side you want, then swipe that way to drift the corner. Miss it and you go straight.",
+    callout: "Leftmost lane → swipe left · Rightmost forward lane → swipe right",
   },
   {
     title: "FILL GAS",
@@ -718,10 +724,27 @@ let brakeTimer = 0;
 let heat = 0;
 let gas = 50;
 let slowTimer = 0;
-let turnCooldown = 4;
 let intersectionCooldown = 2;
 let gasCooldown = 12;
-let turnActive = null;
+/**
+ * Nearby intersection turn window (optional drift commit).
+ * @type {null | { seg: object, timer: number }}
+ */
+let turnWindow = null;
+/**
+ * Locked intersection drift sequence.
+ * @type {null | {
+ *   side: -1|1,
+ *   seg: object,
+ *   t: number,
+ *   duration: number,
+ *   fromX: number,
+ *   toX: number,
+ *   fromZ: number,
+ *   fromYaw: number,
+ * }}
+ */
+let intersectionTurn = null;
 /** @type {null | { seg: object }} */
 let nearbyStation = null;
 /**
@@ -792,7 +815,6 @@ function syncPlayerCar() {
 function segFactory(biome, kind) {
   const opts = { distance };
   if (kind === "I") opts.intersection = true;
-  if (kind === "T") opts.turnOffer = true;
   if (kind === "R") opts.onRamp = true;
   if (kind === "G") opts.gasStation = true;
   const s = makeSegment(tex, biome, opts);
@@ -803,17 +825,14 @@ function segFactory(biome, kind) {
 const segmentPool = {
   city: new Pool(() => segFactory("city", ""), 4),
   cityI: new Pool(() => segFactory("city", "I"), 2),
-  cityT: new Pool(() => segFactory("city", "T"), 1),
   cityR: new Pool(() => segFactory("city", "R"), 1),
   cityG: new Pool(() => segFactory("city", "G"), 1),
   rural: new Pool(() => segFactory("rural", ""), 3),
   ruralI: new Pool(() => segFactory("rural", "I"), 2),
-  ruralT: new Pool(() => segFactory("rural", "T"), 1),
   ruralR: new Pool(() => segFactory("rural", "R"), 1),
   ruralG: new Pool(() => segFactory("rural", "G"), 1),
   highway: new Pool(() => segFactory("highway", ""), 3),
   highwayI: new Pool(() => segFactory("highway", "I"), 1),
-  highwayT: new Pool(() => segFactory("highway", "T"), 1),
   highwayR: new Pool(() => segFactory("highway", "R"), 1),
   highwayG: new Pool(() => segFactory("highway", "G"), 1),
 };
@@ -977,6 +996,119 @@ function clearAheadTrafficSoft() {
       returnTrafficCar(t);
     }
   }
+}
+
+/** Cull nearby same-road + cross traffic so a drift turn is not an instant wreck. */
+function clearNearbyTrafficForTurn() {
+  for (let i = activeTraffic.length - 1; i >= 0; i--) {
+    const t = activeTraffic[i];
+    if (t.userData.pursuit) continue;
+    if (Math.abs(t.position.z - playerZ) < 35) {
+      activeTraffic.splice(i, 1);
+      returnTrafficCar(t);
+    }
+  }
+  while (activeCross.length) returnCross(activeCross.pop());
+}
+
+/**
+ * Begin a locked ~90° intersection drift (same biome; world stays +Z).
+ * @param {-1|1} side −1 left (−X), +1 right (+X)
+ * @param {object} seg intersection segment
+ */
+function beginIntersectionDrift(side, seg) {
+  const half = roadHalfForSegment(seg);
+  intersectionTurn = {
+    side,
+    seg,
+    t: 0,
+    duration: TURN_DRIFT_DURATION,
+    fromX: laneX,
+    toX: side * (half + TURN_DRIFT_ARC),
+    fromZ: playerZ,
+    fromYaw: turnYaw || player.rotation.y || 0,
+  };
+  turnWindow = null;
+  if (seg) {
+    seg.userData.turnResolved = true;
+    // Avoid red-light NOS resolving mid-drift
+    if (!seg.userData.resolved) seg.userData.resolved = true;
+  }
+  if (hudTurn) hudTurn.classList.add("hidden");
+  if (hudLight) hudLight.classList.add("hidden");
+  braking = false;
+  brakeTimer = 0;
+  clearNearbyTrafficForTurn();
+  clearAheadTrafficSoft();
+  turnYawVel = 0;
+  triggerShake(0.12, 0.14);
+  setSpeedlines(true);
+}
+
+/** Advance drift pose; on complete snap heading back to +Z and resume normal drive. */
+function updateIntersectionTurn(dt) {
+  if (!intersectionTurn) return false;
+  const tr = intersectionTurn;
+  tr.t += dt;
+  const u = easeInOutCubic(Math.min(1, tr.t / tr.duration));
+  const yawTarget = tr.side < 0 ? TURN_DRIFT_YAW : -TURN_DRIFT_YAW;
+  // Hold Z progress through the junction while arcing into the cross street
+  laneX = THREE.MathUtils.lerp(tr.fromX, tr.toX, u);
+  laneVel = 0;
+  playerZ = tr.fromZ + speed * Math.min(tr.t, tr.duration) * 0.55;
+  distance = playerZ;
+  turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawTarget, u);
+  turnYawVel = 0;
+  const bank = tr.side * 0.22 * Math.sin(u * Math.PI);
+  player.position.set(laneX, 0, playerZ);
+  player.rotation.set(bank * 0.35, turnYaw, bank);
+
+  // Chase cam orbits with yaw so the turn reads clearly
+  const back = 14;
+  const camX = laneX - Math.sin(turnYaw) * back;
+  const camZ = playerZ - Math.cos(turnYaw) * back;
+  camera.position.set(camX, 8.4, camZ);
+  setCameraLook(
+    laneX + Math.sin(turnYaw) * 14,
+    1.0,
+    playerZ + Math.cos(turnYaw) * 14
+  );
+  camFovTarget = 74;
+  worldGround.position.z = playerZ + 80;
+
+  if (u >= 1) {
+    finishIntersectionDrift();
+  }
+  return true;
+}
+
+function finishIntersectionDrift() {
+  const layout = currentLayout();
+  const usable = [...Array(layout.count).keys()];
+  const land = nearestUsableLane(layout, layout.xs[layout.defaultLane], usable, true);
+  lane = land;
+  laneTargetX = layout.xs[land];
+  laneX = laneTargetX;
+  laneVel = 0;
+  turnYaw = 0;
+  turnYawVel = 0;
+  player.position.set(laneX, 0, playerZ);
+  player.rotation.set(0, 0, 0);
+  intersectionTurn = null;
+  setSpeedlines(false);
+  clearNearbyTrafficForTurn();
+  if (hudTurn) {
+    hudTurn.textContent = "TURN OK";
+    hudTurn.classList.remove("hidden");
+    setTimeout(() => {
+      if (hudTurn && !turnWindow && !intersectionTurn) hudTurn.classList.add("hidden");
+    }, 900);
+  }
+}
+
+/** True while locked in an intersection drift (skip steer / collisions). */
+function inIntersectionTurn() {
+  return !!intersectionTurn;
 }
 
 function roadHalfForSegment(seg) {
@@ -1315,10 +1447,10 @@ function beginBiomeTransition(toBiome) {
   transitioning = true;
   const def = getTransitionDef(from, toBiome);
   transitionCloseLanes = (def.closeLaneIndices || []).slice();
-  turnCooldown = TURN_COOLDOWN_SEGS + transitionQueue.length + 2;
   intersectionCooldown = Math.max(intersectionCooldown, INTERSECTION_COOLDOWN_SEGS + 1);
   gasCooldown = Math.max(gasCooldown, 4);
-  turnActive = null;
+  turnWindow = null;
+  intersectionTurn = null;
   nearbyStation = null;
   hideStationFloat();
   clearAheadTrafficSoft();
@@ -1343,8 +1475,7 @@ function recycleSegment(seg) {
   seg.visible = false;
   const b = seg.userData.biome;
   let key = b;
-  if (seg.userData.turnOffer) key = poolKey(b, "T");
-  else if (seg.userData.onRamp) key = poolKey(b, "R");
+  if (seg.userData.onRamp) key = poolKey(b, "R");
   else if (seg.userData.intersection) key = poolKey(b, "I");
   else if (seg.userData.gasStation) key = poolKey(b, "G");
   if (!segmentPool[key]) key = b;
@@ -1429,38 +1560,27 @@ function spawnSegment() {
   const biome = activeBiome;
   const rng = mulberry32(hash2(spawnIndex, worldSeed ^ 0x9e3779b9));
   const decided = decideSegment(
-    biome, spawnIndex, turnCooldown, rng, intersectionCooldown, gasCooldown
+    biome, spawnIndex, 0, rng, intersectionCooldown, gasCooldown
   );
   let kind = decided.kind;
 
-  if (kind === "T") turnCooldown = TURN_COOLDOWN_SEGS;
-  else if (turnCooldown > 0) turnCooldown--;
-
   if (kind === "I") intersectionCooldown = INTERSECTION_COOLDOWN_SEGS;
   else if (intersectionCooldown > 0) intersectionCooldown--;
-  // Turns also push lights apart so a light isn't glued to an on-ramp
-  if (kind === "T" && intersectionCooldown < 2) intersectionCooldown = 2;
 
   if (kind === "G") gasCooldown = GAS_STATION_COOLDOWN_SEGS;
   else if (gasCooldown > 0) gasCooldown--;
-  // Keep stations away from turns/lights
-  if ((kind === "T" || kind === "I") && gasCooldown < 3) gasCooldown = 3;
+  // Keep stations away from lights
+  if (kind === "I" && gasCooldown < 3) gasCooldown = 3;
 
   const key = poolKey(biome, kind);
   const seg = segmentPool[key].rent();
   stampSegmentDefaults(seg);
 
-  if (seg.userData.turnOffer) {
-    const pair = pickTurnBiomes(biome, distance, rng);
-    seg.userData.turnLeftBiome = pair.left;
-    seg.userData.turnRightBiome = pair.right;
-  }
-
   placeSegment(seg);
 
   const layout = layoutFor(biome);
   const usable = usableLanesForSegment(seg);
-  if (rng() < 0.55 && kind !== "T") {
+  if (rng() < 0.55) {
     const coin = coinPool.rent();
     const sameDir = [];
     for (const i of usable) if (layout.dirs[i] === 1) sameDir.push(i);
@@ -2029,6 +2149,7 @@ function tryTapGasStation(clientX, clientY) {
 }
 
 function startBrake() {
+  if (intersectionTurn) return;
   braking = true;
 }
 
@@ -2254,11 +2375,14 @@ function endRun(reason) {
     returnTrafficCar(gasVisit.cop);
   }
   gasVisit = null;
+  turnWindow = null;
+  intersectionTurn = null;
   showPumpPanel(false);
   hideMergeBtn();
   nearbyStation = null;
   hideStationFloat();
   hideGasHint();
+  if (hudTurn) hudTurn.classList.add("hidden");
   if (goTitle) goTitle.textContent = reason === "bust" ? "Busted!" : "Wrecked!";
   goScoreTarget = Math.floor(distance);
   goScoreDisplay = 0;
@@ -2320,11 +2444,12 @@ function setupMenuScene() {
   speed = 0;
   turnYaw = 0;
   turnYawVel = 0;
-  turnActive = null;
+  turnWindow = null;
+  intersectionTurn = null;
   heat = 0;
   braking = false;
 
-  // Plain city blocks only — no intersections / turn offers on the title street
+  // Plain city blocks only — no intersections on the title street
   for (let i = 0; i < 7; i++) {
     const seg = segmentPool.city.rent();
     seg.userData.resolved = false;
@@ -2548,10 +2673,10 @@ function resetRunState() {
   heat = 0;
   gas = randomStartGas();
   slowTimer = 0;
-  turnCooldown = 10;
   intersectionCooldown = 6;
   gasCooldown = 18;
-  turnActive = null;
+  turnWindow = null;
+  intersectionTurn = null;
   nearbyStation = null;
   gasVisit = null;
   gasHintTimer = 0;
@@ -2655,10 +2780,10 @@ function prepareRunFromMenu() {
   heat = 0;
   gas = randomStartGas();
   slowTimer = 0;
-  turnCooldown = 10;
   intersectionCooldown = 6;
   gasCooldown = 18;
-  turnActive = null;
+  turnWindow = null;
+  intersectionTurn = null;
   nearbyStation = null;
   gasVisit = null;
   gasHintTimer = 0;
@@ -3017,7 +3142,7 @@ function updateIntro(dt) {
 }
 
 function onSwipe(dir) {
-  if (!alive || gasVisit) return;
+  if (!alive || gasVisit || intersectionTurn) return;
   if (!running) {
     // Boarding: any gesture skips to curb pull-out
     if (boarding) {
@@ -3029,15 +3154,24 @@ function onSwipe(dir) {
     return;
   }
   pendingSwipe = null;
-  if (turnActive && (dir === "left" || dir === "right")) {
-    const biome = dir === "left" ? turnActive.left : turnActive.right;
-    turnYawVel = dir === "left" ? TURN_YAW * 4 : -TURN_YAW * 4;
-    turnActive.seg.userData.turnResolved = true;
-    turnActive = null;
-    if (hudTurn) hudTurn.classList.add("hidden");
-    applyBiomeSwitch(biome);
-    return;
+
+  // Intersection drift: swipe toward the side while already in that outermost forward lane
+  if (turnWindow && (dir === "left" || dir === "right")) {
+    const side = dir === "left" ? -1 : 1;
+    const { layout, usable } = playerControlLayout();
+    const required = turnLaneForSide(layout, side, usable);
+    const current = commandedLaneIndex(layout);
+    if (required >= 0 && current === required) {
+      beginIntersectionDrift(side, turnWindow.seg);
+      return;
+    }
+    // Wrong lane — brief cue, then fall through to normal lane change
+    if (hudTurn) {
+      hudTurn.textContent = "GET IN TURN LANE";
+      hudTurn.classList.remove("hidden");
+    }
   }
+
   const { layout, usable } = playerControlLayout();
   // Inverted side-to-side: swipe left → move right lane, swipe right → move left
   if (dir === "left" || dir === "right") {
@@ -3437,9 +3571,30 @@ function tick(now) {
 
   const atPump = !!(gasVisit && alive);
   const driving = !!(running && alive && !gasVisit);
+  const drifting = !!(driving && intersectionTurn);
 
   if (atPump) {
     updateGasVisit(dt);
+  } else if (drifting) {
+    // Hold throttle during the locked drift; pose/cam owned by updateIntersectionTurn
+    const limiter = BASE_MAX_SPEED * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
+    speed = Math.min(limiter, Math.max(speed, limiter * 0.72));
+    updateIntersectionTurn(dt);
+
+    if (speed > 0.5 && gas > 0) {
+      let drain = GAS_DRAIN_PER_SEC * (speed / BASE_MAX_SPEED) * dt;
+      if (boostTimer > 0) drain *= GAS_DRAIN_BOOST_MUL;
+      gas = Math.max(0, gas - drain);
+    }
+    updateGasUI();
+    slowTimer = 0;
+    heat = Math.max(0, heat - HEAT_DECAY * 0.35 * dt);
+    updateHeatUI();
+    if (boostTimer > 0) {
+      boostTimer -= dt;
+      if (boostTimer <= 0) { boostTimer = 0; boostMul = 1; }
+    }
+    prevBoostActive = boostTimer > 0;
   } else if (driving) {
     // Continuous accel toward per-car limiter; sticky brake decelerates to floor.
     const limiter = BASE_MAX_SPEED * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
@@ -3566,27 +3721,41 @@ function tick(now) {
         continue;
       }
 
-      if (!gasVisit && seg.userData.turnOffer && !seg.userData.turnResolved) {
+      if (!gasVisit && !intersectionTurn && seg.userData.intersection && !seg.userData.turnResolved) {
         const dz = seg.position.z - playerZ;
-        if (dz < 12 && dz > -2) {
-          if (!turnActive || turnActive.seg !== seg) {
-            turnActive = {
-              seg,
-              left: seg.userData.turnLeftBiome,
-              right: seg.userData.turnRightBiome,
-              timer: TURN_WINDOW,
-            };
-            if (hudTurn) {
-              hudTurn.textContent = `← ${biomeLabel(turnActive.left)}  ·  ${biomeLabel(turnActive.right)} →`;
+        if (dz < TURN_HUD_AHEAD && dz > -2) {
+          if (!turnWindow || turnWindow.seg !== seg) {
+            turnWindow = { seg, timer: TURN_WINDOW };
+          }
+          // Cue only when already in a turn-side outermost forward lane
+          const { layout, usable } = playerControlLayout();
+          const cmd = commandedLaneIndex(layout);
+          const leftLane = turnLaneForSide(layout, -1, usable);
+          const rightLane = turnLaneForSide(layout, 1, usable);
+          if (hudTurn) {
+            if (cmd === leftLane && cmd === rightLane && leftLane >= 0) {
+              // Single forward lane (rural): both sides available
+              hudTurn.textContent = "← TURN  ·  TURN →";
               hudTurn.classList.remove("hidden");
+            } else if (cmd === leftLane && leftLane >= 0) {
+              hudTurn.textContent = "← TURN";
+              hudTurn.classList.remove("hidden");
+            } else if (cmd === rightLane && rightLane >= 0) {
+              hudTurn.textContent = "TURN →";
+              hudTurn.classList.remove("hidden");
+            } else if (turnWindow.seg === seg) {
+              // In window but wrong lane — keep quiet unless we just showed MOVE closer
+              if (hudTurn.textContent === "← TURN" || hudTurn.textContent === "TURN →" || hudTurn.textContent === "← TURN  ·  TURN →") {
+                hudTurn.classList.add("hidden");
+              }
             }
           }
         }
-        if (turnActive && turnActive.seg === seg) {
-          turnActive.timer -= dt;
-          if (turnActive.timer <= 0 || dz < -2) {
+        if (turnWindow && turnWindow.seg === seg) {
+          turnWindow.timer -= dt;
+          if (turnWindow.timer <= 0 || dz < -2) {
             seg.userData.turnResolved = true;
-            turnActive = null;
+            turnWindow = null;
             if (hudTurn) hudTurn.classList.add("hidden");
           }
         }
@@ -3614,7 +3783,7 @@ function tick(now) {
           updateLightVisual(seg);
         }
         pulseLightGlow(seg, now / 1000);
-        if (!gasVisit) {
+        if (!gasVisit && !intersectionTurn) {
           const dz = Math.abs(playerZ - seg.position.z);
           const aheadDz = seg.position.z - playerZ;
           if (aheadDz > 0 && aheadDz < LIGHT_HUD_AHEAD && !seg.userData.resolved) {
@@ -3754,13 +3923,14 @@ function tick(now) {
         returnTrafficCar(t);
         continue;
       }
-      if (!gasVisit && Math.abs(t.position.z - playerZ) < 2.2 && Math.abs(t.position.x - laneX) < 1.35) {
+      if (!gasVisit && !intersectionTurn && Math.abs(t.position.z - playerZ) < 2.2 && Math.abs(t.position.x - laneX) < 1.35) {
         crash();
         break;
       }
       // Near-miss juice
       if (
         !gasVisit &&
+        !intersectionTurn &&
         !t.userData.nearMissed &&
         Math.abs(t.position.z - playerZ) < 3.8 &&
         Math.abs(t.position.x - laneX) > 1.35 &&
@@ -3826,7 +3996,7 @@ function tick(now) {
         returnCross(t);
         continue;
       }
-      if (!gasVisit && Math.abs(t.position.z - playerZ) < 2.5 && Math.abs(t.position.x - laneX) < 2.0) {
+      if (!gasVisit && !intersectionTurn && Math.abs(t.position.z - playerZ) < 2.5 && Math.abs(t.position.x - laneX) < 2.0) {
         crash();
         break;
       }
@@ -3840,7 +4010,7 @@ function tick(now) {
         coinPool.return(c);
         continue;
       }
-      if (!gasVisit && Math.abs(c.position.z - playerZ) < 1.2 && Math.abs(c.position.x - laneX) < 1.2) {
+      if (!gasVisit && !intersectionTurn && Math.abs(c.position.z - playerZ) < 1.2 && Math.abs(c.position.x - laneX) < 1.2) {
         activeCoins.splice(i, 1);
         coinPool.return(c);
         runCoins += 1;
@@ -3866,7 +4036,7 @@ function tick(now) {
           o.material.opacity = 0.3 + 0.25 * Math.abs(Math.sin(phase * 5));
         }
       }
-      if (gasVisit) continue;
+      if (gasVisit || intersectionTurn) continue;
       if (o.userData.kind === "dust") continue;
       const hx = o.userData.hitHalfX || 0.5;
       const hz = o.userData.hitHalfZ || 0.5;
@@ -3990,6 +4160,8 @@ window.__endlessChase = {
   startRun,
   setupMenuScene,
   beginBiomeTransition,
+  beginIntersectionDrift,
+  turnLaneForSide,
   getSave: () => ({
     ...save,
     unlocked: [...save.unlocked],
@@ -4008,7 +4180,8 @@ window.__endlessChase = {
     running, alive, intro: !!intro, boarding: !!boarding, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
     difficulty: +difficulty01(distance).toFixed(3),
     trafficInterval: +trafficSpawnInterval(distance).toFixed(2),
-    turnActive: !!turnActive,
+    turnActive: !!turnWindow,
+    intersectionTurn: intersectionTurn ? { side: intersectionTurn.side, t: +intersectionTurn.t.toFixed(2) } : null,
     controlUsable: playerControlLayout().usable.slice(),
     biome: activeBiome, heat, gas, braking, coins: save.coins, highScore: save.highScore | 0,
     nearbyStation: !!nearbyStation,

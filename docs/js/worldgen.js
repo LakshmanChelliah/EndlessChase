@@ -2,10 +2,10 @@
  * Seeded procedural world generation — seemingly random, structurally fair.
  *
  * Decisions hash off segment index (mulberry32 / hash2) so biomes, intersections,
- * and gas spacing stay varied without true chaos. Turn offers are city ↔ rural;
- * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
+ * and gas spacing stay varied without true chaos. Transition plans taper usable
+ * lanes for optional biome corridors (highway on-ramp flow deferred).
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=32";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=33";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {
@@ -26,29 +26,15 @@ export function hash2(a, b) {
 }
 
 /**
- * Playable turns are city ↔ suburbs (rural) only.
- * Highway is deferred until a proper on-ramp / one-way flow exists.
- * @param {string} from
- * @param {number} [_distance]
- * @param {() => number} [_rng]
- */
-export function pickTurnBiomes(from, _distance = 0, _rng = Math.random) {
-  if (from === "city") return { left: "rural", right: "rural" };
-  if (from === "rural") return { left: "city", right: "city" };
-  // Escape hatch if somehow on highway
-  return { left: "city", right: "city" };
-}
-
-/**
  * Decide what kind of segment to spawn for a given index.
- * Returns { kind: ""|"I"|"T"|"R"|"G", reason }
+ * Returns { kind: ""|"I"|"R"|"G", reason }
  * @param {number} [intersectionCooldown=0] remaining segments before another light may spawn
  * @param {number} [gasCooldown=0] remaining segments before another gas station may spawn
  */
 export function decideSegment(
   biome,
   spawnIndex,
-  turnCooldown,
+  _turnCooldown,
   rng,
   intersectionCooldown = 0,
   gasCooldown = 0
@@ -60,18 +46,10 @@ export function decideSegment(
   const eventRamp = Math.min(1, Math.max(0, (spawnIndex - 8) / 70));
   const eventMul = 0.45 + 0.55 * eventRamp;
 
-  // Gas stations — roll before turns/lights so they are not starved
+  // Gas stations — roll before lights so they are not starved
   if (gasCooldown <= 0 && spawnIndex > 14) {
     const gChance = biome === "city" ? 0.14 : biome === "rural" ? 0.11 : 0.08;
     if (rng() < gChance * eventMul) return { kind: "G", reason: "gas" };
-  }
-
-  // Turn offers — rhythmic, not every tile
-  if (turnCooldown <= 0 && spawnIndex > 12) {
-    const base = biome === "highway" ? 0.18 : 0.24;
-    // Wave the chance so clusters of straight road feel intentional
-    const wave = 0.08 * Math.sin(spawnIndex * 0.37);
-    if (rng() < (base + wave) * eventMul) return { kind: "T", reason: "turn" };
   }
 
   // Intersections — denser in city, rare on highway; never back-to-back
@@ -307,6 +285,31 @@ export function nearestUsableLane(layout, x, usableLanes, preferForward = true) 
 /** Lerp road width between layouts for transition visuals. */
 export function blendWidth(fromLayout, toLayout, t) {
   return fromLayout.width + (toLayout.width - fromLayout.width) * t;
+}
+
+/**
+ * Outermost forward lane on a side for intersection turns.
+ * side −1 = left (−X / lower screen), +1 = right (+X).
+ * @param {{ count: number, xs: number[], dirs: number[] }} layout
+ * @param {-1|1} side
+ * @param {number[]} [usable]
+ * @returns {number} lane index or -1
+ */
+export function turnLaneForSide(layout, side, usable = null) {
+  const allowed =
+    usable && usable.length ? usable : [...Array(layout.count).keys()];
+  let best = -1;
+  let bestX = side < 0 ? Infinity : -Infinity;
+  for (const i of allowed) {
+    if (i < 0 || i >= layout.count) continue;
+    if (layout.dirs[i] !== 1) continue;
+    const x = layout.xs[i];
+    if (side < 0 ? x < bestX : x > bestX) {
+      bestX = x;
+      best = i;
+    }
+  }
+  return best;
 }
 
 export { BIOMES };

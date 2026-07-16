@@ -76,9 +76,18 @@ export function heatGraceFor(distance) {
 export function heatPressureMul(distance) {
   return HEAT_RISE_EASY_MUL + difficulty01(distance) * (1 - HEAT_RISE_EASY_MUL);
 }
-export const TURN_COOLDOWN_SEGS = 10;
+/** Commit window while approaching an intersection center (seconds). */
 export const TURN_WINDOW = 1.25;
+/** Cosmetic lane-change yaw kick (radians). */
 export const TURN_YAW = (25 * Math.PI) / 180;
+/** Locked intersection drift duration (seconds). */
+export const TURN_DRIFT_DURATION = 1.05;
+/** Peak yaw during a full intersection drift (±π/2). */
+export const TURN_DRIFT_YAW = Math.PI / 2;
+/** How far into the cross-street arm the drift arcs (meters past road half). */
+export const TURN_DRIFT_ARC = 7.5;
+/** Show turn cue when intersection center is within this Z distance. */
+export const TURN_HUD_AHEAD = 12;
 export const MIN_SWIPE = 40;
 /** Max duration for a tap (gas station). Swipes have no time limit. */
 export const TAP_MAX_MS = 450;
@@ -270,7 +279,6 @@ export function biomeLabel(b) {
 
 export function poolKey(biome, kind) {
   if (kind === "I") return biome + "I";
-  if (kind === "T") return biome + "T";
   if (kind === "R") return biome + "R";
   if (kind === "G") return biome + "G";
   return biome;
