@@ -175,7 +175,7 @@ export const NES = {
   green: 0x00e436,
   asphalt: 0x292a32,
   curb: 0x5a5a6e,
-  forest: 0x0a5a30,
+  forest: 0x008751,
 };
 
 /** Per-biome fog / sky / ground — keeps NES palette, differentiates stretches. */
@@ -185,7 +185,7 @@ export const BIOME_ATMOS = {
     fogNear: 35,
     fogFar: 95,
     clear: 0x1d2b53,
-    ground: 0x2f3a38,
+    ground: 0x008751,
     sky: ["#0f1730", "#1d2b53", "#3a4570", "#5a6588"],
     stars: "#fff1e8",
   },
@@ -245,26 +245,16 @@ export const BIOMES = {
 };
 
 /**
- * Transition corridor defs. Narrowing (MUTCD-style) uses longer tapers;
- * widening uses ~½ the drop length. closeLaneIndices are from-biome outers.
+ * Transition corridor defs. Narrowing closes outer lanes with obstacles;
+ * widening expands width with no closures.
  */
 export const TRANSITIONS = {
-  CITY_TO_HIGHWAY: { from: "city", to: "highway", taperSteps: 5, closeLaneIndices: [0, 3] },
-  CITY_TO_RURAL: { from: "city", to: "rural", taperSteps: 5, closeLaneIndices: [0, 3] },
+  CITY_TO_HIGHWAY: { from: "city", to: "highway", taperSteps: 4, closeLaneIndices: [0, 3] },
+  CITY_TO_RURAL: { from: "city", to: "rural", taperSteps: 4, closeLaneIndices: [0, 3] },
   HIGHWAY_TO_CITY: { from: "highway", to: "city", taperSteps: 3, closeLaneIndices: [] },
   HIGHWAY_TO_RURAL: { from: "highway", to: "rural", taperSteps: 3, closeLaneIndices: [] },
   RURAL_TO_CITY: { from: "rural", to: "city", taperSteps: 3, closeLaneIndices: [] },
   RURAL_TO_HIGHWAY: { from: "rural", to: "highway", taperSteps: 3, closeLaneIndices: [] },
-};
-
-/** Stable center-line paint modes for transition tiles. */
-export const MARK_STYLES = {
-  CITY_DIVIDED: "city_divided",
-  RURAL_TWO_WAY: "rural_two_way",
-  HIGHWAY_ONE_WAY: "highway_one_way",
-  BLEND_CITY_RURAL: "blend_city_rural",
-  BLEND_CITY_HIGHWAY: "blend_city_highway",
-  BLEND_RURAL_HIGHWAY: "blend_rural_highway",
 };
 
 /** @param {Biome} biome */

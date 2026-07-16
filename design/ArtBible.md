@@ -33,15 +33,11 @@
 | **Rural** | **10 m** | −2.0, 2.0 | **0 forward**, 1 oncoming; double yellow at x=0 |
 | **Highway** | **10 m** | −2.0, 2.0 | both same (+Z); dashed white between lanes |
 
-Biome changes append a **transition corridor** (exit → taper tiles → enter → settle) instead of wiping the road. Segment kinds are picked with a seeded PRNG hashed by tile index for seemingly-random but structured variety.
+Biome changes append a **transition corridor** (exit ramp → taper tiles → enter ramp → settle) instead of wiping the road. Segment kinds are picked with a seeded PRNG hashed by tile index for seemingly-random but structured variety.
 
 **Physical lane merges:** When narrowing (e.g. city 4-lane → highway/rural 2-lane), taper tiles progressively close the outer lanes with pooled construction cones and barricades, and the road floor mesh trapezoids inward via vertex adjustments. Lane limits (`usableLanes`) are stamped on each segment; swipe targets come from the segment under the player, not a global biome flip at spawn. The new biome is adopted only when the player crosses an enter/settle tile. **The game never auto-steers the player** — lateral spring only follows swipe/reset/gas targets (`laneTargetX`). If the player stays in a closing lane through a transmission, they crash into pylons; lane indices are not remapped across biomes in a way that moves them.
 
-**Transition markings (MUTCD-inspired):** Exit foreshadows lane ends with arrows. Taper tiles paint solid white **edge lines** that follow `widthStart→widthEnd`, yellow **gore / chevron wedges** in closing lanes, and destination-aware center paint (`city_divided` / `rural_two_way` / `highway_one_way` / blends). Narrowing uses **5** taper steps (~100 m); widening uses **3** (~½ drop). Delineators (cones/barricades) are denser on **newly** closed lanes. Widening opens outer city lanes on late taper steps before enter.
-
-**Seamless environment:** Roadside props crossfade via `sceneryBlend` (thin from-biome buildings from the far end first; recolor sidewalks/berms in place so ground never pops). Fog/sky/ground **lerp** across the corridor (`atmosT`). Every corridor tile paints a Z-gradient verge carpet (`paintTransitionGround`) so land-use color blends tile-to-tile like a real rural-fringe / layered-landscape gateway. Corridor start recycles ahead tiles so the merge begins immediately—no leftover pure from-biome strip.
-
-Turn-offer tiles add left/right stubs + gore; mainline biome merges use straight corridor tiles (not decorative on-ramp strips).
+Turn-offer tiles add left/right stubs + gore; on-ramp / transition tiles add a merge strip.
 
 ## Assets
 
