@@ -723,7 +723,7 @@ function addCrossZebra(root, armW, x) {
  */
 function addCrossStreet(root, half, width, biome = "city", tex = null) {
   const fourLane = biome === "city";
-  const armLen = 32;
+  const armLen = 42;
   const armW = fourLane ? Math.max(12, width * 0.85) : Math.max(8, width * 0.75);
   const armHalf = armW / 2;
   const rnd = () => Math.random();
@@ -733,11 +733,18 @@ function addCrossStreet(root, half, width, biome = "city", tex = null) {
     arm.rotation.x = -Math.PI / 2;
     arm.position.set(side * (half + armLen / 2), 0.012, 0);
     root.add(arm);
+    // Deep sidewalk + block fill so fog doesn't read as a void beyond the curb
     for (const zSide of [-1, 1]) {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.95, 3.2), basicColor(0x3a3d48));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.98, 8.5), basicColor(0x3a3d48));
       walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * (half + armLen / 2), 0.018, zSide * (armHalf + 1.65));
+      walk.position.set(side * (half + armLen / 2), 0.016, zSide * (armHalf + 4.4));
       root.add(walk);
+      if (biome === "city") {
+        const block = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.9, 10), basicColor(0x2a2c38));
+        block.rotation.x = -Math.PI / 2;
+        block.position.set(side * (half + armLen / 2), 0.011, zSide * (armHalf + 12));
+        root.add(block);
+      }
     }
   }
 
@@ -755,7 +762,7 @@ function addCrossStreet(root, half, width, biome = "city", tex = null) {
     }
     if (fourLane) {
       for (const oz of [-2.0, 2.0]) {
-        for (let xi = 0; xi < 8; xi++) {
+        for (let xi = 0; xi < 11; xi++) {
           const dash = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.04, 0.16), basicColor(NES.white));
           dash.position.set(xMid - armLen / 2 + 2 + xi * 3.5, 0.04, oz);
           root.add(dash);
@@ -794,39 +801,37 @@ function addCrossStreet(root, half, width, biome = "city", tex = null) {
 
 /** Buildings / berm props flanking both cross-street arms. */
 function addCrossStreetBuildings(root, half, armLen, armHalf, biome, tex, rnd) {
-  const slots = 4;
+  const slots = 6;
   for (const xSide of [-1, 1]) {
     for (const zSide of [-1, 1]) {
       for (let i = 0; i < slots; i++) {
-        const t = (i + 0.55) / slots;
-        const bx = xSide * (half + 3.5 + t * (armLen - 5));
-        const bz = zSide * (armHalf + 4.2);
+        const t = (i + 0.35) / slots;
+        const bx = xSide * (half + 2.8 + t * (armLen - 4));
+        const bz = zSide * (armHalf + 5.0);
         if (biome === "city" && tex) {
           const v = pickBuildingVariant(tex, rnd);
           const h = v.preset.hMin + ((rnd() * v.preset.hSpan) | 0);
-          const b = makeBuildingBox(v.preset.w * 0.9, h, Math.min(v.preset.d, 4.2), v.map);
+          const b = makeBuildingBox(v.preset.w * 0.95, h, Math.min(v.preset.d, 4.8), v.map);
           b.position.set(bx, h / 2, bz);
           root.add(b);
-          if (rnd() > 0.4) {
-            const v2 = pickBuildingVariant(tex, rnd);
-            const h2 = v2.preset.hMin + ((rnd() * v2.preset.hSpan) | 0);
-            const b2 = makeBuildingBox(v2.preset.w * 0.75, h2, Math.min(v2.preset.d, 3.6), v2.map);
-            b2.position.set(bx + xSide * 2.2, h2 / 2, bz + zSide * 2.4);
-            root.add(b2);
-          }
+          const v2 = pickBuildingVariant(tex, rnd);
+          const h2 = v2.preset.hMin + ((rnd() * v2.preset.hSpan) | 0);
+          const b2 = makeBuildingBox(v2.preset.w * 0.8, h2, Math.min(v2.preset.d, 4.0), v2.map);
+          b2.position.set(bx + xSide * 2.4, h2 / 2, bz + zSide * 3.2);
+          root.add(b2);
         } else if (biome === "rural") {
-          const grass = new THREE.Mesh(new THREE.PlaneGeometry(6.5, 5.5), basicColor(NES.forest));
+          const grass = new THREE.Mesh(new THREE.PlaneGeometry(7.5, 6.5), basicColor(NES.forest));
           grass.rotation.x = -Math.PI / 2;
           grass.position.set(bx, 0.02, bz);
           root.add(grass);
-          if (tex?.house && rnd() > 0.25) {
+          if (tex?.house && rnd() > 0.2) {
             const house = makeBuildingBox(3.0, 2.4, 3.6, tex.house);
             house.position.set(bx, 1.2, bz);
             root.add(house);
           }
         } else {
           // Highway berm + rail stub along the cross arm
-          const rail = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.55, 0.14), basicColor(0xc2c3c7));
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.55, 0.14), basicColor(0xc2c3c7));
           rail.position.set(bx, 0.35, zSide * (armHalf + 1.2));
           root.add(rail);
         }
