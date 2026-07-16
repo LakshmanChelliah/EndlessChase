@@ -5,7 +5,7 @@
  * and gas spacing stay varied without true chaos. Turn offers reach all biomes.
  * Transition plans emit MUTCD-inspired taper recipes (lanes, paint, scenery blend).
  */
-import { BIOMES, TRANSITIONS, MARK_STYLES, layoutFor } from "./constants.js?v=34";
+import { BIOMES, TRANSITIONS, MARK_STYLES, layoutFor } from "./constants.js?v=33";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {

@@ -27,7 +27,6 @@
     "smoke:live": "node tests/smoke.mjs https://lakshmanchelliah.github.io/EndlessChase/",
     "test:transitions": "node tests/transitions.mjs",
     "test:transition-ux": "node tests/transition-ux.mjs http://localhost:4173",
-    "test:transition-visual": "node tests/transition-visual.mjs http://localhost:4173",
     "textures": "node scripts/gen-nes-textures.mjs"
   },
   "devDependencies": {

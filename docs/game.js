@@ -28,7 +28,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=34";
+} from "./js/constants.js?v=33";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -46,13 +46,13 @@ import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   clearMixBiomeOverlay, applyBiomeAtmosphere, lerpBiomeAtmosphere, makeDustMote,
-  makeBankLandmark, decorateTransitionTile, paintTransitionGround, roadsideGroundColor,
-} from "./js/nes.js?v=31";
+  makeBankLandmark, decorateTransitionTile,
+} from "./js/nes.js?v=30";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=26";
+} from "./js/worldgen.js?v=25";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -586,8 +586,8 @@ const sky = addSky(camera);
 
 // Permanent berm under the road so the navy void never reads as bare ground
 const worldGround = new THREE.Mesh(
-  new THREE.PlaneGeometry(160, 900),
-  new THREE.MeshBasicMaterial({ color: roadsideGroundColor("city") })
+  new THREE.PlaneGeometry(90, 500),
+  new THREE.MeshBasicMaterial({ color: NES.forest })
 );
 worldGround.rotation.x = -Math.PI / 2;
 worldGround.position.set(0, -0.04, 80);
@@ -973,11 +973,6 @@ function updateTransitionAtmosphere() {
     t = 0.08;
   }
   lerpBiomeAtmosphere(scene, sky, worldGround, transitionFrom, transitionTo, t, renderer);
-  // Push fog farther during corridor so the horizon doesn't hard-cut to void
-  if (scene.fog) {
-    scene.fog.far = Math.max(scene.fog.far, 130);
-    scene.fog.near = Math.min(scene.fog.near, 42);
-  }
 }
 
 /**
@@ -1419,26 +1414,16 @@ function updateNpcLaneMerge(t, dt) {
 function beginBiomeTransition(toBiome) {
   if (transitioning && transitionTo === toBiome) return;
   const from = activeBiome;
+  // Drop any still-queued steps from a prior corridor and scrub ahead transition tiles
+  // so a new merge never stacks on leftover exit/taper/enter metadata.
   transitionQueue.length = 0;
-  // Recycle everything ahead of the player so the corridor starts immediately
-  // (no leftover pure from-biome tiles creating a hard land-use cut).
-  for (let i = activeSegments.length - 1; i >= 0; i--) {
-    const seg = activeSegments[i];
-    const segStart = seg.position.z - SEG_LEN / 2;
-    if (segStart > playerZ + 2) {
-      activeSegments.splice(i, 1);
-      recycleSegment(seg);
-      continue;
-    }
-    // Scrub any transition metadata still under/near the player
-    if (seg.userData?.transitionPhase) {
-      clearMixBiomeOverlay(seg);
-      resetRoadTaper(seg);
-      stampSegmentDefaults(seg);
-    }
+  for (const seg of activeSegments) {
+    if (!seg.userData?.transitionPhase) continue;
+    if (seg.position.z + SEG_LEN / 2 < playerZ - 2) continue;
+    clearMixBiomeOverlay(seg);
+    resetRoadTaper(seg);
+    stampSegmentDefaults(seg);
   }
-  // Align spawn so the first corridor tile begins just ahead of the player
-  nextSpawnZ = Math.ceil((playerZ + SEG_LEN * 0.6) / SEG_LEN) * SEG_LEN;
   transitionFrom = from;
   transitionTo = toBiome;
   transitionQueue = buildTransitionPlan(from, toBiome);
@@ -1453,10 +1438,6 @@ function beginBiomeTransition(toBiome) {
   hideStationFloat();
   clearAheadTrafficSoft();
   kickClosingLaneMerges(from, toBiome);
-  // Prefill corridor tiles now so the first frame already shows the gateway
-  while (transitionQueue.length && nextSpawnZ < playerZ + 10 * SEG_LEN) {
-    spawnTransitionStep(transitionQueue.shift());
-  }
   if (hudTurn) hudTurn.classList.add("hidden");
   if (hudLight) {
     hudLight.textContent = `→ ${biomeLabel(toBiome)}`;
@@ -1540,9 +1521,6 @@ function spawnTransitionStep(plan) {
   seg.userData.toBiome = plan.toBiome;
   // Do NOT flip activeBiome here — adoption is player-position based
   placeSegment(seg);
-
-  // Ground colors first so taper berms match the rural-fringe blend
-  paintTransitionGround(seg, plan);
 
   const needsTaper =
     plan.widthStart != null &&
@@ -3075,7 +3053,7 @@ function updateBoarding(dt) {
     fxHeatVignette.style.opacity = String(0.2 + uLinear * 0.35);
   }
 
-  worldGround.position.z = 200;
+  worldGround.position.z = 80;
 
   if (uLinear >= 1 || allSeated) {
     for (const m of boarding.members) {
@@ -3747,12 +3725,12 @@ function tick(now) {
     if (braking) look.y -= 0.35;
     setCameraLook(look.x, look.y, look.z);
     camFovTarget = 72 + (boostActive ? 5 : 0) - (braking ? 3.5 : 0);
-    worldGround.position.z = playerZ + 200;
+    worldGround.position.z = playerZ + 80;
   }
 
   // World keeps simulating while driving OR stopped at a pump (NPCs still move)
   if (alive && (running || gasVisit)) {
-    while (nextSpawnZ < playerZ + (transitioning ? 14 : 10) * SEG_LEN) spawnSegment();
+    while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
 
     for (let i = activeSegments.length - 1; i >= 0; i--) {
       const seg = activeSegments[i];
@@ -4109,12 +4087,12 @@ function tick(now) {
   } else if (boarding) {
     updateBoarding(dt);
     updateTireDust(dt);
-    worldGround.position.z = 200;
+    worldGround.position.z = 80;
     setBrakeLights(player, false);
   } else if (intro) {
     updateIntro(dt);
     updateTireDust(dt);
-    worldGround.position.z = playerZ + 200;
+    worldGround.position.z = playerZ + 80;
     setBrakeLights(player, false);
   } else if (!running) {
     menuTime += dt;
@@ -4158,7 +4136,7 @@ function tick(now) {
       t.position.z -= t.userData.speed * dt;
       if (t.position.z < -12) t.position.z = 48 + Math.random() * 10;
     }
-    worldGround.position.z = 200;
+    worldGround.position.z = 80;
     setSpeedlines(false);
   }
 
@@ -4286,7 +4264,7 @@ window.__endlessChase = {
     playerZ += d;
     distance = playerZ;
     player.position.z = playerZ;
-    while (nextSpawnZ < playerZ + (transitioning ? 14 : 8) * SEG_LEN) spawnSegment();
+    while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
     return { playerZ, distance, queue: transitionQueue.length, transitioning };
   },
   getCross: () => activeCross.map((c) => ({
