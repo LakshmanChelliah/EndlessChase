@@ -985,38 +985,41 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   cabinet.position.set(pylonX, 6.3, pylonZ);
   pylon.add(cabinet);
 
-  // Nearest-filter canvas “GAS” so the word stays readable at NES resolution
+  // Sprite faces the chase cam; UV is mirrored so on-screen text reads “GAS”
+  // (portrait chase cam otherwise shows the atlas reversed left↔right).
   const letterRoot = new THREE.Group();
   letterRoot.name = "gasSignLetters";
   const gasTex = makeGasTextTexture();
-  const gasMat = new THREE.MeshBasicMaterial({
+  gasTex.wrapS = THREE.RepeatWrapping;
+  gasTex.repeat.x = -1;
+  gasTex.offset.x = 1;
+  gasTex.needsUpdate = true;
+  const gasMat = new THREE.SpriteMaterial({
     map: gasTex,
     transparent: true,
-    alphaTest: 0.15,
     depthWrite: false,
-    side: THREE.DoubleSide,
   });
   gasMat.userData.gasLetter = true;
-  const gasPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.7), gasMat);
-  gasPlane.name = "gasLetterPlane";
-  gasPlane.userData.gasLetter = true;
-  gasPlane.position.set(pylonX, 6.3, pylonZ - 0.28);
-  letterRoot.add(gasPlane);
-  // Soft halo only around the glyph (same texture, tinted, larger)
-  const glowMat = new THREE.MeshBasicMaterial({
-    map: gasTex.clone(),
+  const gasSprite = new THREE.Sprite(gasMat);
+  gasSprite.name = "gasLetterPlane";
+  gasSprite.userData.gasLetter = true;
+  gasSprite.position.set(pylonX, 6.3, pylonZ - 0.15);
+  gasSprite.scale.set(3.6, 1.7, 1);
+  letterRoot.add(gasSprite);
+  // Soft halo — slightly larger sprite, lower opacity
+  const glowMat = new THREE.SpriteMaterial({
+    map: gasTex,
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.4,
     depthWrite: false,
     depthTest: false,
-    side: THREE.DoubleSide,
   });
-  glowMat.map.needsUpdate = true;
   glowMat.userData.gasLetterGlow = true;
-  const gasGlow = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.1), glowMat);
+  const gasGlow = new THREE.Sprite(glowMat);
   gasGlow.name = "gasLetterGlow";
   gasGlow.userData.gasLetterGlow = true;
-  gasGlow.position.set(pylonX, 6.3, pylonZ - 0.26);
+  gasGlow.position.set(pylonX, 6.3, pylonZ - 0.12);
+  gasGlow.scale.set(4.4, 2.1, 1);
   gasGlow.renderOrder = 1;
   letterRoot.add(gasGlow);
   pylon.add(letterRoot);
@@ -1056,16 +1059,16 @@ export function pulseGasSignFlicker(seg, timeSec) {
 
   const color = lit > 0.5 ? NES.yellow : lit > 0.2 ? NES.orange : NES.red;
   letters.traverse((o) => {
-    if (!o.isMesh || !o.material) return;
+    if (!o.material) return;
     if (o.userData.gasLetter) {
       o.material.color.setHex(color);
       o.material.opacity = Math.max(0.25, lit);
       o.visible = lit > 0.05;
     } else if (o.userData.gasLetterGlow) {
       o.material.color.setHex(color);
-      o.material.opacity = 0.1 + 0.5 * lit;
+      o.material.opacity = 0.08 + 0.4 * lit;
       const s = 0.95 + 0.18 * lit;
-      o.scale.set(s, s, 1);
+      o.scale.set(4.4 * s, 2.1 * s, 1);
       o.visible = lit > 0.05;
     }
   });
