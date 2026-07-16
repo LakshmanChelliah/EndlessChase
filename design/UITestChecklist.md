@@ -11,11 +11,7 @@
 - [ ] Swipe down / S brakes; heat rises → pursuit → **Busted!**
 - [ ] Swipe up / W / Space resumes after sticky brake
 - [ ] Collision shows **Wrecked!**; **Retry** works
-- [ ] Turn cue; swipe L/R switches biome via transition corridor (left/right may offer different destinations)
-- [ ] Biome transition UX: outer lanes show lane-end arrows + gore before pinch; cones denser on newly closed lanes
-- [ ] Transition scenery/fog crossfade over several tiles (no one-tile building→house or palette flash)
-- [ ] Staying in a closing lane still wrecks on pylons; swipe cannot select closed lanes
-- [ ] Widen path (rural/highway → city): new outer lanes open on late taper, not a sudden 4-lane snap
+- [ ] Turn cue; swipe L/R switches biome via on-ramp
 - [ ] Gas station on L or R; must be in matching outer lane or see "Move closer to enter"
 - [ ] Pull-in anim → hold to fill; cops approach; release or full tank pulls out
 - [ ] Holding until heat 100 → Busted

@@ -2,10 +2,10 @@
  * Seeded procedural world generation — seemingly random, structurally fair.
  *
  * Decisions hash off segment index (mulberry32 / hash2) so biomes, intersections,
- * and gas spacing stay varied without true chaos. Turn offers reach all biomes.
- * Transition plans emit MUTCD-inspired taper recipes (lanes, paint, scenery blend).
+ * and gas spacing stay varied without true chaos. Turn offers are city ↔ rural;
+ * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
  */
-import { BIOMES, TRANSITIONS, MARK_STYLES, layoutFor } from "./constants.js?v=33";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=32";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {
@@ -26,16 +26,17 @@ export function hash2(a, b) {
 }
 
 /**
- * Playable turns offer distinct destinations so all biome pairs are reachable.
+ * Playable turns are city ↔ suburbs (rural) only.
+ * Highway is deferred until a proper on-ramp / one-way flow exists.
  * @param {string} from
  * @param {number} [_distance]
  * @param {() => number} [_rng]
  */
 export function pickTurnBiomes(from, _distance = 0, _rng = Math.random) {
-  if (from === "city") return { left: "rural", right: "highway" };
-  if (from === "rural") return { left: "city", right: "highway" };
-  if (from === "highway") return { left: "city", right: "rural" };
-  return { left: "city", right: "rural" };
+  if (from === "city") return { left: "rural", right: "rural" };
+  if (from === "rural") return { left: "city", right: "city" };
+  // Escape hatch if somehow on highway
+  return { left: "city", right: "city" };
 }
 
 /**
@@ -93,7 +94,7 @@ export function getTransitionDef(from, to) {
     TRANSITIONS[key] || {
       from,
       to,
-      taperSteps: from === "city" || to === "city" ? 5 : 3,
+      taperSteps: from === "city" || to === "city" ? 4 : 3,
       closeLaneIndices: layoutFor(from).count > layoutFor(to).count
         ? [...Array(layoutFor(from).count).keys()].filter((i) => {
             const fx = layoutFor(from).xs[i];
@@ -138,79 +139,9 @@ function newlyClosedAtStep(closeOrder, taperSteps, stepIndex) {
   return closeOrder.slice(prevCount, closedCount);
 }
 
-/** Smooth 0→1 corridor progress including exit/enter/settle. */
-function corridorProgress(stepIndex, totalSteps) {
-  if (totalSteps <= 1) return 1;
-  return Math.min(1, Math.max(0, stepIndex / (totalSteps - 1)));
-}
-
-/** Pick center-line mark style for a corridor step. */
-export function markStyleFor(fromBiome, toBiome, t) {
-  const samePaintFamily =
-    (fromBiome === "city" && toBiome === "rural") ||
-    (fromBiome === "rural" && toBiome === "city");
-  if (fromBiome === toBiome) {
-    if (fromBiome === "highway") return MARK_STYLES.HIGHWAY_ONE_WAY;
-    if (fromBiome === "rural") return MARK_STYLES.RURAL_TWO_WAY;
-    return MARK_STYLES.CITY_DIVIDED;
-  }
-  if (
-    (fromBiome === "rural" && toBiome === "highway") ||
-    (fromBiome === "highway" && toBiome === "rural")
-  ) {
-    if (t < 0.35) {
-      return fromBiome === "highway"
-        ? MARK_STYLES.HIGHWAY_ONE_WAY
-        : MARK_STYLES.RURAL_TWO_WAY;
-    }
-    if (t > 0.7) {
-      return toBiome === "highway"
-        ? MARK_STYLES.HIGHWAY_ONE_WAY
-        : MARK_STYLES.RURAL_TWO_WAY;
-    }
-    return MARK_STYLES.BLEND_RURAL_HIGHWAY;
-  }
-  if (
-    (fromBiome === "city" && toBiome === "highway") ||
-    (fromBiome === "highway" && toBiome === "city")
-  ) {
-    if (t < 0.3) {
-      return fromBiome === "city"
-        ? MARK_STYLES.CITY_DIVIDED
-        : MARK_STYLES.HIGHWAY_ONE_WAY;
-    }
-    if (t > 0.75) {
-      return toBiome === "city"
-        ? MARK_STYLES.CITY_DIVIDED
-        : MARK_STYLES.HIGHWAY_ONE_WAY;
-    }
-    return MARK_STYLES.BLEND_CITY_HIGHWAY;
-  }
-  // city ↔ rural (both two-way yellow)
-  if (samePaintFamily) {
-    if (t < 0.25) {
-      return fromBiome === "city"
-        ? MARK_STYLES.CITY_DIVIDED
-        : MARK_STYLES.RURAL_TWO_WAY;
-    }
-    if (t > 0.8) {
-      return toBiome === "city"
-        ? MARK_STYLES.CITY_DIVIDED
-        : MARK_STYLES.RURAL_TWO_WAY;
-    }
-    return MARK_STYLES.BLEND_CITY_RURAL;
-  }
-  return MARK_STYLES.CITY_DIVIDED;
-}
-
-function easeInOut(t) {
-  const x = Math.min(1, Math.max(0, t));
-  return x * x * (3 - 2 * x);
-}
-
 /**
  * Build a seamless transition corridor from → to.
- * Emits exit → taper×N → enter → settle×2 with MUTCD-inspired recipe fields.
+ * Emits exit → taper×N → enter → settle×2 with per-step lane/width metadata.
  * Biome adoption is flagged on enter/settle for the *player*, not spawn-time.
  */
 export function buildTransitionPlan(fromBiome, toBiome) {
@@ -222,59 +153,22 @@ export function buildTransitionPlan(fromBiome, toBiome) {
   const allFrom = [...Array(fromLayout.count).keys()];
   const allTo = [...Array(toLayout.count).keys()];
   const narrowing = fromLayout.width > toLayout.width;
-  const widening = fromLayout.width < toLayout.width;
   const plan = [];
 
-  // exit + tapers + enter + settle×2
-  const totalSteps = 1 + taperSteps + 1 + 2;
-  let stepIndex = 0;
-
-  function pushStep(partial) {
-    const atmosT = easeInOut(corridorProgress(stepIndex, totalSteps));
-    // Scenery crossfade starts on exit foreshadow and reaches ~1 by enter
-    const rawBlend = (stepIndex + 0.9) / Math.max(1, taperSteps + 0.9);
-    let sceneryBlend = easeInOut(Math.min(1, Math.max(0, rawBlend)));
-    // Exit always shows a readable destination hint
-    if (stepIndex === 0) sceneryBlend = Math.max(sceneryBlend, 0.22);
-    const markStyle = markStyleFor(fromBiome, toBiome, atmosT);
-    plan.push({
-      mixBiome: sceneryBlend > 0.15 && sceneryBlend < 0.92 ? toBiome : null,
-      sceneryFrom: fromBiome,
-      sceneryTo: toBiome,
-      sceneryBlend,
-      atmosT,
-      markStyle,
-      edgeMode: "solid_follow_taper",
-      goreXs: [],
-      newlyClosedXs: [],
-      arrowMode: null,
-      markT: atmosT,
-      fromBiome,
-      toBiome,
-      ...partial,
-    });
-    stepIndex++;
-  }
-
-  // Exit — warning foreshadow, full from-width, lane-end arrows if narrowing
-  const exitGoreXs =
-    narrowing && closeOrder.length
-      ? closeOrder.map((li) => fromLayout.xs[li])
-      : [];
-  pushStep({
+  // Exit ramp — still fully in from-biome
+  plan.push({
     biome: fromBiome,
-    kind: "",
+    kind: "R",
     phase: "exit",
     adopt: false,
     usableLanes: allFrom.slice(),
     widthStart: fromLayout.width,
     widthEnd: fromLayout.width,
     closedLaneXs: [],
-    newlyClosedXs: [],
-    goreXs: exitGoreXs,
-    arrowMode: narrowing ? "lane_ends" : widening ? "lane_opens" : null,
+    fromBiome,
+    toBiome,
+    mixBiome: null,
     layoutBiome: fromBiome,
-    edgeMode: narrowing || widening ? "solid_follow_taper" : "none",
   });
 
   for (let i = 0; i < taperSteps; i++) {
@@ -284,15 +178,12 @@ export function buildTransitionPlan(fromBiome, toBiome) {
     const widthEnd = blendWidth(fromLayout, toLayout, t1);
     let usableLanes;
     let closedLaneXs = [];
-    let newlyClosedXs = [];
-    let goreXs = [];
     let layoutBiome = fromBiome;
-    let arrowMode = null;
 
     if (narrowing && closeOrder.length) {
       usableLanes = usableLanesAtTaperStep(allFrom, closeOrder, taperSteps, i);
       const newly = newlyClosedAtStep(closeOrder, taperSteps, i);
-      newlyClosedXs = newly.map((li) => fromLayout.xs[li]);
+      // Keep obstacles on all already-closed lanes for the rest of the taper
       const closedSoFar = closeOrder.slice(
         0,
         Math.min(
@@ -301,34 +192,29 @@ export function buildTransitionPlan(fromBiome, toBiome) {
         )
       );
       closedLaneXs = closedSoFar.map((li) => fromLayout.xs[li]);
-      goreXs = closedLaneXs.slice();
-      arrowMode = newlyClosedXs.length ? "lane_ends" : null;
-    } else if (widening && toLayout.count > fromLayout.count) {
-      // Progressive open: keep from lanes early; add city outers on later steps
-      layoutBiome = toBiome;
-      const openFrac = (i + 1) / taperSteps;
-      if (openFrac < 0.55) {
+      // Prefer placing denser cones on newly closed lanes (caller can use both)
+      void newly;
+    } else {
+      // Widening: road expands; all to-lanes become usable near the end
+      const openCount = Math.min(
+        toLayout.count,
+        Math.max(
+          fromLayout.count,
+          Math.ceil(((i + 1) / taperSteps) * toLayout.count)
+        )
+      );
+      usableLanes = allTo.slice(0, openCount);
+      if (usableLanes.length < fromLayout.count) {
+        usableLanes = allFrom.slice();
+      }
+      // During widen taper still drive with from-lane indices until enter
+      if (fromLayout.count <= toLayout.count) {
         usableLanes = allFrom.slice();
         layoutBiome = fromBiome;
-        arrowMode = "lane_opens";
-        goreXs = allTo
-          .filter((li) => !allFrom.some((fi) => Math.abs(fromLayout.xs[fi] - toLayout.xs[li]) < 0.5))
-          .map((li) => toLayout.xs[li]);
-      } else {
-        usableLanes = allTo.slice();
-        arrowMode = i === taperSteps - 1 ? null : "lane_opens";
-        goreXs = allTo
-          .filter((li) => !allFrom.some((fi) => Math.abs(fromLayout.xs[fi] - toLayout.xs[li]) < 0.5))
-          .map((li) => toLayout.xs[li]);
       }
-    } else {
-      // Flat width (rural ↔ highway): paint/scenery only
-      usableLanes = allFrom.slice();
-      layoutBiome = fromBiome;
-      arrowMode = null;
     }
 
-    pushStep({
+    plan.push({
       biome: fromBiome,
       kind: "",
       phase: "taper",
@@ -337,33 +223,32 @@ export function buildTransitionPlan(fromBiome, toBiome) {
       widthStart,
       widthEnd,
       closedLaneXs,
-      newlyClosedXs,
-      goreXs,
-      arrowMode,
+      fromBiome,
+      toBiome,
+      mixBiome: i >= taperSteps - 2 ? toBiome : null,
       layoutBiome,
       markT: t1,
     });
   }
 
-  // Enter — full to layout; player adopts here
-  pushStep({
+  // Enter ramp — new biome visuals; player adopts when crossing this tile
+  plan.push({
     biome: toBiome,
-    kind: "",
+    kind: "R",
     phase: "enter",
     adopt: true,
     usableLanes: allTo.slice(),
     widthStart: toLayout.width,
     widthEnd: toLayout.width,
     closedLaneXs: [],
-    newlyClosedXs: [],
-    goreXs: [],
-    arrowMode: null,
+    fromBiome,
+    toBiome,
+    mixBiome: fromBiome,
     layoutBiome: toBiome,
-    edgeMode: "none",
   });
 
   for (let s = 0; s < 2; s++) {
-    pushStep({
+    plan.push({
       biome: toBiome,
       kind: "",
       phase: "settle",
@@ -372,30 +257,11 @@ export function buildTransitionPlan(fromBiome, toBiome) {
       widthStart: toLayout.width,
       widthEnd: toLayout.width,
       closedLaneXs: [],
-      newlyClosedXs: [],
-      goreXs: [],
-      arrowMode: null,
+      fromBiome,
+      toBiome,
+      mixBiome: null,
       layoutBiome: toBiome,
-      edgeMode: "none",
-      sceneryBlend: 1,
-      atmosT: 1,
-      markStyle: markStyleFor(toBiome, toBiome, 1),
     });
-  }
-
-  // Ensure settle steps have full destination scenery (override pushStep blend)
-  for (const step of plan) {
-    if (step.phase === "settle") {
-      step.sceneryBlend = 1;
-      step.atmosT = 1;
-      step.mixBiome = null;
-      step.sceneryFrom = toBiome;
-      step.sceneryTo = toBiome;
-    }
-    if (step.phase === "enter") {
-      step.sceneryBlend = Math.max(step.sceneryBlend, 0.95);
-      step.atmosT = Math.max(step.atmosT, 0.95);
-    }
   }
 
   return plan;

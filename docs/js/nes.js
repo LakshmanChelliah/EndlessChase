@@ -6,8 +6,8 @@
  * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, MARK_STYLES, layoutFor } from "./constants.js?v=33";
-import { pickTurnBiomes } from "./worldgen.js?v=25";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=32";
+import { pickTurnBiomes } from "./worldgen.js?v=24";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -312,26 +312,6 @@ function paintSkyCanvas(ctx, w, h, atmos) {
   }
 }
 
-function hexLerp(a, b, t) {
-  const ar = (a >> 16) & 255;
-  const ag = (a >> 8) & 255;
-  const ab = a & 255;
-  const br = (b >> 16) & 255;
-  const bg = (b >> 8) & 255;
-  const bb = b & 255;
-  const r = Math.round(ar + (br - ar) * t);
-  const g = Math.round(ag + (bg - ag) * t);
-  const bl = Math.round(ab + (bb - ab) * t);
-  return (r << 16) | (g << 8) | bl;
-}
-
-function mixHexStrings(a, b, t) {
-  const pa = parseInt(String(a).replace("#", ""), 16);
-  const pb = parseInt(String(b).replace("#", ""), 16);
-  const m = hexLerp(pa, pb, t);
-  return `#${m.toString(16).padStart(6, "0")}`;
-}
-
 /**
  * Swap fog / clear / sky / ground colors when the active biome changes.
  * @param {THREE.Scene} scene
@@ -354,40 +334,6 @@ export function applyBiomeAtmosphere(scene, sky, ground, biome, renderer) {
     paintSkyCanvas(sky.userData.ctx, sky.userData.canvas.width, sky.userData.canvas.height, atmos);
     sky.userData.map.needsUpdate = true;
     sky.userData.biome = biome;
-  }
-}
-
-/**
- * Soft-lerp atmosphere between two biomes during a transition corridor.
- * @param {number} t 0 = from, 1 = to
- */
-export function lerpBiomeAtmosphere(scene, sky, ground, fromBiome, toBiome, t, renderer) {
-  const a = BIOME_ATMOS[fromBiome] || BIOME_ATMOS.city;
-  const b = BIOME_ATMOS[toBiome] || BIOME_ATMOS.city;
-  const u = Math.min(1, Math.max(0, t));
-  const fog = hexLerp(a.fog, b.fog, u);
-  const clear = hexLerp(a.clear, b.clear, u);
-  const groundC = hexLerp(a.ground, b.ground, u);
-  if (scene.fog) {
-    scene.fog.color.setHex(fog);
-    scene.fog.near = a.fogNear + (b.fogNear - a.fogNear) * u;
-    scene.fog.far = a.fogFar + (b.fogFar - a.fogFar) * u;
-  }
-  if (scene.background) scene.background.setHex(clear);
-  if (renderer) renderer.setClearColor(clear);
-  if (ground?.material) ground.material.color.setHex(groundC);
-  if (sky?.userData?.ctx) {
-    const key = `${fromBiome}>${toBiome}@${u.toFixed(2)}`;
-    if (sky.userData.lerpKey !== key) {
-      const blended = {
-        sky: a.sky.map((c, i) => mixHexStrings(c, b.sky[i] || c, u)),
-        stars: mixHexStrings(a.stars || "#fff1e8", b.stars || "#fff1e8", u),
-      };
-      paintSkyCanvas(sky.userData.ctx, sky.userData.canvas.width, sky.userData.canvas.height, blended);
-      sky.userData.map.needsUpdate = true;
-      sky.userData.lerpKey = key;
-      sky.userData.biome = u >= 0.95 ? toBiome : fromBiome;
-    }
   }
 }
 
@@ -523,193 +469,44 @@ function addTaperGround(seg, widthStart, widthEnd) {
   seg.userData.taperGround = ground;
 }
 
-function morphCurbsToWidth(seg, widthStart, widthEnd) {
-  const midHalf = (widthStart + widthEnd) / 4 + Math.max(widthStart, widthEnd) / 4;
-  // Approach (−Z) uses widthStart, exit (+Z) widthEnd — curb at mid-tile average
-  const half = (widthStart + widthEnd) / 4 + Math.min(widthStart, widthEnd) / 4;
-  const curbHalf = (widthStart + widthEnd) / 2 / 2;
-  for (const child of seg.children) {
-    if (!child.userData?.isCurb) continue;
-    const side = child.userData.curbSide || Math.sign(child.position.x || 1);
-    child.position.x = side * (curbHalf + 0.2);
-    child.visible = true;
-  }
-  void midHalf;
-  void half;
-}
-
-function addCenterMarks(group, markStyle, halfAvg) {
-  const ox = Math.min(0.18, Math.max(0.1, halfAvg * 0.035));
-  const useYellow =
-    markStyle === MARK_STYLES.CITY_DIVIDED ||
-    markStyle === MARK_STYLES.RURAL_TWO_WAY ||
-    markStyle === MARK_STYLES.BLEND_CITY_RURAL ||
-    markStyle === MARK_STYLES.BLEND_CITY_HIGHWAY;
-  const useWhiteDash =
-    markStyle === MARK_STYLES.HIGHWAY_ONE_WAY ||
-    markStyle === MARK_STYLES.BLEND_RURAL_HIGHWAY ||
-    markStyle === MARK_STYLES.BLEND_CITY_HIGHWAY;
-
-  if (useYellow && markStyle !== MARK_STYLES.BLEND_CITY_HIGHWAY) {
-    for (const side of [-ox, ox]) {
-      const line = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.04, SEG_LEN - 1),
-        basicColor(NES.yellow)
-      );
-      line.position.set(side, 0.045, 0);
-      line.userData.isTaperTempMark = true;
-      group.add(line);
-    }
-  } else if (markStyle === MARK_STYLES.BLEND_CITY_HIGHWAY) {
-    // Short yellow fading into white dashes
-    for (const side of [-ox, ox]) {
-      const line = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.04, SEG_LEN * 0.35),
-        basicColor(NES.yellow)
-      );
-      line.position.set(side, 0.045, -SEG_LEN * 0.25);
-      line.userData.isTaperTempMark = true;
-      group.add(line);
-    }
-  }
-
-  if (useWhiteDash) {
-    const z0 = markStyle === MARK_STYLES.BLEND_CITY_HIGHWAY ? 0 : -SEG_LEN / 2 + 2;
-    for (let z = z0; z < SEG_LEN / 2; z += 4) {
-      const dash = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 0.04, 1.4),
-        basicColor(NES.white)
-      );
-      dash.position.set(0, 0.045, z);
-      dash.userData.isTaperTempMark = true;
-      group.add(dash);
-    }
-  }
-}
-
-function addEdgeLines(group, widthStart, widthEnd) {
-  // Approximate tapered edge as two segments (approach half / exit half)
-  const halfS = widthStart / 2;
-  const halfE = widthEnd / 2;
-  for (const side of [-1, 1]) {
-    // Approach half (−Z)
-    const edgeA = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 0.05, SEG_LEN / 2 - 0.3),
-      basicColor(NES.white)
-    );
-    edgeA.position.set(side * (halfS - 0.15), 0.05, -SEG_LEN / 4);
-    edgeA.userData.isTaperTempMark = true;
-    group.add(edgeA);
-    // Exit half (+Z)
-    const edgeB = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 0.05, SEG_LEN / 2 - 0.3),
-      basicColor(NES.white)
-    );
-    edgeB.position.set(side * (halfE - 0.15), 0.05, SEG_LEN / 4);
-    edgeB.userData.isTaperTempMark = true;
-    group.add(edgeB);
-  }
-}
-
-function addLaneEndArrow(group, x, mode) {
-  // Drawing-F style: chevron pointing toward centerline (merge) or outward (open)
-  const towardCenter = mode === "lane_ends";
-  const dir = towardCenter ? (x > 0 ? -1 : 1) : x > 0 ? 1 : -1;
-  for (let i = 0; i < 3; i++) {
-    const z = -SEG_LEN / 2 + 4 + i * 3.2;
-    const shaft = new THREE.Mesh(
-      new THREE.BoxGeometry(0.35, 0.05, 1.6),
-      basicColor(NES.white)
-    );
-    shaft.position.set(x + dir * i * 0.15, 0.055, z);
-    shaft.userData.isTaperTempMark = true;
-    group.add(shaft);
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(0.85, 0.05, 0.35),
-      basicColor(NES.white)
-    );
-    head.position.set(x + dir * (0.4 + i * 0.15), 0.055, z + 0.7);
-    head.userData.isTaperTempMark = true;
-    group.add(head);
-  }
-}
-
-function addGoreWedge(group, goreX, widthStart, widthEnd) {
-  // Painted gore: series of chevrons from closing lane toward surviving ±2
-  const targetX = goreX > 0 ? 2.0 : -2.0;
-  const steps = 5;
-  for (let i = 0; i < steps; i++) {
-    const t = i / (steps - 1);
-    const z = -SEG_LEN / 2 + 2 + t * (SEG_LEN - 4);
-    const x = goreX + (targetX - goreX) * t * 0.55;
-    const w = 1.1 - t * 0.55;
-    const chev = new THREE.Mesh(
-      new THREE.BoxGeometry(w, 0.04, 0.9),
-      basicColor(NES.yellow)
-    );
-    chev.position.set(x, 0.048, z);
-    chev.userData.isTaperTempMark = true;
-    group.add(chev);
-  }
-  void widthStart;
-  void widthEnd;
-}
-
-/**
- * MUTCD-inspired transition paint: edge lines, center style, gore, lane-end arrows.
- * @param {THREE.Object3D} seg
- * @param {object} step transition plan step
- */
-export function paintTransitionMarkings(seg, step) {
+function addTaperLaneMarks(seg, widthStart, widthEnd, markT = 0.5) {
   clearTaperMarkGroup(seg);
-  if (!step) return;
-  const widthStart = step.widthStart ?? seg.userData.baseWidth ?? 10;
-  const widthEnd = step.widthEnd ?? widthStart;
-  const markStyle = step.markStyle || MARK_STYLES.CITY_DIVIDED;
   const group = new THREE.Group();
   group.userData.isTaperMarkGroup = true;
-  const halfAvg = (widthStart + widthEnd) / 4;
+  const t = Math.min(1, Math.max(0, markT));
+  const halfStart = widthStart / 2;
+  const halfEnd = widthEnd / 2;
+  const avgHalf = (halfStart + halfEnd) / 2;
 
-  addCenterMarks(group, markStyle, halfAvg);
+  // Double yellow always at center
+  const ox = Math.min(0.18, Math.max(0.1, avgHalf * 0.035));
+  for (const side of [-ox, ox]) {
+    const line = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.04, SEG_LEN - 1),
+      basicColor(NES.yellow)
+    );
+    line.position.set(side, 0.045, 0);
+    line.userData.isTaperTempMark = true;
+    group.add(line);
+  }
 
-  // City ±4 dashes only early in corridor while still "city_divided"
-  if (
-    (markStyle === MARK_STYLES.CITY_DIVIDED || markStyle === MARK_STYLES.BLEND_CITY_RURAL) &&
-    (step.atmosT ?? 0) < 0.45 &&
-    Math.max(widthStart, widthEnd) > 12
-  ) {
+  // Outer white dashes lerp from city ±4 toward the narrowing edge, fade out late
+  if (t < 0.92) {
+    const outerFrom = 4.0;
+    const outerTo = Math.max(1.6, Math.min(halfStart, halfEnd) - 0.45);
+    const dashX = outerFrom + (outerTo - outerFrom) * t;
+    const step = t < 0.45 ? 4 : t < 0.75 ? 5.5 : 7;
+    const opacityBoost = 1 - t * 0.55;
     for (const side of [-1, 1]) {
-      for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += 4) {
+      for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += step) {
         const dash = new THREE.Mesh(
-          new THREE.BoxGeometry(0.14, 0.04, 1.2),
+          new THREE.BoxGeometry(0.14, 0.04, 1.2 * opacityBoost),
           basicColor(NES.white)
         );
-        dash.position.set(side * 4.0, 0.045, z);
+        dash.position.set(side * dashX, 0.045, z);
         dash.userData.isTaperTempMark = true;
         group.add(dash);
       }
-    }
-  }
-
-  if (step.edgeMode === "solid_follow_taper" || Math.abs(widthStart - widthEnd) > 0.05) {
-    addEdgeLines(group, widthStart, widthEnd);
-  }
-
-  const goreXs = step.goreXs || step.closedLaneXs || [];
-  for (const gx of goreXs) {
-    addGoreWedge(group, gx, widthStart, widthEnd);
-  }
-
-  if (step.arrowMode === "lane_ends" || step.arrowMode === "lane_opens") {
-    const arrowXs = (step.newlyClosedXs && step.newlyClosedXs.length
-      ? step.newlyClosedXs
-      : goreXs
-    ).length
-      ? (step.newlyClosedXs?.length ? step.newlyClosedXs : goreXs)
-      : goreXs;
-    const xs = arrowXs.length ? arrowXs : goreXs;
-    for (const ax of xs) {
-      addLaneEndArrow(group, ax, step.arrowMode);
     }
   }
 
@@ -717,17 +514,20 @@ export function paintTransitionMarkings(seg, step) {
   seg.userData.taperMarkGroup = group;
 }
 
-/**
- * Trapezoid road + berm + curb morph. Paint is applied separately via paintTransitionMarkings.
- */
 export function applyRoadTaper(seg, widthStart, widthEnd, markT = null) {
   const road = seg.userData.roadMesh;
   if (!road || !road.geometry) return;
   const pos = road.geometry.attributes.position;
+  // Default PlaneGeometry(width, height): vertices at (±w/2, ±h/2, 0) in geo space.
+  // After rot.x=-π/2: geo Y → world −Z (Three.js), so +geoY is −worldZ (toward player approach from +Z travel).
+  // Player travels +Z, enters segment at local −Z first. Local −Z corresponds to −geoY after rotation...
+  // Mesh at identity: vertex (x,y,0) → after rot.x=-90°: (x, 0, -y). So geoY+ → worldZ−.
+  // Approach edge (local −Z / world more negative relative to center) = geoY+.
   const halfStart = widthStart / 2;
   const halfEnd = widthEnd / 2;
   for (let i = 0; i < pos.count; i++) {
     const gy = pos.getY(i);
+    // geoY > 0 → approach (−Z), use widthStart; geoY < 0 → exit (+Z), use widthEnd
     const half = gy >= 0 ? halfStart : halfEnd;
     const sx = Math.sign(pos.getX(i) || 1);
     pos.setX(i, sx * half);
@@ -737,14 +537,17 @@ export function applyRoadTaper(seg, widthStart, widthEnd, markT = null) {
   seg.userData.layoutWidth = Math.max(widthStart, widthEnd);
   seg.userData.tapered = true;
 
+  // Fill vacated asphalt with berm so the navy void never shows through
   addTaperGround(seg, widthStart, widthEnd);
-  // Hide baked lane marks; keep curbs but morph them to the tapered half-width
-  for (const child of seg.children) {
-    if (!child.userData) continue;
-    if (child.userData.isLaneMark) child.visible = false;
-  }
-  morphCurbsToWidth(seg, widthStart, widthEnd);
-  void markT;
+  // Hide baked full-width marks/curbs; temporary marks track the tapered asphalt
+  setTaperDecorVisible(seg, false);
+  const base = seg.userData.baseWidth || layoutFor(seg.userData.biome).width;
+  const midW = (widthStart + widthEnd) / 2;
+  const tEst =
+    markT != null
+      ? markT
+      : Math.min(1, Math.max(0, (base - midW) / Math.max(0.01, base - 10)));
+  addTaperLaneMarks(seg, widthStart, widthEnd, tEst);
 }
 
 /** Restore rectangular road after pool return. */
@@ -765,7 +568,6 @@ export function resetRoadTaper(seg) {
   clearTaperMarkGroup(seg);
   clearTaperGround(seg);
   setTaperDecorVisible(seg, true);
-  restoreBakedRoadside(seg);
   for (const child of seg.children) {
     if (child.userData && child.userData.isCurb) {
       const side = child.userData.curbSide || Math.sign(child.position.x || 1);
@@ -790,188 +592,41 @@ export function clearMixBiomeOverlay(seg) {
   seg.userData.mixGroup = null;
 }
 
-function restoreBakedRoadside(seg) {
-  for (const child of seg.children) {
-    if (child.userData?.isMixGroup || child.userData?.isTaperMarkGroup || child.userData?.isTaperGround) {
-      continue;
-    }
-    if (child.userData?.roadsideHidden) {
-      child.visible = true;
-      child.userData.roadsideHidden = false;
-    }
-  }
-}
-
-function fadeBakedRoadside(seg, keepFrac) {
-  const half =
-    (seg.userData.layoutWidth || seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
-  const roadside = [];
-  for (const child of seg.children) {
-    if (!child.userData) continue;
-    if (
-      child.userData.isRoad ||
-      child.userData.isLaneMark ||
-      child.userData.isCurb ||
-      child.userData.isTaperMarkGroup ||
-      child.userData.isTaperGround ||
-      child.userData.isMixGroup ||
-      child.userData.isGantry ||
-      child.name === "gantry"
-    ) {
-      continue;
-    }
-    if (Math.abs(child.position.x) > half + 0.35) {
-      roadside.push(child);
-    }
-  }
-  const keep = Math.max(0, Math.min(1, keepFrac));
-  const keepCount = Math.floor(roadside.length * keep);
-  roadside.forEach((child, i) => {
-    const show = i < keepCount;
-    child.visible = show;
-    child.userData.roadsideHidden = !show;
-  });
-}
-
-function addSceneryForBiome(group, biome, half, side, density, tex) {
-  if (density < 0.12) return;
-  if (biome === "rural") {
-    const grass = new THREE.Mesh(
-      new THREE.PlaneGeometry(8, SEG_LEN * 0.85),
-      basicColor(NES.forest)
-    );
+/**
+ * Attach temporary roadside hints of another biome during corridor tiles.
+ * Cleared on recycle via clearMixBiomeOverlay.
+ */
+export function applyMixBiomeOverlay(seg, mixBiome, tex) {
+  clearMixBiomeOverlay(seg);
+  if (!mixBiome || mixBiome === seg.userData.biome) return;
+  const half = (seg.userData.layoutWidth || seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
+  const group = new THREE.Group();
+  group.userData.isMixGroup = true;
+  const side = 1;
+  if (mixBiome === "rural" || mixBiome === "highway") {
+    const grass = new THREE.Mesh(new THREE.PlaneGeometry(8, SEG_LEN * 0.7), basicColor(NES.forest));
     grass.rotation.x = -Math.PI / 2;
     grass.position.set(side * (half + 5), 0.025, 0);
     group.add(grass);
-    if (density > 0.35) {
+    if (mixBiome === "rural") {
       const house = makeBuildingBox(2.8, 2.2, 3.2, tex.house);
-      house.position.set(side * (half + 5.5), 1.1, (side > 0 ? 1 : -1) * 2);
+      house.position.set(side * (half + 5.5), 1.1, 2);
       group.add(house);
     }
-    if (density > 0.55) {
-      for (let f = 0; f < 3; f++) {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), basicColor(0x5a4030));
-        post.position.set(side * (half + 1.8), 0.35, -4 + f * 3);
-        group.add(post);
-      }
-    }
-  } else if (biome === "highway") {
-    const berm = new THREE.Mesh(
-      new THREE.PlaneGeometry(5, SEG_LEN * 0.8),
-      basicColor(0x2a3a28)
-    );
-    berm.rotation.x = -Math.PI / 2;
-    berm.position.set(side * (half + 3), 0.02, 0);
-    group.add(berm);
-    if (density > 0.3) {
-      const rail = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, 0.55, SEG_LEN * 0.75),
-        basicColor(0xc2c3c7)
-      );
-      rail.position.set(side * (half + 0.55), 0.35, 0);
-      group.add(rail);
-    }
-    if (density > 0.55) {
-      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.6, 0.18), basicColor(NES.curb));
-      pole.position.set(side * (half + 1.5), 1.8, 0);
-      group.add(pole);
-    }
-  } else if (biome === "city") {
-    const walk = new THREE.Mesh(
-      new THREE.PlaneGeometry(7, SEG_LEN * 0.75),
-      basicColor(0x3a3d48)
-    );
+  } else if (mixBiome === "city") {
+    const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0x3a3d48));
     walk.rotation.x = -Math.PI / 2;
-    walk.position.set(side * (half + 4.2), 0.02, 0);
+    walk.position.set(side * (half + 4), 0.02, 0);
     group.add(walk);
-    if (density > 0.3) {
-      const { map, preset } = pickBuildingVariant(tex, Math.random);
-      const h = preset.hMin + density * 2;
-      const b = makeBuildingBox(preset.w * 0.8, h, preset.d * 0.8, map);
-      b.position.set(side * (half + 4.2), h / 2, (side > 0 ? -1 : 1) * 1.5);
-      group.add(b);
-    }
-  }
-}
-
-/**
- * Dual-side scenery crossfade for transition corridor tiles.
- * Fades baked from-biome roadside and adds temporary to-biome props.
- */
-export function blendTransitionScenery(seg, step, tex) {
-  clearMixBiomeOverlay(seg);
-  restoreBakedRoadside(seg);
-  if (!step) return;
-
-  const blend = Math.min(1, Math.max(0, step.sceneryBlend ?? 0));
-  const toBiome = step.sceneryTo || step.toBiome || step.mixBiome;
-  const fromBiome = step.sceneryFrom || step.fromBiome || seg.userData.biome;
-  const half =
-    (seg.userData.layoutWidth ||
-      Math.max(step.widthStart || 0, step.widthEnd || 0) ||
-      seg.userData.baseWidth ||
-      layoutFor(seg.userData.biome).width) / 2;
-
-  // Enter/settle already use destination baked meshes — keep them, optional faint from remnants
-  if (step.phase === "settle" || step.adopt) {
-    if (step.phase === "enter" && fromBiome && fromBiome !== toBiome && blend < 1) {
-      const group = new THREE.Group();
-      group.userData.isMixGroup = true;
-      const remnant = Math.max(0, 1 - blend) * 0.45;
-      for (const side of [-1, 1]) {
-        addSceneryForBiome(group, fromBiome, half, side, remnant, tex);
-      }
-      if (group.children.length) {
-        seg.add(group);
-        seg.userData.mixGroup = group;
-      }
-    }
-    return;
-  }
-
-  // Exit / taper: thin from-props, grow to-props on both sides
-  fadeBakedRoadside(seg, 1 - blend * 0.92);
-
-  if (!toBiome || blend < 0.08) return;
-
-  const group = new THREE.Group();
-  group.userData.isMixGroup = true;
-  for (const side of [-1, 1]) {
-    addSceneryForBiome(group, toBiome, half, side, blend, tex);
+    const mixRnd = () => Math.random();
+    const { map, preset } = pickBuildingVariant(tex, mixRnd);
+    const h = preset.hMin + 1;
+    const b = makeBuildingBox(preset.w * 0.85, h, preset.d * 0.85, map);
+    b.position.set(side * (half + 4), h / 2, 0);
+    group.add(b);
   }
   seg.add(group);
   seg.userData.mixGroup = group;
-}
-
-/**
- * @deprecated Prefer blendTransitionScenery — kept for callers that only pass a mix biome.
- */
-export function applyMixBiomeOverlay(seg, mixBiome, tex) {
-  blendTransitionScenery(
-    seg,
-    {
-      mixBiome,
-      sceneryTo: mixBiome,
-      sceneryBlend: mixBiome ? 0.55 : 0,
-      widthStart: seg.userData.layoutWidth,
-      widthEnd: seg.userData.layoutWidth,
-      phase: "taper",
-    },
-    tex
-  );
-}
-
-/**
- * Full transition tile decorate: paint on exit/taper; scenery blend every phase.
- */
-export function decorateTransitionTile(seg, step, tex) {
-  if (!step) return;
-  if (step.phase === "exit" || step.phase === "taper") {
-    paintTransitionMarkings(seg, step);
-  } else {
-    clearTaperMarkGroup(seg);
-  }
-  blendTransitionScenery(seg, step, tex);
 }
 
 function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
