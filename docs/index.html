@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=30" />
+  <link rel="stylesheet" href="styles.css?v=31" />
 </head>
 <body>
   <div id="game-root">
@@ -105,7 +105,7 @@
           <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
         </div>
 
-        <button type="button" id="hud-station-float" class="station-float hidden">FILL UP TANK</button>
+        <div id="hud-station-float" class="station-float hidden" role="status" aria-live="polite">SWIPE TO ENTER</div>
         <button type="button" id="hud-merge-btn" class="merge-btn hidden">MERGE WHEN CLEAR</button>
       </section>
 
@@ -184,6 +184,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=61"></script>
+  <script type="module" src="game.js?v=62"></script>
 </body>
 </html>

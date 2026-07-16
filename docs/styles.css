@@ -791,15 +791,9 @@ html, body {
   letter-spacing: 0.03em;
   text-align: center;
   text-shadow: none;
-  cursor: pointer;
-  pointer-events: auto;
+  pointer-events: none;
   box-shadow: 0 0 0 3px #000, 0 6px 0 #000;
   animation: station-pulse 0.9s ease-in-out infinite;
-}
-
-.station-float:active {
-  translate: 0 3px;
-  box-shadow: 0 0 0 3px #000, 0 3px 0 #000;
 }
 
 @keyframes station-pulse {
