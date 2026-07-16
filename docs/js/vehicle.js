@@ -2,7 +2,7 @@
  * GLTF vehicle pipeline — preload prototypes, normalize footprint, clone + tint.
  *
  * Flow: preloadVehicles() → createVehicle(id) clones a prototype → optional
- * NPC body tint / blinkers. Paths via glbUrl() → CARS_ASSET.
+ * NPC body tint / blinkers / brake lights. Paths via glbUrl() → CARS_ASSET.
  * Invariant: headlights face +Z after YAW_OFFSET; MeshBasic (unlit) materials.
  */
 import * as THREE from "three";
@@ -181,6 +181,7 @@ export function createVehicle(carId, opts = {}) {
   }
 
   attachBlinkers(root);
+  attachBrakeLights(root);
   return root;
 }
 
@@ -276,6 +277,99 @@ export function ensureBlinkers(root) {
 
 function attachBlinkers(root) {
   ensureBlinkers(root);
+}
+
+/** Hot red for brake lamps — reads clearly from the chase cam at distance. */
+const BRAKE_RED = 0xff2244;
+const BRAKE_CORE = 0xff8866;
+
+/** Soft radial disc for brake glow (generated once). */
+let brakeSpriteMap = null;
+function getBrakeSpriteMap() {
+  if (brakeSpriteMap) return brakeSpriteMap;
+  const s = 64;
+  const c = document.createElement("canvas");
+  c.width = s;
+  c.height = s;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.22, "rgba(255,80,90,0.95)");
+  g.addColorStop(0.55, "rgba(220,20,40,0.55)");
+  g.addColorStop(1, "rgba(160,0,20,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  brakeSpriteMap = new THREE.CanvasTexture(c);
+  brakeSpriteMap.magFilter = THREE.NearestFilter;
+  brakeSpriteMap.minFilter = THREE.LinearFilter;
+  return brakeSpriteMap;
+}
+
+/**
+ * Rear brake lights for player + NPC deceleration.
+ * Same bulb + camera-facing bloom pattern as merge blinkers, but solid red
+ * (no flash) and inset toward the bumper center so they sit beside blinkers.
+ */
+export function ensureBrakeLights(root) {
+  if (root.userData.brakeL) return;
+  const map = getBrakeSpriteMap();
+  const mk = (x) => {
+    const group = new THREE.Group();
+    // Inboard of blinkers (±0.85); proud of the rear bumper
+    group.position.set(x, 0.72, -1.78);
+    group.visible = false;
+
+    const shell = new THREE.Mesh(
+      new THREE.BoxGeometry(0.55, 0.38, 0.32),
+      new THREE.MeshBasicMaterial({ color: BRAKE_RED, fog: false })
+    );
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(0.32, 0.22, 0.36),
+      new THREE.MeshBasicMaterial({ color: BRAKE_CORE, fog: false })
+    );
+
+    const glowMat = new THREE.SpriteMaterial({
+      map,
+      color: BRAKE_RED,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    });
+    const glow = new THREE.Sprite(glowMat);
+    glow.scale.set(2.4, 2.4, 1);
+    glow.position.set(0, 0.12, -0.15);
+    glow.renderOrder = 10;
+
+    const bloomMat = new THREE.SpriteMaterial({
+      map,
+      color: 0xff4466,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    });
+    const bloom = new THREE.Sprite(bloomMat);
+    bloom.scale.set(4.2, 4.2, 1);
+    bloom.position.set(0, 0.16, -0.22);
+    bloom.renderOrder = 9;
+
+    group.add(shell, core, glow, bloom);
+    group.userData.brakeGlow = glow;
+    group.userData.brakeBloom = bloom;
+    root.add(group);
+    return group;
+  };
+  root.userData.brakeL = mk(-0.42);
+  root.userData.brakeR = mk(0.42);
+}
+
+function attachBrakeLights(root) {
+  ensureBrakeLights(root);
 }
 
 export function replacePlayerVehicle(scene, oldPlayer, carId) {

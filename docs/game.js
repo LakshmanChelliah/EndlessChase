@@ -37,10 +37,10 @@ import {
   TRACK_KEYS, ensureMissions, resetMissionProgress, applyRunStats, trackSnapshot, closestTrack,
 } from "./js/missions.js?v=1";
 import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/cars.js?v=26";
-import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=26";
+import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=27";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=28";
+} from "./js/carPool.js?v=29";
 import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
@@ -1154,6 +1154,54 @@ function setNpcBlinkers(t, side /* -1 left, 1 right, 0 off */) {
   };
   apply(L, side < 0 && on);
   apply(R, side > 0 && on);
+}
+
+/** Solid red rear lamps — on while braking / stopped (no blinker-style flash). */
+function setBrakeLights(root, on) {
+  const L = root.userData.brakeL;
+  const R = root.userData.brakeR;
+  if (!L || !R) return;
+  const now = performance.now();
+  const pulse = on ? 0.88 + 0.12 * Math.abs(Math.sin(now * 0.018)) : 0;
+  const apply = (lamp) => {
+    lamp.visible = !!on;
+    const glow = lamp.userData && lamp.userData.brakeGlow;
+    const bloom = lamp.userData && lamp.userData.brakeBloom;
+    if (glow && glow.material) {
+      glow.material.opacity = on ? 0.9 + 0.1 * pulse : 0;
+      const s = on ? 2.2 + 0.4 * pulse : 2.4;
+      glow.scale.set(s, s, 1);
+    }
+    if (bloom && bloom.material) {
+      bloom.material.opacity = on ? 0.4 + 0.3 * pulse : 0;
+      const s = on ? 3.8 + 0.9 * pulse : 4.2;
+      bloom.scale.set(s, s, 1);
+    }
+  };
+  apply(L);
+  apply(R);
+}
+
+/** True when longitudinal speed is falling or the car is held at a stop. */
+function isNpcBraking(t, dt) {
+  if (t.userData.stopped) return true;
+  const speed = t.userData.speed || 0;
+  const prev = t.userData._prevSpeed;
+  t.userData._prevSpeed = speed;
+  if (prev == null) return false;
+  const decel = (prev - speed) / Math.max(dt, 1e-4);
+  return decel > 1.2;
+}
+
+/** Cross-traffic braking from |vx| drop or stop-line hold. */
+function isCrossBraking(t, dt) {
+  if (t.userData.stopped) return true;
+  const absV = Math.abs(t.userData.vx || 0);
+  const prev = t.userData._prevAbsVx;
+  t.userData._prevAbsVx = absV;
+  if (prev == null) return false;
+  const decel = (prev - absV) / Math.max(dt, 1e-4);
+  return decel > 1.2;
 }
 
 function clearMergeState(t) {
@@ -3440,6 +3488,7 @@ function tick(now) {
 
   if (atPump) {
     updateGasVisit(dt);
+    setBrakeLights(player, false);
   } else if (driving) {
     // Continuous accel toward per-car limiter; sticky brake decelerates to floor.
     const limiter = BASE_MAX_SPEED * topSpeedFactor(save) * (boostTimer > 0 ? boostMul : 1);
@@ -3509,6 +3558,7 @@ function tick(now) {
 
     player.position.set(laneX, 0, playerZ);
     player.rotation.set(laneRoll * 0.35, turnYaw, laneRoll);
+    setBrakeLights(player, braking);
 
     if (hudLaneWarn) {
       // Use the commanded spring target, not physical mid-slide X.
@@ -3746,6 +3796,7 @@ function tick(now) {
       }
       if (!lightControlled) applyHeadway(t, dt);
       updateNpcLaneMerge(t, dt);
+      setBrakeLights(t, isNpcBraking(t, dt));
       t.position.z += (dir === -1 ? -t.userData.speed : t.userData.speed) * dt;
       // Keep on asphalt if road narrowed under the car
       t.position.x = clampTrafficX(t.position.x, getSegmentAt(t.position.z));
@@ -3820,6 +3871,7 @@ function tick(now) {
           }
         }
       }
+      setBrakeLights(t, isCrossBraking(t, dt));
       t.position.x += t.userData.vx * dt;
       if (Math.abs(t.position.x) > CROSS_SPAWN_X + 4) {
         activeCross.splice(i, 1);
@@ -3909,12 +3961,15 @@ function tick(now) {
     updateBoarding(dt);
     updateTireDust(dt);
     worldGround.position.z = 80;
+    setBrakeLights(player, false);
   } else if (intro) {
     updateIntro(dt);
     updateTireDust(dt);
     worldGround.position.z = playerZ + 80;
+    setBrakeLights(player, false);
   } else if (!running) {
     menuTime += dt;
+    setBrakeLights(player, false);
     // Idle curb pose — impatient wheelman sway + exhaust
     ensureExhaustFlicker();
     ensureMenuHeadlights();
