@@ -1412,7 +1412,8 @@ function beginBiomeTransition(toBiome) {
   kickClosingLaneMerges(from, toBiome);
   if (hudTurn) hudTurn.classList.add("hidden");
   if (hudLight) {
-    hudLight.textContent = `→ ${biomeLabel(toBiome)}`;
+    // ASCII only — Press Start 2P has no ←/→ glyphs (they render as ".")
+    hudLight.textContent = `>> ${biomeLabel(toBiome)}`;
     hudLight.style.color = "#ffec27";
     hudLight.classList.remove("hidden");
     setTimeout(() => hudLight.classList.add("hidden"), 1400);
@@ -1763,7 +1764,7 @@ function updateStationFloat(seg) {
   }
   const side = seg.userData.gasSide < 0 ? -1 : 1;
   // Inverted steering: swipe left pulls right (into a right-side lot)
-  hudStationFloat.textContent = side > 0 ? "SWIPE ← TO ENTER" : "SWIPE → TO ENTER";
+  hudStationFloat.textContent = side > 0 ? "SWIPE << TO ENTER" : "SWIPE >> TO ENTER";
   hudStationFloat.classList.remove("hidden");
 }
 
@@ -3696,7 +3697,8 @@ function tick(now) {
               timer: TURN_WINDOW,
             };
             if (hudTurn) {
-              hudTurn.textContent = `← ${biomeLabel(turnActive.left)}  ·  ${biomeLabel(turnActive.right)} →`;
+              // ASCII arrows — Press Start 2P lacks ←/→ (same pitfall as ● → ".")
+              hudTurn.textContent = `<< ${biomeLabel(turnActive.left)}  |  ${biomeLabel(turnActive.right)} >>`;
               hudTurn.classList.remove("hidden");
             }
           }
