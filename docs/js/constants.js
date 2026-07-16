@@ -94,9 +94,9 @@ export const PATH_CHANGE_BASE = 0.28;
 /** Width of each parallel asphalt strip (world units) */
 export const PATH_STRIP_WIDTH = 3.4;
 /** Half-width used for on-path collision / fall checks */
-export const PATH_HIT_HALF = 1.75;
+export const PATH_HIT_HALF = 2.0;
 /** Seconds off a path before the wreck registers */
-export const PATH_FALL_GRACE = 0.14;
+export const PATH_FALL_GRACE = 0.22;
 /** Max duration for a tap (gas station). Swipes have no time limit. */
 export const TAP_MAX_MS = 450;
 /** Ignore synthetic mouse clicks this long after a real touch. */

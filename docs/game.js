@@ -3623,14 +3623,26 @@ function tick(now) {
 
     // Off-path fall: driving into a gap / ended parallel path → wreck
     if (!gasVisit && playerSeg && playerSeg.userData.pathVisual) {
-      const onPath = usable.some(
-        (i) => i >= 0 && i < layout.count && Math.abs(laneX - layout.xs[i]) <= PATH_HIT_HALF
-      );
+      const openXs = usable
+        .filter((i) => i >= 0 && i < layout.count)
+        .map((i) => layout.xs[i]);
+      const onPath = openXs.some((x) => Math.abs(laneX - x) <= PATH_HIT_HALF);
       // Mid-swipe toward a valid path still counts as committed
-      const targetingPath = usable.some(
-        (i) => i >= 0 && i < layout.count && Math.abs(laneTargetX - layout.xs[i]) < 0.75
-      );
-      if (!onPath && !targetingPath) {
+      const targetingPath = openXs.some((x) => Math.abs(laneTargetX - x) < 0.75);
+      // Crossing the gap between two live strips while the spring is in flight
+      let bridging = false;
+      if (!onPath && targetingPath && openXs.length >= 2) {
+        const sorted = openXs.slice().sort((a, b) => a - b);
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const lo = sorted[i];
+          const hi = sorted[i + 1];
+          if (laneX >= lo - 0.15 && laneX <= hi + 0.15) {
+            bridging = true;
+            break;
+          }
+        }
+      }
+      if (!onPath && !targetingPath && !bridging) {
         pathFallTimer += dt;
         if (pathFallTimer >= PATH_FALL_GRACE) {
           crash();
