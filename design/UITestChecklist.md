@@ -11,7 +11,9 @@
 - [ ] Swipe down / S brakes; heat rises → pursuit → **Busted!**
 - [ ] Swipe up / W / Space resumes after sticky brake
 - [ ] Collision shows **Wrecked!**; **Retry** works
-- [ ] Turn cue; swipe L/R switches biome via on-ramp
+- [ ] Turn cue shows ASCII `<< BIOME | BIOME >>` (no missing ←/→ dots); swipe L/R starts corridor
+- [ ] After accept: short `>> BIOME` flash; exit/taper mix foreshadows destination; city→rural closes outer lanes (WRONG WAY / pylons if you stay out)
+- [ ] Biome stretches feel long (~cooldown 18 segs); no sudden fog pop on adopt
 - [ ] Gas station flickering sign visible early; must be in matching outer lane or see "Move closer to enter"
 - [ ] Swipe toward station to pull in (tap does not enter); hold to fill; cops approach; release or full tank pulls out
 - [ ] Holding until heat 100 → Busted

@@ -1,0 +1,868 @@
+{
+  "base": "http://localhost:4173",
+  "testedAt": "2026-07-16T04:06:45.048Z",
+  "pairs": [
+    {
+      "from": "city",
+      "to": "rural",
+      "settledOk": true,
+      "before": {
+        "state": {
+          "biome": "city",
+          "distance": 23.2,
+          "playerZ": 23.2,
+          "transitioning": false,
+          "transitionQueue": 0,
+          "alive": true,
+          "running": true,
+          "controlUsable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "lane": 1,
+          "laneX": -2,
+          "playerX": -2,
+          "turnActive": false,
+          "heat": 0
+        },
+        "phase": null,
+        "atmosT": null,
+        "mix": false,
+        "usable": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "closed": [],
+        "ahead": [],
+        "hudTurn": {
+          "visible": false,
+          "text": ""
+        },
+        "hudLight": {
+          "visible": false,
+          "text": ""
+        },
+        "hudLaneWarn": {
+          "visible": false,
+          "text": "WRONG WAY"
+        }
+      },
+      "beforeShot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-baseline.png",
+      "flash": {
+        "state": {
+          "biome": "city",
+          "distance": 24.6,
+          "playerZ": 24.6,
+          "transitioning": true,
+          "transitionQueue": 8,
+          "alive": true,
+          "running": true,
+          "controlUsable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "lane": 1,
+          "laneX": -2,
+          "playerX": -2,
+          "turnActive": false,
+          "heat": 0
+        },
+        "phase": null,
+        "atmosT": null,
+        "mix": false,
+        "usable": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "closed": [],
+        "ahead": [],
+        "hudTurn": {
+          "visible": false,
+          "text": ""
+        },
+        "hudLight": {
+          "visible": true,
+          "text": "→ SUBURBS"
+        },
+        "hudLaneWarn": {
+          "visible": false,
+          "text": "WRONG WAY"
+        }
+      },
+      "flashShot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-hud-flash.png",
+      "latency": {
+        "playerZ": 26.99,
+        "exitZ": null,
+        "metersAhead": null,
+        "queue": 8,
+        "ahead": []
+      },
+      "phaseSnaps": {
+        "exit": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 152,
+          "phase": "exit",
+          "atmosT": 0.05,
+          "mix": true,
+          "usable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "closed": [],
+          "controlUsable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "biome": "city",
+          "distance": 202.8,
+          "hudLight": {
+            "visible": false,
+            "text": "→ SUBURBS"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": false,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-exit.png"
+        },
+        "taper": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 16,
+          "phase": "taper",
+          "atmosT": 0.2875,
+          "mix": true,
+          "usable": [
+            1,
+            2,
+            3
+          ],
+          "closed": [
+            -6
+          ],
+          "controlUsable": [
+            1,
+            2,
+            3
+          ],
+          "biome": "city",
+          "distance": 224.3,
+          "hudLight": {
+            "visible": false,
+            "text": "→ SUBURBS"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": false,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-taper.png"
+        },
+        "enter": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 40,
+          "phase": "enter",
+          "atmosT": 0.92,
+          "mix": true,
+          "usable": [
+            0,
+            1
+          ],
+          "closed": [],
+          "controlUsable": [
+            0,
+            1
+          ],
+          "biome": "rural",
+          "distance": 300.9,
+          "hudLight": {
+            "visible": false,
+            "text": "→ SUBURBS"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": false,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-enter.png"
+        },
+        "settle": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 0,
+          "phase": "enter",
+          "atmosT": 0.92,
+          "mix": true,
+          "usable": [
+            0,
+            1
+          ],
+          "closed": [],
+          "controlUsable": [
+            0,
+            1
+          ],
+          "biome": "rural",
+          "distance": 302.8,
+          "hudLight": {
+            "visible": false,
+            "text": "→ SUBURBS"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": false,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-settle.png"
+        }
+      },
+      "taperProbes": [
+        {
+          "phase": "taper",
+          "atmosT": 0.2875,
+          "usable": [
+            1,
+            2,
+            3
+          ],
+          "closed": [
+            -6
+          ],
+          "warn": {
+            "visible": false,
+            "text": "WRONG WAY"
+          },
+          "tag": null,
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-taper-early.png"
+        },
+        {
+          "phase": "taper",
+          "atmosT": 0.475,
+          "usable": [
+            1,
+            2,
+            3
+          ],
+          "closed": [
+            -6
+          ],
+          "warn": {
+            "visible": false,
+            "text": "WRONG WAY"
+          },
+          "tag": null,
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-taper-mid.png"
+        },
+        {
+          "phase": "taper",
+          "atmosT": 0.475,
+          "usable": [
+            1,
+            2,
+            3
+          ],
+          "closed": [
+            -6
+          ],
+          "warn": {
+            "visible": true,
+            "text": "WRONG WAY"
+          },
+          "tag": "lane-warn-probe",
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-lane-warn.png"
+        }
+      ],
+      "finishOk": true,
+      "afterShot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-city-to-rural-arrived.png",
+      "findings": [
+        {
+          "severity": "pass",
+          "id": "exit",
+          "msg": "Exit phase reached with foreshadow mix"
+        },
+        {
+          "severity": "pass",
+          "id": "taper",
+          "msg": "Taper reached; usable=[1,2,3] closed=[-6]"
+        },
+        {
+          "severity": "pass",
+          "id": "enter",
+          "msg": "Enter reached; biome=rural"
+        },
+        {
+          "severity": "pass",
+          "id": "settle",
+          "msg": "Settled into rural"
+        },
+        {
+          "severity": "pass",
+          "id": "dest-flash",
+          "msg": "Destination flash shown: \"→ SUBURBS\""
+        },
+        {
+          "severity": "pass",
+          "id": "atmos-ramp",
+          "msg": "atmosT 0.05 → 0.92"
+        },
+        {
+          "severity": "pass",
+          "id": "mix",
+          "msg": "Mix scenery overlay present"
+        },
+        {
+          "severity": "pass",
+          "id": "lane-close",
+          "msg": "Narrowing readable in data (usable=3, closed=1)"
+        },
+        {
+          "severity": "pass",
+          "id": "lane-warn",
+          "msg": "Lane warn shows when targeting bad lane: \"WRONG WAY\""
+        }
+      ]
+    },
+    {
+      "from": "rural",
+      "to": "city",
+      "settledOk": true,
+      "before": {
+        "state": {
+          "biome": "rural",
+          "distance": 309.7,
+          "playerZ": 309.7,
+          "transitioning": false,
+          "transitionQueue": 0,
+          "alive": true,
+          "running": true,
+          "controlUsable": [
+            0,
+            1
+          ],
+          "lane": 1,
+          "laneX": 2,
+          "playerX": 2,
+          "turnActive": false,
+          "heat": 0
+        },
+        "phase": "enter",
+        "atmosT": 0.92,
+        "mix": true,
+        "usable": [
+          0,
+          1
+        ],
+        "closed": [],
+        "ahead": [
+          "taper@250",
+          "taper@270",
+          "taper@290",
+          "enter@310",
+          "settle@330",
+          "settle@350"
+        ],
+        "hudTurn": {
+          "visible": false,
+          "text": ""
+        },
+        "hudLight": {
+          "visible": false,
+          "text": "→ SUBURBS"
+        },
+        "hudLaneWarn": {
+          "visible": true,
+          "text": "WRONG WAY"
+        }
+      },
+      "beforeShot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-baseline.png",
+      "flash": {
+        "state": {
+          "biome": "rural",
+          "distance": 311.3,
+          "playerZ": 311.3,
+          "transitioning": true,
+          "transitionQueue": 7,
+          "alive": true,
+          "running": true,
+          "controlUsable": [
+            0,
+            1
+          ],
+          "lane": 1,
+          "laneX": 2,
+          "playerX": 2,
+          "turnActive": false,
+          "heat": 0
+        },
+        "phase": "enter",
+        "atmosT": 0.92,
+        "mix": true,
+        "usable": [
+          0,
+          1
+        ],
+        "closed": [],
+        "ahead": [
+          "taper@270",
+          "taper@290",
+          "enter@310",
+          "settle@330",
+          "settle@350"
+        ],
+        "hudTurn": {
+          "visible": false,
+          "text": ""
+        },
+        "hudLight": {
+          "visible": true,
+          "text": "→ CITY"
+        },
+        "hudLaneWarn": {
+          "visible": true,
+          "text": "WRONG WAY"
+        }
+      },
+      "flashShot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-hud-flash.png",
+      "latency": {
+        "playerZ": 313.91,
+        "exitZ": null,
+        "metersAhead": null,
+        "queue": 7,
+        "ahead": [
+          "taper@270",
+          "taper@290",
+          "enter@310",
+          "settle@330",
+          "settle@350"
+        ]
+      },
+      "phaseSnaps": {
+        "exit": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 144,
+          "phase": "exit",
+          "atmosT": 0.05,
+          "mix": true,
+          "usable": [
+            0,
+            1
+          ],
+          "closed": [],
+          "controlUsable": [
+            0,
+            1
+          ],
+          "biome": "rural",
+          "distance": 481.4,
+          "hudLight": {
+            "visible": false,
+            "text": "→ CITY"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": false,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-exit.png"
+        },
+        "taper": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 16,
+          "phase": "taper",
+          "atmosT": 0.35,
+          "mix": true,
+          "usable": [
+            0,
+            1
+          ],
+          "closed": [],
+          "controlUsable": [
+            0,
+            1
+          ],
+          "biome": "rural",
+          "distance": 502.3,
+          "hudLight": {
+            "visible": false,
+            "text": "→ CITY"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": true,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-taper.png"
+        },
+        "enter": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 28,
+          "phase": "enter",
+          "atmosT": 0.92,
+          "mix": true,
+          "usable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "closed": [],
+          "controlUsable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "biome": "city",
+          "distance": 563.9,
+          "hudLight": {
+            "visible": false,
+            "text": "→ CITY"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": true,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-enter.png"
+        },
+        "settle": {
+          "reached": true,
+          "died": false,
+          "metersToPhase": 0,
+          "phase": "enter",
+          "atmosT": 0.92,
+          "mix": true,
+          "usable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "closed": [],
+          "controlUsable": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "biome": "city",
+          "distance": 567.5,
+          "hudLight": {
+            "visible": false,
+            "text": "→ CITY"
+          },
+          "hudTurn": {
+            "visible": false,
+            "text": ""
+          },
+          "hudLaneWarn": {
+            "visible": true,
+            "text": "WRONG WAY"
+          },
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-settle.png"
+        }
+      },
+      "taperProbes": [
+        {
+          "phase": "taper",
+          "atmosT": 0.35,
+          "usable": [
+            0,
+            1
+          ],
+          "closed": [],
+          "warn": {
+            "visible": true,
+            "text": "WRONG WAY"
+          },
+          "tag": null,
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-taper-early.png"
+        },
+        {
+          "phase": "taper",
+          "atmosT": 0.6,
+          "usable": [
+            0,
+            1
+          ],
+          "closed": [],
+          "warn": {
+            "visible": true,
+            "text": "WRONG WAY"
+          },
+          "tag": null,
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-taper-mid.png"
+        },
+        {
+          "phase": "taper",
+          "atmosT": 0.6,
+          "usable": [
+            0,
+            1
+          ],
+          "closed": [],
+          "warn": {
+            "visible": true,
+            "text": "WRONG WAY"
+          },
+          "tag": "lane-warn-probe",
+          "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-lane-warn.png"
+        }
+      ],
+      "finishOk": true,
+      "afterShot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-rural-to-city-arrived.png",
+      "findings": [
+        {
+          "severity": "pass",
+          "id": "exit",
+          "msg": "Exit phase reached with foreshadow mix"
+        },
+        {
+          "severity": "pass",
+          "id": "taper",
+          "msg": "Taper reached; usable=[0,1] closed=[]"
+        },
+        {
+          "severity": "pass",
+          "id": "enter",
+          "msg": "Enter reached; biome=city"
+        },
+        {
+          "severity": "pass",
+          "id": "settle",
+          "msg": "Settled into city"
+        },
+        {
+          "severity": "pass",
+          "id": "dest-flash",
+          "msg": "Destination flash shown: \"→ CITY\""
+        },
+        {
+          "severity": "pass",
+          "id": "atmos-ramp",
+          "msg": "atmosT 0.05 → 0.92"
+        },
+        {
+          "severity": "pass",
+          "id": "mix",
+          "msg": "Mix scenery overlay present"
+        },
+        {
+          "severity": "pass",
+          "id": "lane-warn",
+          "msg": "Lane warn shows when targeting bad lane: \"WRONG WAY\""
+        }
+      ]
+    }
+  ],
+  "naturalTurn": {
+    "found": true,
+    "text": "← SUBURBS  ·  SUBURBS →",
+    "distance": 1188.9,
+    "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-natural-turn-cue.png",
+    "findings": [
+      {
+        "severity": "pass",
+        "id": "cue-arrows",
+        "msg": "Turn cue uses arrows + labels: \"← SUBURBS  ·  SUBURBS →\""
+      },
+      {
+        "severity": "warn",
+        "id": "cue-accept-fail",
+        "msg": "Swipe did not start corridor (window may have expired)"
+      }
+    ],
+    "afterSwipe": {
+      "transitioning": false,
+      "queue": 0,
+      "biome": "city",
+      "hudTurn": {
+        "visible": false,
+        "text": "← SUBURBS  ·  SUBURBS →"
+      }
+    },
+    "afterShot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-natural-turn-accepted.png"
+  },
+  "stretch": {
+    "startDistance": 1482.5,
+    "endDistance": 2366,
+    "deltaMeters": 883.5,
+    "foundTurn": true,
+    "screenshot": "/opt/cursor/artifacts/biome-ux/screenshots/ux-stretch-end.png",
+    "finding": {
+      "severity": "pass",
+      "id": "stretch-length",
+      "msg": "Next turn ~884 m after settle"
+    }
+  },
+  "foreshadowLatency": null,
+  "consoleErrors": [],
+  "verdicts": [
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "exit",
+      "msg": "Exit phase reached with foreshadow mix"
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "taper",
+      "msg": "Taper reached; usable=[1,2,3] closed=[-6]"
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "enter",
+      "msg": "Enter reached; biome=rural"
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "settle",
+      "msg": "Settled into rural"
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "dest-flash",
+      "msg": "Destination flash shown: \"→ SUBURBS\""
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "atmos-ramp",
+      "msg": "atmosT 0.05 → 0.92"
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "mix",
+      "msg": "Mix scenery overlay present"
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "lane-close",
+      "msg": "Narrowing readable in data (usable=3, closed=1)"
+    },
+    {
+      "pair": "city→rural",
+      "severity": "pass",
+      "id": "lane-warn",
+      "msg": "Lane warn shows when targeting bad lane: \"WRONG WAY\""
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "exit",
+      "msg": "Exit phase reached with foreshadow mix"
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "taper",
+      "msg": "Taper reached; usable=[0,1] closed=[]"
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "enter",
+      "msg": "Enter reached; biome=city"
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "settle",
+      "msg": "Settled into city"
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "dest-flash",
+      "msg": "Destination flash shown: \"→ CITY\""
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "atmos-ramp",
+      "msg": "atmosT 0.05 → 0.92"
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "mix",
+      "msg": "Mix scenery overlay present"
+    },
+    {
+      "pair": "rural→city",
+      "severity": "pass",
+      "id": "lane-warn",
+      "msg": "Lane warn shows when targeting bad lane: \"WRONG WAY\""
+    },
+    {
+      "pair": "natural",
+      "severity": "pass",
+      "id": "cue-arrows",
+      "msg": "Turn cue uses arrows + labels: \"← SUBURBS  ·  SUBURBS →\""
+    },
+    {
+      "pair": "natural",
+      "severity": "warn",
+      "id": "cue-accept-fail",
+      "msg": "Swipe did not start corridor (window may have expired)"
+    },
+    {
+      "pair": "stretch",
+      "severity": "pass",
+      "id": "stretch-length",
+      "msg": "Next turn ~884 m after settle"
+    }
+  ],
+  "summary": {
+    "fail": 0,
+    "warn": 1,
+    "pass": 19,
+    "info": 0,
+    "consoleErrors": 0
+  }
+}
