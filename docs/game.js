@@ -19,6 +19,8 @@ import {
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
   CROSS_SPAWN_X, CROSS_SPEED, CROSS_HAZARD_SPEED, CROSS_MAX, CROSS_SPAWN_INTERVAL,
   CROSS_STOP_PAD, CROSS_ENTER_CUTOFF,
+  NEAR_MISS_Z, NEAR_MISS_LATERAL_MIN, NEAR_MISS_LATERAL_MAX,
+  NEAR_MISS_CROSS_Z, NEAR_MISS_CROSS_X, NEAR_MISS_BOOST_MUL, NEAR_MISS_BOOST_DURATION,
   GAS_START_MIN, GAS_START_MAX, GAS_DRAIN_PER_SEC, GAS_DRAIN_BOOST_MUL, GAS_DRAIN_BRAKE_MUL,
   GAS_EMPTY_SPEED_MUL, GAS_STATION_COOLDOWN_SEGS, GAS_HUD_AHEAD, GAS_INTERACT_RANGE,
   GAS_COLOR_OK, GAS_COLOR_LOW,
@@ -28,7 +30,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=34";
+} from "./js/constants.js?v=35";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -40,7 +42,7 @@ import { BUYABLE_CARS, getCar, pickDistinctMenuDecoIds, previewUrl } from "./js/
 import { preloadVehicles, createVehicle, replacePlayerVehicle } from "./js/vehicle.js?v=27";
 import {
   rentCivilian, returnTrafficCar, rentPolice, rentCross, returnCross,
-} from "./js/carPool.js?v=29";
+} from "./js/carPool.js?v=30";
 import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
@@ -101,8 +103,8 @@ const HOWTO_STEPS = [
   },
   {
     title: "THE GETAWAY",
-    body: "Weave traffic, take turn ramps into new biomes, and grab cash for the Garage. Crash or get caught = run over.",
-    callout: "",
+    body: "Weave traffic, take turn ramps into new biomes, and grab cash for the Garage. Skim past a car for a near-miss boost. Crash or get caught = run over.",
+    callout: "Close lane weave = short BOOST",
   },
   {
     title: "HUD BARS",
@@ -190,6 +192,22 @@ let shakeTime = 0;
 let camFovTarget = 72;
 let exhaustFlicker = null;
 let prevBoostActive = false;
+
+/** Stackable NOS pop — keeps the stronger mul / longer remaining timer. */
+function applySpeedBoost(mul, duration) {
+  boostMul = Math.max(boostMul, mul);
+  boostTimer = Math.max(boostTimer, duration);
+}
+
+/** Lateral / cross-traffic graze: juice + short skill boost (not a red-light mission). */
+function registerNearMiss(car) {
+  if (!car || car.userData.nearMissed) return false;
+  car.userData.nearMissed = true;
+  applySpeedBoost(NEAR_MISS_BOOST_MUL, NEAR_MISS_BOOST_DURATION);
+  triggerShake(0.14, 0.16);
+  playSfx("nearMiss");
+  return true;
+}
 
 function triggerShake(amp, duration = 0.22) {
   shakeAmp = Math.max(shakeAmp, amp);
@@ -2245,6 +2263,7 @@ function spawnCrossVehicle(seg, { hazard = false, fromLeft = Math.random() < 0.5
   car.userData.police = false;
   car.userData.pursuit = false;
   car.userData.stopped = false;
+  car.userData.nearMissed = false;
   activeCross.push(car);
   return car;
 }
@@ -3750,8 +3769,7 @@ function tick(now) {
             const goingFast = speed > 12 && !braking;
             if (state === "red") {
               if (goingFast) {
-                boostTimer = 2.5;
-                boostMul = 1.35;
+                applySpeedBoost(1.35, 2.5);
                 heat = Math.min(100, heat + 22 * heatPressureMul(distance));
                 spawnCrossVehicle(seg, { hazard: true, fromLeft: Math.random() < 0.5 });
                 hudLight.textContent = "RED! BOOST";
@@ -3880,17 +3898,15 @@ function tick(now) {
         crash();
         break;
       }
-      // Near-miss juice
+      // Near-miss weave boost (adjacent lane skim)
       if (
         !gasVisit &&
         !t.userData.nearMissed &&
-        Math.abs(t.position.z - playerZ) < 3.8 &&
-        Math.abs(t.position.x - laneX) > 1.35 &&
-        Math.abs(t.position.x - laneX) < 2.4
+        Math.abs(t.position.z - playerZ) < NEAR_MISS_Z &&
+        Math.abs(t.position.x - laneX) > NEAR_MISS_LATERAL_MIN &&
+        Math.abs(t.position.x - laneX) < NEAR_MISS_LATERAL_MAX
       ) {
-        t.userData.nearMissed = true;
-        triggerShake(0.14, 0.16);
-        playSfx("nearMiss");
+        registerNearMiss(t);
       }
     }
 
@@ -3953,6 +3969,15 @@ function tick(now) {
       if (!gasVisit && Math.abs(t.position.z - playerZ) < 2.5 && Math.abs(t.position.x - laneX) < 2.0) {
         crash();
         break;
+      }
+      // Near-miss: graze cross traffic (crash path above already exited on hit)
+      if (
+        !gasVisit &&
+        !t.userData.nearMissed &&
+        Math.abs(t.position.z - playerZ) < NEAR_MISS_CROSS_Z &&
+        Math.abs(t.position.x - laneX) < NEAR_MISS_CROSS_X
+      ) {
+        registerNearMiss(t);
       }
     }
 
@@ -4136,6 +4161,8 @@ window.__endlessChase = {
     running, alive, intro: !!intro, boarding: !!boarding, distance, lane, laneX: +laneX.toFixed(2), laneTargetX: +laneTargetX.toFixed(2),
     difficulty: +difficulty01(distance).toFixed(3),
     trafficInterval: +trafficSpawnInterval(distance).toFixed(2),
+    boostTimer: +boostTimer.toFixed(2),
+    boostMul: +boostMul.toFixed(2),
     turnActive: !!turnActive,
     controlUsable: playerControlLayout().usable.slice(),
     biome: activeBiome, heat, gas, braking, coins: save.coins, highScore: save.highScore | 0,
@@ -4340,6 +4367,16 @@ window.__endlessChase = {
       light: seg.userData.lightState,
       timer: seg.userData.lightTimer,
       z: +seg.position.z.toFixed(1),
+    };
+  },
+  /** Test helper: force a near-miss boost as if traffic was grazed. */
+  debugNearMissBoost: () => {
+    const dummy = { userData: { nearMissed: false } };
+    registerNearMiss(dummy);
+    return {
+      ok: true,
+      boostTimer: +boostTimer.toFixed(2),
+      boostMul: +boostMul.toFixed(2),
     };
   },
   /** Test helper: strip civ traffic / pylons / cross traffic so corridor logic can be asserted. */

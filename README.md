@@ -7,7 +7,7 @@ Mobile-first **8-bit getaway endless runner**: weave through traffic, outrun the
 ## Features
 
 - **Biome lanes** — City (4 lanes, 2 opposing), rural (2-way), highway (2 one-way); prompted turns via on-ramps
-- **Risk / reward** — Red-light NOS + cross traffic, heat/pursuit busts, curb-lane gas stations (flickering sign → swipe in → hold-to-fill while cops approach)
+- **Risk / reward** — Near-miss weave boosts, red-light NOS + cross traffic, heat/pursuit busts, curb-lane gas stations (flickering sign → swipe in → hold-to-fill while cops approach)
 - **Garage meta** — Coins, car unlocks, per-car upgrades persisted in `localStorage`
 - **Missions** — Four progressive tracks (gas visits, coins, distance, red-light boosts); clear a tier in one run for bonus coins, then the goal keeps advancing
 - **High score** — Best distance run saved and shown on menu, HUD, and game over

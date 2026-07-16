@@ -106,6 +106,20 @@ export const CROSS_SPEED = 14;
 export const CROSS_HAZARD_SPEED = 22;
 export const CROSS_MAX = 3;
 export const CROSS_SPAWN_INTERVAL = 1.15;
+
+/**
+ * Near-miss weave boost — skim past traffic in an adjacent lane for a short NOS pop.
+ * Lateral band sits just outside the crash half-width (1.35) up to NEAR_MISS_LATERAL_MAX.
+ * Smaller / shorter than a red-light boost; no heat cost (pure skill reward).
+ */
+export const NEAR_MISS_Z = 3.8;
+export const NEAR_MISS_LATERAL_MIN = 1.35;
+export const NEAR_MISS_LATERAL_MAX = 2.4;
+/** Cross-traffic graze window (outside crash box |dz|<2.5 / |dx|<2.0) */
+export const NEAR_MISS_CROSS_Z = 3.2;
+export const NEAR_MISS_CROSS_X = 2.8;
+export const NEAR_MISS_BOOST_MUL = 1.2;
+export const NEAR_MISS_BOOST_DURATION = 1.15;
 /** Stop short of the main-road edge (beyond road half) */
 export const CROSS_STOP_PAD = 1.6;
 /**
