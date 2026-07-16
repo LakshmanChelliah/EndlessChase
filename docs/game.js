@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=36";
+} from "./js/constants.js?v=37";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=32";
+} from "./js/nes.js?v=33";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, decideSegment, buildTransitionPlan,
@@ -1017,19 +1017,64 @@ function clearNearbyTrafficForTurn() {
 }
 
 /**
+ * Resolve nearest unresolved intersection near the player (prefer ahead).
+ * @returns {object|null}
+ */
+function nearestTurnIntersection() {
+  const target = intersectionTurnTarget();
+  if (target) return target;
+  let best = null;
+  let bestScore = Infinity;
+  for (const seg of activeSegments) {
+    if (!seg.userData.intersection || seg.userData.turnResolved) continue;
+    const dz = seg.position.z - playerZ;
+    if (dz < -8) continue;
+    // Prefer soonest ahead junction (debug may pull Z into approach)
+    const score = dz;
+    if (score < bestScore) {
+      bestScore = score;
+      best = seg;
+    }
+  }
+  return best;
+}
+
+/**
  * Begin a locked ~90° intersection drift (same biome; world stays +Z).
- * Lands in the curb forward lane matching the turn side.
+ * Snaps into the curb forward lane and, when needed, up to the junction so
+ * debug/forced turns don't fire mid-block into building faces.
  * @param {-1|1} side −1 left (−X), +1 right (+X)
- * @param {object} seg intersection segment
+ * @param {object} [seg] intersection segment (defaults to nearest)
+ * @returns {boolean}
  */
 function beginIntersectionDrift(side, seg) {
   const layout = currentLayout();
   const usable = [...Array(layout.count).keys()];
   const landLane = turnLaneForSide(layout, side, usable);
   const landX = landLane >= 0 ? layout.xs[landLane] : layout.xs[layout.defaultLane];
+  const junction = seg || nearestTurnIntersection();
+  if (!junction) return false;
+
+  // Real commits already require the curb lane; debug/forced calls must match
+  // so the nose aims into the cross street, not an inner-lane building face.
+  if (landLane >= 0) {
+    lane = landLane;
+    laneX = landX;
+    laneTargetX = landX;
+    laneVel = 0;
+  }
+  // Debug mid-block forces: pull into the approach so cross arms are on screen.
+  // Normal swipe commits are already inside TURN_HUD_AHEAD — don't teleport those.
+  const dzToJunction = junction.position.z - playerZ;
+  if (dzToJunction > TURN_HUD_AHEAD) {
+    playerZ = junction.position.z - 5;
+    distance = playerZ;
+  }
+  player.position.set(laneX, 0, playerZ);
+
   intersectionTurn = {
     side,
-    seg,
+    seg: junction,
     t: 0,
     duration: TURN_DRIFT_DURATION,
     fromX: laneX,
@@ -1039,11 +1084,9 @@ function beginIntersectionDrift(side, seg) {
     fromYaw: turnYaw || player.rotation.y || 0,
   };
   turnWindow = null;
-  if (seg) {
-    seg.userData.turnResolved = true;
-    // Avoid red-light NOS resolving mid-drift
-    if (!seg.userData.resolved) seg.userData.resolved = true;
-  }
+  junction.userData.turnResolved = true;
+  // Avoid red-light NOS resolving mid-drift
+  if (!junction.userData.resolved) junction.userData.resolved = true;
   if (hudTurn) hudTurn.classList.add("hidden");
   if (hudLight) hudLight.classList.add("hidden");
   braking = false;
@@ -1053,6 +1096,7 @@ function beginIntersectionDrift(side, seg) {
   turnYawVel = 0;
   triggerShake(0.12, 0.14);
   setSpeedlines(true);
+  return true;
 }
 
 /** Advance drift pose; commit ~90° along heading, keep world flowing, snap-straight on finish. */
@@ -1090,20 +1134,25 @@ function updateIntersectionTurn(dt) {
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(bank * 0.35, turnYaw, bank);
 
-  // Chase cam stays behind the turned heading for the whole committed turn
-  const back = 13;
+  // Chase cam stays behind the turned heading; look down the cross-street asphalt
+  // (not into corner facades) so the junction reads as a real turn.
+  const back = 12;
   const camX = laneX - Math.sin(turnYaw) * back;
-  const camZ = playerZ - Math.cos(turnYaw) * Math.max(0.35, Math.cos(Math.abs(turnYaw))) * back - (1 - Math.abs(Math.cos(turnYaw))) * 6;
-  // Keep camera mostly chasing +Z progress so the road keeps reading as moving
+  const camZ =
+    playerZ -
+    Math.cos(turnYaw) * Math.max(0.35, Math.cos(Math.abs(turnYaw))) * back -
+    (1 - Math.abs(Math.cos(turnYaw))) * 5;
   camera.position.set(
-    THREE.MathUtils.lerp(laneX * 0.08, camX, 0.75),
-    8.4,
-    THREE.MathUtils.lerp(playerZ - 14, camZ, 0.75)
+    THREE.MathUtils.lerp(laneX * 0.06, camX, 0.7),
+    8.2,
+    THREE.MathUtils.lerp(playerZ - 13, camZ, 0.7)
   );
+  const lookDist = 14 + Math.abs(Math.sin(turnYaw)) * 8;
   setCameraLook(
-    laneX + Math.sin(turnYaw) * 10,
-    1.0,
-    playerZ + Math.max(6, Math.cos(turnYaw) * 14)
+    laneX + Math.sin(turnYaw) * lookDist,
+    0.6,
+    // Hold look near junction Z so we see the arm opening, not a far sidewalk wall
+    playerZ + Math.max(2, Math.cos(turnYaw) * 10)
   );
   camFovTarget = 76;
   worldGround.position.z = playerZ + 80;
@@ -4383,7 +4432,10 @@ window.__endlessChase = {
       z: +s.position.z.toFixed(1),
       light: s.userData.lightState,
       dz: +(s.position.z - playerZ).toFixed(1),
+      turnResolved: !!s.userData.turnResolved,
     })),
+  /** Debug: wait/force a curb-lane turn at the nearest real intersection. */
+  debugIntersectionTurn: (side = -1) => beginIntersectionDrift(side < 0 ? -1 : 1),
   debugSpawnCross: (hazard = false) => {
     let seg = findAheadIntersection(playerZ - 5, 100);
     if (!seg) seg = activeSegments.find((s) => s.userData.intersection);

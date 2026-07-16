@@ -85,7 +85,7 @@ export const TURN_DRIFT_DURATION = 1.35;
 /** Peak yaw during a full intersection drift (±π/2). */
 export const TURN_DRIFT_YAW = Math.PI / 2;
 /** Lateral bulge into the cross-street mid-drift (meters). */
-export const TURN_DRIFT_ARC = 6.5;
+export const TURN_DRIFT_ARC = 9;
 /**
  * Show turn cue / accept turn swipe when intersection center is within this
  * Z distance ahead (and until just past center). Must last the whole approach —

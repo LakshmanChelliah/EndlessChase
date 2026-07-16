@@ -685,7 +685,7 @@ function addLaneMarkings(root, layout, biome, { intersection = false } = {}) {
 }
 
 /** Cross-street gap half-length (local Z) — no buildings through the junction. */
-const CROSS_GAP = 5;
+const CROSS_GAP = 8;
 
 function addStopBar(root, len, x, z, alongX) {
   const bar = new THREE.Mesh(
@@ -801,24 +801,31 @@ function addCrossStreet(root, half, width, biome = "city", tex = null) {
 
 /** Buildings / berm props flanking both cross-street arms. */
 function addCrossStreetBuildings(root, half, armLen, armHalf, biome, tex, rnd) {
-  const slots = 6;
+  // Keep the first ~10m of each arm clear so a drift turn looks into asphalt,
+  // not a solid wall of corner facades.
+  const mouthClear = 10;
+  const slots = 5;
   for (const xSide of [-1, 1]) {
     for (const zSide of [-1, 1]) {
       for (let i = 0; i < slots; i++) {
-        const t = (i + 0.35) / slots;
-        const bx = xSide * (half + 2.8 + t * (armLen - 4));
-        const bz = zSide * (armHalf + 5.0);
+        const t = (i + 0.4) / slots;
+        const along = mouthClear + t * (armLen - mouthClear - 2);
+        const bx = xSide * (half + along);
+        // Push facades further off the asphalt so the arm reads as a street
+        const bz = zSide * (armHalf + 7.5);
         if (biome === "city" && tex) {
           const v = pickBuildingVariant(tex, rnd);
           const h = v.preset.hMin + ((rnd() * v.preset.hSpan) | 0);
-          const b = makeBuildingBox(v.preset.w * 0.95, h, Math.min(v.preset.d, 4.8), v.map);
+          const b = makeBuildingBox(v.preset.w * 0.9, h, Math.min(v.preset.d, 4.2), v.map);
           b.position.set(bx, h / 2, bz);
           root.add(b);
-          const v2 = pickBuildingVariant(tex, rnd);
-          const h2 = v2.preset.hMin + ((rnd() * v2.preset.hSpan) | 0);
-          const b2 = makeBuildingBox(v2.preset.w * 0.8, h2, Math.min(v2.preset.d, 4.0), v2.map);
-          b2.position.set(bx + xSide * 2.4, h2 / 2, bz + zSide * 3.2);
-          root.add(b2);
+          if (i > 0) {
+            const v2 = pickBuildingVariant(tex, rnd);
+            const h2 = v2.preset.hMin + ((rnd() * v2.preset.hSpan) | 0);
+            const b2 = makeBuildingBox(v2.preset.w * 0.75, h2, Math.min(v2.preset.d, 3.6), v2.map);
+            b2.position.set(bx + xSide * 2.2, h2 / 2, bz + zSide * 3.6);
+            root.add(b2);
+          }
         } else if (biome === "rural") {
           const grass = new THREE.Mesh(new THREE.PlaneGeometry(7.5, 6.5), basicColor(NES.forest));
           grass.rotation.x = -Math.PI / 2;
