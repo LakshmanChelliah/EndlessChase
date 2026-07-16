@@ -1000,12 +1000,15 @@ function clearAheadTrafficSoft() {
   }
 }
 
-/** Cull nearby same-road + cross traffic so a drift turn is not an instant wreck. */
+/** Cull bumper-close same-road + all cross traffic so a drift turn is not an instant wreck. */
 function clearNearbyTrafficForTurn() {
+  // Keep mid/far traffic so the corridor still feels alive after the snap-straight.
   for (let i = activeTraffic.length - 1; i >= 0; i--) {
     const t = activeTraffic[i];
     if (t.userData.pursuit) continue;
-    if (Math.abs(t.position.z - playerZ) < 35) {
+    const dz = t.position.z - playerZ;
+    const dx = t.position.x - laneX;
+    if (Math.abs(dz) < 12 && Math.abs(dx) < 5) {
       activeTraffic.splice(i, 1);
       returnTrafficCar(t);
     }
@@ -1052,7 +1055,7 @@ function beginIntersectionDrift(side, seg) {
   setSpeedlines(true);
 }
 
-/** Advance drift pose; commit ~90° along heading, hold turned, snap-straight on finish. */
+/** Advance drift pose; commit ~90° along heading, keep world flowing, snap-straight on finish. */
 function updateIntersectionTurn(dt) {
   if (!intersectionTurn) return false;
   const tr = intersectionTurn;
@@ -1061,34 +1064,46 @@ function updateIntersectionTurn(dt) {
   const u = easeInOutCubic(uLinear);
   // Three.js +Y yaw: positive turns toward +X (screen right). Left turn (−X) needs negative yaw.
   const yawPeak = tr.side < 0 ? -TURN_DRIFT_YAW : TURN_DRIFT_YAW;
-  // Reach full turn by ~65% and HOLD — never ease yaw back (that read as undoing the turn).
-  const yawU = Math.min(1, u / 0.65);
+  // Reach full turn by ~60% and HOLD — never ease yaw back (that read as undoing the turn).
+  const yawU = Math.min(1, u / 0.6);
   turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawPeak, easeOutCubic(yawU));
   turnYawVel = 0;
 
-  // Move along current heading so path matches the turn (not a sideways strafe on +Z)
-  const move = Math.max(8, speed) * 0.72 * dt;
-  laneX += Math.sin(turnYaw) * move;
-  playerZ += Math.cos(turnYaw) * move;
-  // Once fully turned, soft-pull toward the curb landing lane before the snap reset
-  if (yawU >= 1) {
-    laneX = THREE.MathUtils.damp(laneX, tr.landX, 5.5, dt);
+  // Drive along heading, but never stall world scroll: keep a strong +Z floor so
+  // the endless road keeps flowing while turned (pure lateral freeze felt like a stop).
+  const move = Math.max(10, speed) * 0.85 * dt;
+  const lateral = Math.sin(turnYaw) * move;
+  const forward = Math.max(0.55, Math.cos(turnYaw)) * move;
+  laneX += lateral;
+  playerZ += forward;
+  // Pull toward curb landing lane once mostly turned
+  if (yawU >= 0.85) {
+    laneX = THREE.MathUtils.damp(laneX, tr.landX, 6.5, dt);
+  } else {
+    // Bias toward the turn side early so the path reads as entering the arm
+    const tip = tr.landX + tr.side * TURN_DRIFT_ARC * 0.65;
+    laneX = THREE.MathUtils.damp(laneX, tip, 3.2, dt);
   }
   laneVel = 0;
   distance = playerZ;
-  const bank = tr.side * 0.2 * (1 - Math.abs(yawU - 1) * 0.15) * Math.min(1, yawU * 1.4);
+  const bank = tr.side * 0.18 * Math.min(1, yawU * 1.35);
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(bank * 0.35, turnYaw, bank);
 
   // Chase cam stays behind the turned heading for the whole committed turn
-  const back = 14;
+  const back = 13;
   const camX = laneX - Math.sin(turnYaw) * back;
-  const camZ = playerZ - Math.cos(turnYaw) * back;
-  camera.position.set(camX, 8.4, camZ);
+  const camZ = playerZ - Math.cos(turnYaw) * Math.max(0.35, Math.cos(Math.abs(turnYaw))) * back - (1 - Math.abs(Math.cos(turnYaw))) * 6;
+  // Keep camera mostly chasing +Z progress so the road keeps reading as moving
+  camera.position.set(
+    THREE.MathUtils.lerp(laneX * 0.08, camX, 0.75),
+    8.4,
+    THREE.MathUtils.lerp(playerZ - 14, camZ, 0.75)
+  );
   setCameraLook(
-    laneX + Math.sin(turnYaw) * 14,
+    laneX + Math.sin(turnYaw) * 10,
     1.0,
-    playerZ + Math.cos(turnYaw) * 14
+    playerZ + Math.max(6, Math.cos(turnYaw) * 14)
   );
   camFovTarget = 76;
   worldGround.position.z = playerZ + 80;
@@ -1111,6 +1126,11 @@ function finishIntersectionDrift() {
   // Instant heading/camera reset — same-frame snap hides the endless-runner axis reset
   turnYaw = 0;
   turnYawVel = 0;
+  // Keep a healthy post-turn speed so flow doesn't feel paused
+  const limiter = BASE_MAX_SPEED * topSpeedFactor(save);
+  speed = Math.max(speed, limiter * 0.88);
+  braking = false;
+  brakeTimer = 0;
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(0, 0, 0);
   camera.position.copy(gameplayCamPos(laneX, playerZ));
@@ -1118,16 +1138,29 @@ function finishIntersectionDrift() {
   setCameraLook(look.x, look.y, look.z);
   camFovTarget = 72;
   intersectionTurn = null;
-  setSpeedlines(false);
-  clearNearbyTrafficForTurn();
-  triggerFlash("boost");
-  triggerShake(0.08, 0.1);
+  setSpeedlines(boostTimer > 0);
+  // Only clear cross traffic / very near cars — keep ahead traffic so the road stays alive
+  clearTurnHazards();
+  triggerShake(0.06, 0.08);
   if (hudTurn) {
     hudTurn.textContent = "TURN OK";
     hudTurn.classList.remove("hidden");
     setTimeout(() => {
       if (hudTurn && !turnWindow && !intersectionTurn) hudTurn.classList.add("hidden");
-    }, 900);
+    }, 700);
+  }
+}
+
+/** Clear cross-traffic and bumper-close cars during/after a turn without emptying the road. */
+function clearTurnHazards() {
+  while (activeCross.length) returnCross(activeCross.pop());
+  for (let i = activeTraffic.length - 1; i >= 0; i--) {
+    const t = activeTraffic[i];
+    if (t.userData.pursuit) continue;
+    if (Math.abs(t.position.z - playerZ) < 8 && Math.abs(t.position.x - laneX) < 4) {
+      activeTraffic.splice(i, 1);
+      returnTrafficCar(t);
+    }
   }
 }
 
