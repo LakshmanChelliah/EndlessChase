@@ -55,9 +55,14 @@ await page.waitForFunction((need) => {
 }, reqLane, { timeout: 20000 });
 
 const floatText = await page.locator("#hud-station-float").innerText();
-if (!/SWIPE/i.test(floatText)) {
-  throw new Error("expected SWIPE prompt, got: " + floatText);
+if (!/SWIPE/i.test(floatText) || !/ENTER/i.test(floatText)) {
+  throw new Error("expected swipe ENTER cue, got: " + floatText);
 }
+const enterDirOk = await page.evaluate(() => {
+  const el = document.getElementById("hud-station-float");
+  return el && el.classList.contains("dir-left"); // right-side station → swipe left
+});
+if (!enterDirOk) throw new Error("enter cue missing dir-left class");
 
 const opacities = await page.evaluate(async () => {
   const samples = [];
@@ -86,18 +91,58 @@ await page.keyboard.press("a");
 await page.waitForTimeout(100);
 st = await page.evaluate(() => window.__endlessChase.getState());
 if (!st.gasVisit) {
-  // Fallback: same code path the gesture uses
   const diag = await page.evaluate(() => window.__endlessChase.debugTrySwipeEnterGas("left"));
   if (!diag.ok) throw new Error("enter failed: " + JSON.stringify(diag));
   st = await page.evaluate(() => window.__endlessChase.getState());
 }
 if (!st.gasVisit) throw new Error("swipe did not enter gas station");
 
+// Fast-forward to waitClear and verify merge swipe cue + swipe-out
+await page.waitForFunction(() => {
+  const v = window.__endlessChase.getState().gasVisit;
+  return v && (v.phase === "pumping" || v.phase === "waitClear" || v.phase === "pullIn");
+}, null, { timeout: 5000 });
+// Skip through pull-in / pumping via debug-ish path: hold to fill then release
+for (let i = 0; i < 80; i++) {
+  const phase = await page.evaluate(() => window.__endlessChase.getState().gasVisit?.phase);
+  if (phase === "pumping") break;
+  await page.waitForTimeout(50);
+}
+await page.keyboard.down(" ");
+await page.waitForTimeout(400);
+await page.keyboard.up(" ");
+await page.waitForFunction(() => window.__endlessChase.getState().gasVisit?.phase === "waitClear", null, { timeout: 5000 });
+
+const mergeVisible = await page.evaluate(() => {
+  const el = document.getElementById("hud-merge-btn");
+  return el && !el.classList.contains("hidden") && el.classList.contains("dir-right");
+});
+if (!mergeVisible) throw new Error("merge swipe cue not visible with dir-right");
+
+// Tap must not merge
+await page.click("#c");
+await page.waitForTimeout(120);
+st = await page.evaluate(() => window.__endlessChase.getState());
+if (st.gasVisit?.phase !== "waitClear") throw new Error("tap merged out (should not)");
+
+// Swipe toward road (right for right-side lot) via D
+await page.keyboard.press("d");
+await page.waitForTimeout(150);
+st = await page.evaluate(() => window.__endlessChase.getState());
+if (st.gasVisit?.phase === "waitClear") {
+  await page.keyboard.press("ArrowUp");
+  await page.waitForTimeout(150);
+  st = await page.evaluate(() => window.__endlessChase.getState());
+}
+if (st.gasVisit?.phase === "waitClear") {
+  throw new Error("swipe did not merge out of gas station");
+}
+
 if (errors.length) throw new Error("page errors: " + errors.join("; "));
 
 console.log("GAS_STATION_OK", {
   floatText,
-  phase: st.gasVisit.phase,
+  phaseAfterMerge: st.gasVisit?.phase || "done",
   requiredLane: reqLane,
   flickerSamples: opacities,
   spawned,
