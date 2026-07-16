@@ -7,7 +7,7 @@
  */
 import * as THREE from "three";
 import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor, PATH_STRIP_WIDTH } from "./constants.js?v=33";
-import { pickTurnBiomes } from "./worldgen.js?v=25";
+import { pickTurnBiomes } from "./worldgen.js?v=26";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -1344,6 +1344,7 @@ export function clearPathVisuals(seg) {
     seg.userData.pathGroup = null;
   }
   seg.userData.pathLanes = null;
+  seg.userData.pathXs = null;
   seg.userData.pathVisual = false;
   if (seg.userData.roadMesh) seg.userData.roadMesh.visible = true;
   setTaperDecorVisible(seg, true);
@@ -1357,8 +1358,9 @@ export function clearPathVisuals(seg) {
  * @param {number[]} openLanes lane indices that exist on this tile
  * @param {{ count:number, width:number, xs:number[] }} layout
  * @param {{ road: THREE.Texture }} tex
+ * @param {Record<number, number>|null} [pathXs] optional remapped strip centers
  */
-export function applyPathVisuals(seg, openLanes, layout, tex) {
+export function applyPathVisuals(seg, openLanes, layout, tex, pathXs = null) {
   clearPathVisuals(seg);
   if (!openLanes || !openLanes.length || !layout) return;
 
@@ -1368,7 +1370,10 @@ export function applyPathVisuals(seg, openLanes, layout, tex) {
   const group = new THREE.Group();
   group.userData.isPathGroup = true;
 
-  const span = Math.max(layout.width + 14, 22);
+  const centers = openLanes.map((li) => (pathXs && pathXs[li] != null ? pathXs[li] : layout.xs[li]));
+  const maxAbs = Math.max(8, ...centers.map((x) => Math.abs(x)));
+  const span = Math.max(layout.width + 14, maxAbs * 2 + PATH_STRIP_WIDTH + 8);
+
   // Dark void / water under the bridges — makes missing lanes read as a fall hazard
   const voidMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(span, SEG_LEN + 0.6),
@@ -1392,7 +1397,7 @@ export function applyPathVisuals(seg, openLanes, layout, tex) {
   const stripW = PATH_STRIP_WIDTH;
   for (const li of openLanes) {
     if (li < 0 || li >= layout.count) continue;
-    const x = layout.xs[li];
+    const x = pathXs && pathXs[li] != null ? pathXs[li] : layout.xs[li];
 
     const roadMat = basic(tex.road);
     roadMat.map = tex.road.clone();
@@ -1442,5 +1447,6 @@ export function applyPathVisuals(seg, openLanes, layout, tex) {
   seg.add(group);
   seg.userData.pathGroup = group;
   seg.userData.pathLanes = openLanes.slice();
+  seg.userData.pathXs = pathXs ? { ...pathXs } : null;
   seg.userData.pathVisual = true;
 }

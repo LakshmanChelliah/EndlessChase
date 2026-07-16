@@ -13,6 +13,8 @@ import {
   PATH_INTRO_SEGS,
   PATH_COOLDOWN_SEGS,
   PATH_CHANGE_BASE,
+  PATH_STRIP_WIDTH,
+  PATH_MIN_GAP,
 } from "./constants.js?v=33";
 
 /** Mulberry32 — tiny deterministic PRNG */
@@ -384,6 +386,24 @@ export function evolvePathMask(layout, prevOpen, spawnIndex, rng, pathCooldown =
       pathCooldown: Math.max(0, pathCooldown),
       appeared: [],
       ended: [],
+      pathXs: null,
+    };
+  }
+
+  // First stretch after intro: force dual parallel strips so the new mechanic reads
+  const PATH_TEACH_SEGS = 6;
+  if (spawnIndex < PATH_INTRO_SEGS + PATH_TEACH_SEGS) {
+    const open = candidates.slice();
+    const pathXs = spacedPathXs(layout, open);
+    return {
+      open,
+      usableLanes: open.slice(),
+      closedXs: [],
+      pathVisual: true,
+      pathCooldown: Math.max(PATH_COOLDOWN_SEGS, pathCooldown),
+      appeared: spawnIndex === PATH_INTRO_SEGS ? open.slice() : [],
+      ended: [],
+      pathXs,
     };
   }
 
@@ -406,7 +426,7 @@ export function evolvePathMask(layout, prevOpen, spawnIndex, rng, pathCooldown =
       const closed = candidates.filter((i) => !open.includes(i));
       const roll = rng();
 
-      if (open.length >= 2 && roll < 0.45) {
+      if (open.length >= 2 && roll < 0.38) {
         // End a side path — keep at least one (prefer keeping default / center-ish)
         const preferKeep = open.includes(layout.defaultLane)
           ? layout.defaultLane
@@ -417,9 +437,8 @@ export function evolvePathMask(layout, prevOpen, spawnIndex, rng, pathCooldown =
           : open[(rng() * open.length) | 0];
         open = open.filter((i) => i !== victim);
         ended = [victim];
-      } else if (closed.length && roll < 0.85) {
-        // A new parallel path appears beside an existing one
-        // Prefer candidates adjacent (by index) to an open path
+      } else if (closed.length) {
+        // Prefer opening a new parallel path (Temple Run branch) over staying single
         const scored = closed.map((i) => {
           let near = 0;
           for (const o of open) near += Math.abs(o - i) === 1 ? 2 : Math.abs(o - i) === 2 ? 1 : 0;
@@ -429,14 +448,8 @@ export function evolvePathMask(layout, prevOpen, spawnIndex, rng, pathCooldown =
         const pick = scored[0].i;
         open = [...open, pick].sort((a, b) => a - b);
         appeared = [pick];
-      } else if (closed.length) {
-        // Jump to dual/triple when possible
-        const add = closed[(rng() * closed.length) | 0];
-        open = [...open, add].sort((a, b) => a - b);
-        appeared = [add];
-      } else if (open.length >= 2) {
+      } else if (open.length >= 2 && roll > 0.9) {
         const victim = open[(rng() * open.length) | 0];
-        // Never strand: if closing would empty, skip
         if (open.length > 1) {
           open = open.filter((i) => i !== victim);
           ended = [victim];
@@ -472,6 +485,12 @@ export function evolvePathMask(layout, prevOpen, spawnIndex, rng, pathCooldown =
     ? open.slice()
     : [...new Set([...open, ...oncoming])];
 
+  /** Spread strip centers so parallel paths read with a clear Temple Run gap. */
+  let pathXs = null;
+  if (pathVisual && open.length) {
+    pathXs = spacedPathXs(layout, open);
+  }
+
   return {
     open,
     usableLanes,
@@ -480,7 +499,44 @@ export function evolvePathMask(layout, prevOpen, spawnIndex, rng, pathCooldown =
     pathCooldown: nextCooldown,
     appeared,
     ended,
+    pathXs,
   };
+}
+
+/**
+ * Remap open lane centers so strip edges keep at least PATH_MIN_GAP between them.
+ * @param {{ xs:number[] }} layout
+ * @param {number[]} openLanes
+ * @returns {Record<number, number>}
+ */
+export function spacedPathXs(layout, openLanes) {
+  const sorted = openLanes.slice().sort((a, b) => layout.xs[a] - layout.xs[b]);
+  /** @type {Record<number, number>} */
+  const out = {};
+  if (!sorted.length) return out;
+  if (sorted.length === 1) {
+    out[sorted[0]] = layout.xs[sorted[0]];
+    return out;
+  }
+  const minCenter = PATH_STRIP_WIDTH + PATH_MIN_GAP;
+  // If native spacing already wide enough, keep layout xs
+  let needSpread = false;
+  for (let i = 1; i < sorted.length; i++) {
+    if (Math.abs(layout.xs[sorted[i]] - layout.xs[sorted[i - 1]]) < minCenter - 0.05) {
+      needSpread = true;
+      break;
+    }
+  }
+  if (!needSpread) {
+    for (const i of sorted) out[i] = layout.xs[i];
+    return out;
+  }
+  const span = (sorted.length - 1) * minCenter;
+  const start = -span / 2;
+  sorted.forEach((li, idx) => {
+    out[li] = start + idx * minCenter;
+  });
+  return out;
 }
 
 export { BIOMES };

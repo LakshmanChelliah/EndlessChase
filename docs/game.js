@@ -28,6 +28,7 @@ import {
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   TRAFFIC_TIMER_START,
   PATH_HIT_HALF, PATH_FALL_GRACE,
+  PATH_STRIP_WIDTH, PATH_MIN_GAP,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
 } from "./js/constants.js?v=33";
@@ -50,13 +51,13 @@ import {
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
   applyPathVisuals, clearPathVisuals,
-} from "./js/nes.js?v=30";
+} from "./js/nes.js?v=31";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
   evolvePathMask, pathCandidateLanes,
-} from "./js/worldgen.js?v=25";
+} from "./js/worldgen.js?v=26";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -851,7 +852,16 @@ function layoutBiomeForSegment(seg) {
 }
 
 function layoutForSegment(seg) {
-  return layoutFor(layoutBiomeForSegment(seg));
+  const base = layoutFor(layoutBiomeForSegment(seg));
+  const pathXs = seg?.userData?.pathXs;
+  if (!pathXs) return base;
+  const xs = base.xs.map((x, i) => (pathXs[i] != null ? pathXs[i] : x));
+  const maxAbs = Math.max(...xs.map((x) => Math.abs(x)), base.width / 2);
+  return {
+    ...base,
+    xs,
+    width: Math.max(base.width, maxAbs * 2 + PATH_STRIP_WIDTH + 2),
+  };
 }
 
 function usableLanesForSegment(seg) {
@@ -1541,10 +1551,14 @@ function spawnSegment() {
     seg.userData.usableLanes = path.usableLanes.slice();
     seg.userData.closedLaneXs = path.closedXs.slice();
     if (path.pathVisual) {
-      applyPathVisuals(seg, path.open, layout, tex);
+      applyPathVisuals(seg, path.open, layout, tex, path.pathXs);
+      seg.userData.pathXs = path.pathXs ? { ...path.pathXs } : null;
       // Barricades where a path just ended so the drop reads early
       if (path.ended.length) {
-        const endedXs = path.ended.map((i) => layout.xs[i]);
+        const endedXs = path.ended.map((i) => {
+          if (path.pathXs && path.pathXs[i] != null) return path.pathXs[i];
+          return layout.xs[i];
+        });
         spawnTransitionObstacles(seg, endedXs);
       }
     } else {
@@ -1561,7 +1575,8 @@ function spawnSegment() {
   if (rng() < coinChance && kind !== "T" && pathLanes.length) {
     const coin = coinPool.rent();
     const li = pathLanes[(rng() * pathLanes.length) | 0];
-    coin.position.set(layout.xs[li], 1.0, seg.position.z);
+    const cx = seg.userData.pathXs?.[li] != null ? seg.userData.pathXs[li] : layout.xs[li];
+    coin.position.set(cx, 1.0, seg.position.z);
     activeCoins.push(coin);
     // Extra coins along newly opened / active split paths
     if (seg.userData.pathVisual && rng() < 0.55) {
@@ -1569,7 +1584,10 @@ function spawnSegment() {
         if (laneIdx === li) continue;
         if (rng() > 0.65) continue;
         const extra = coinPool.rent();
-        extra.position.set(layout.xs[laneIdx], 1.0, seg.position.z + (rng() - 0.5) * 6);
+        const ex = seg.userData.pathXs?.[laneIdx] != null
+          ? seg.userData.pathXs[laneIdx]
+          : layout.xs[laneIdx];
+        extra.position.set(ex, 1.0, seg.position.z + (rng() - 0.5) * 6);
         activeCoins.push(extra);
       }
     }
@@ -3595,6 +3613,21 @@ function tick(now) {
     adoptBiomeFromSegment(playerSeg);
     // Rebind lane index to physical X after layoutBiome flips — never retarget laneTargetX.
     syncPlayerLaneIndexIfAligned();
+    // When path spacing remaps strip centers, keep the spring on the live strip
+    // once the previous target has been reached (do not fight mid-swipe).
+    if (playerSeg?.userData?.pathVisual) {
+      const cmd = commandedLaneIndex(layout);
+      if (usable.includes(cmd)) {
+        const want = layout.xs[cmd];
+        if (
+          Math.abs(laneTargetX - want) > 0.85 &&
+          Math.abs(laneX - laneTargetX) < 0.55 &&
+          Math.abs(laneVel) < 2
+        ) {
+          laneTargetX = want;
+        }
+      }
+    }
     // Player never auto-merges. Spring only toward swipe/reset/gas targets so a biome
     // enter tile cannot yank them across the road (e.g. city lane 1 → rural oncoming).
     // Closed / orphaned Xs keep their target so pylons can wreck them.
