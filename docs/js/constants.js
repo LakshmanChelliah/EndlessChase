@@ -199,7 +199,8 @@ export const BIOME_ATMOS = {
     fogNear: 40,
     fogFar: 105,
     clear: 0x143028,
-    ground: 0x0a5a30,
+    // Night suburbs — keep green readable but not neon lawn
+    ground: 0x084828,
     sky: ["#101820", "#1a3040", "#2a4840", "#3d6050"],
     stars: "#fff1e8",
   },

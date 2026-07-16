@@ -7,7 +7,7 @@
  */
 import * as THREE from "three";
 import { ASSET, SEG_LEN, NES, BIOME_ATMOS, SHOULDER, layoutFor } from "./constants.js?v=33";
-import { pickTurnBiomes } from "./worldgen.js?v=25";
+import { pickTurnBiomes } from "./worldgen.js?v=26";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -723,26 +723,30 @@ export function applyMixBiomeOverlay(seg, mixBiome, tex, mixWeight = 0.55) {
         group.add(rail);
       }
     } else if (mixBiome === "city") {
-      // Walk pad under buildings — never plant city blocks on grass
+      // Wide walk pads cover rural berms so city foreshadow isn't "buildings on lawn"
+      const hostRural = seg.userData.biome === "rural" || seg.userData.biome === "highway";
+      const walkW = hostRural ? 10 + w * 3 : 6.5 + w * 2;
+      const walkX = hostRural ? half + 5.2 : half + 4.0 + w * 0.4;
       const walk = new THREE.Mesh(
-        new THREE.PlaneGeometry(6.5 + w * 2, SEG_LEN * (0.55 + w * 0.3)),
+        new THREE.PlaneGeometry(walkW, SEG_LEN * (0.6 + w * 0.3)),
         basicColor(0x3a3d48)
       );
       walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * (half + 4.0 + w * 0.4), 0.02, 0);
+      walk.position.set(side * walkX, 0.028, 0);
       group.add(walk);
-      if (w > 0.28) {
+      // Buildings only once the walk has real presence
+      if (w > 0.4) {
         const { map, preset } = pickBuildingVariant(tex, Math.random);
-        const h = preset.hMin + w * 1.2;
+        const h = preset.hMin + w * 1.1;
         const b = makeBuildingBox(preset.w * 0.75, h, preset.d * 0.75, map);
-        b.position.set(side * (half + 4.2), h / 2, side > 0 ? -1.5 : 1.5);
+        b.position.set(side * (walkX - (hostRural ? 0.6 : 0.2)), h / 2, side > 0 ? -1.5 : 1.5);
         group.add(b);
       }
-      if (w > 0.55) {
+      if (w > 0.65) {
         const { map, preset } = pickBuildingVariant(tex, Math.random);
-        const h2 = preset.hMin + w;
+        const h2 = preset.hMin + w * 0.9;
         const b2 = makeBuildingBox(preset.w * 0.65, h2, preset.d * 0.65, map);
-        b2.position.set(side * (half + 5.6), h2 / 2, side > 0 ? 2.2 : -2.2);
+        b2.position.set(side * (walkX + 1.2), h2 / 2, side > 0 ? 2.2 : -2.2);
         group.add(b2);
       }
     }
