@@ -1052,7 +1052,8 @@ function updateIntersectionTurn(dt) {
   const tr = intersectionTurn;
   tr.t += dt;
   const u = easeInOutCubic(Math.min(1, tr.t / tr.duration));
-  const yawTarget = tr.side < 0 ? TURN_DRIFT_YAW : -TURN_DRIFT_YAW;
+  // Three.js +Y yaw: positive turns toward +X (screen right). Left turn (−X) needs negative yaw.
+  const yawTarget = tr.side < 0 ? -TURN_DRIFT_YAW : TURN_DRIFT_YAW;
   // Hold Z progress through the junction while arcing into the cross street
   laneX = THREE.MathUtils.lerp(tr.fromX, tr.toX, u);
   laneVel = 0;
