@@ -140,6 +140,7 @@ const hudHeat = document.getElementById("hud-heat");
 const hudGasBlock = document.getElementById("hud-gas-block");
 const hudGasFill = document.getElementById("hud-gas-fill");
 const hudGasHint = document.getElementById("hud-gas-hint");
+const hudGasWarn = document.getElementById("hud-gas-warn");
 const hudStationFloat = document.getElementById("hud-station-float");
 const hudMergeBtn = document.getElementById("hud-merge-btn");
 const hudTurn = document.getElementById("hud-turn");
@@ -1591,11 +1592,22 @@ function spawnOpeningChaseCop() {
 function updateGasUI() {
   const g = Math.max(0, Math.min(100, gas));
   if (hudGasFill) hudGasFill.style.width = `${g}%`;
+  const critical = g < GAS_COLOR_LOW;
   if (hudGasBlock) {
     hudGasBlock.classList.remove("ok", "low", "critical");
-    if (g < GAS_COLOR_LOW) hudGasBlock.classList.add("critical");
+    if (critical) hudGasBlock.classList.add("critical");
     else if (g < GAS_COLOR_OK) hudGasBlock.classList.add("low");
     else hudGasBlock.classList.add("ok");
+  }
+  if (hudGasWarn) {
+    const show = critical && alive && (running || !!gasVisit);
+    if (hudGasWarn.classList.contains("hidden") && show) {
+      hudGasWarn.classList.remove("hidden");
+      // Retrigger pop animation when crossing into critical
+      void hudGasWarn.offsetWidth;
+    } else {
+      hudGasWarn.classList.toggle("hidden", !show);
+    }
   }
 }
 
@@ -2259,6 +2271,7 @@ function endRun(reason) {
   nearbyStation = null;
   hideStationFloat();
   hideGasHint();
+  if (hudGasWarn) hudGasWarn.classList.add("hidden");
   if (goTitle) goTitle.textContent = reason === "bust" ? "Busted!" : "Wrecked!";
   goScoreTarget = Math.floor(distance);
   goScoreDisplay = 0;
@@ -2596,6 +2609,7 @@ function startRun(opts = {}) {
     hideStationFloat();
     hideGasHint();
     if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
+    if (hudGasWarn) hudGasWarn.classList.add("hidden");
     prevBoostActive = false;
     setSpeedlines(false);
     shakeAmp = 0;
@@ -2713,6 +2727,7 @@ function prepareRunFromMenu() {
   hideStationFloat();
   hideGasHint();
   if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
+  if (hudGasWarn) hudGasWarn.classList.add("hidden");
   showPumpPanel(false);
 }
 
