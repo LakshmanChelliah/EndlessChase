@@ -14,7 +14,7 @@ import {
   SEG_LEN, NES_W, NES_H, NES, MAX_UPGRADE,
   BRAKE_DURATION, BRAKE_SPEED_MUL, BASE_MAX_SPEED, BASE_ACCEL, BASE_BRAKE,
   HEAT_SLOW_THRESHOLD, HEAT_RISE, HEAT_DECAY,
-  TURN_WINDOW, TURN_YAW, TURN_DRIFT_DURATION, TURN_DRIFT_YAW, TURN_DRIFT_ARC, TURN_HUD_AHEAD,
+  TURN_YAW, TURN_DRIFT_DURATION, TURN_DRIFT_YAW, TURN_DRIFT_ARC, TURN_HUD_AHEAD,
   MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=33";
+} from "./js/constants.js?v=34";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -728,7 +728,8 @@ let intersectionCooldown = 2;
 let gasCooldown = 12;
 /**
  * Nearby intersection turn window (optional drift commit).
- * @type {null | { seg: object, timer: number }}
+ * Open for the whole approach band — no short wall-clock timer.
+ * @type {null | { seg: object }}
  */
 let turnWindow = null;
 /**
@@ -1109,6 +1110,55 @@ function finishIntersectionDrift() {
 /** True while locked in an intersection drift (skip steer / collisions). */
 function inIntersectionTurn() {
   return !!intersectionTurn;
+}
+
+/** Nearest unresolved intersection in the turn-commit Z band, or null. */
+function intersectionTurnTarget() {
+  if (turnWindow?.seg && !turnWindow.seg.userData.turnResolved) {
+    const dz = turnWindow.seg.position.z - playerZ;
+    if (dz < TURN_HUD_AHEAD && dz > -2) return turnWindow.seg;
+  }
+  let best = null;
+  let bestDz = Infinity;
+  for (const seg of activeSegments) {
+    if (!seg.userData.intersection || seg.userData.turnResolved) continue;
+    const dz = seg.position.z - playerZ;
+    if (dz >= TURN_HUD_AHEAD || dz <= -2) continue;
+    if (Math.abs(dz) < bestDz) {
+      bestDz = Math.abs(dz);
+      best = seg;
+    }
+  }
+  return best;
+}
+
+/**
+ * Commit a directional drift if in the matching outermost forward lane.
+ * @param {"left"|"right"} dir
+ * @returns {boolean}
+ */
+function tryCommitIntersectionTurn(dir) {
+  if (dir !== "left" && dir !== "right") return false;
+  const seg = intersectionTurnTarget();
+  if (!seg) return false;
+  const side = dir === "left" ? -1 : 1;
+  const { layout, usable } = playerControlLayout();
+  const required = turnLaneForSide(layout, side, usable);
+  if (required < 0) return false;
+  const current = commandedLaneIndex(layout);
+  const onLane =
+    current === required ||
+    Math.abs(laneX - layout.xs[required]) < 1.1 ||
+    Math.abs(laneTargetX - layout.xs[required]) < 0.75;
+  if (!onLane) {
+    if (hudTurn) {
+      hudTurn.textContent = "GET IN TURN LANE";
+      hudTurn.classList.remove("hidden");
+    }
+    return false;
+  }
+  beginIntersectionDrift(side, seg);
+  return true;
 }
 
 function roadHalfForSegment(seg) {
@@ -3155,20 +3205,24 @@ function onSwipe(dir) {
   }
   pendingSwipe = null;
 
-  // Intersection drift: swipe toward the side while already in that outermost forward lane
-  if (turnWindow && (dir === "left" || dir === "right")) {
-    const side = dir === "left" ? -1 : 1;
-    const { layout, usable } = playerControlLayout();
-    const required = turnLaneForSide(layout, side, usable);
-    const current = commandedLaneIndex(layout);
-    if (required >= 0 && current === required) {
-      beginIntersectionDrift(side, turnWindow.seg);
-      return;
-    }
-    // Wrong lane — brief cue, then fall through to normal lane change
-    if (hudTurn) {
-      hudTurn.textContent = "GET IN TURN LANE";
-      hudTurn.classList.remove("hidden");
+  // Intersection drift: swipe toward the side while in that outermost forward lane
+  // (window stays open for the whole approach — not a short wall-clock timer)
+  if (dir === "left" || dir === "right") {
+    if (tryCommitIntersectionTurn(dir)) return;
+    // If we're in the matching turn lane at an open intersection, do not
+    // fall through to inverted lane-change (that steals you out of the turn lane).
+    const seg = intersectionTurnTarget();
+    if (seg) {
+      const side = dir === "left" ? -1 : 1;
+      const { layout, usable } = playerControlLayout();
+      const required = turnLaneForSide(layout, side, usable);
+      const current = commandedLaneIndex(layout);
+      const onLane =
+        required >= 0 &&
+        (current === required ||
+          Math.abs(laneX - layout.xs[required]) < 1.1 ||
+          Math.abs(laneTargetX - layout.xs[required]) < 0.75);
+      if (onLane) return;
     }
   }
 
@@ -3725,39 +3779,42 @@ function tick(now) {
         const dz = seg.position.z - playerZ;
         if (dz < TURN_HUD_AHEAD && dz > -2) {
           if (!turnWindow || turnWindow.seg !== seg) {
-            turnWindow = { seg, timer: TURN_WINDOW };
+            turnWindow = { seg };
           }
           // Cue only when already in a turn-side outermost forward lane
           const { layout, usable } = playerControlLayout();
           const cmd = commandedLaneIndex(layout);
           const leftLane = turnLaneForSide(layout, -1, usable);
           const rightLane = turnLaneForSide(layout, 1, usable);
+          const onLeft =
+            leftLane >= 0 &&
+            (cmd === leftLane || Math.abs(laneX - layout.xs[leftLane]) < 1.1);
+          const onRight =
+            rightLane >= 0 &&
+            (cmd === rightLane || Math.abs(laneX - layout.xs[rightLane]) < 1.1);
           if (hudTurn) {
-            if (cmd === leftLane && cmd === rightLane && leftLane >= 0) {
-              // Single forward lane (rural): both sides available
+            if (onLeft && onRight) {
               hudTurn.textContent = "← TURN  ·  TURN →";
               hudTurn.classList.remove("hidden");
-            } else if (cmd === leftLane && leftLane >= 0) {
+            } else if (onLeft) {
               hudTurn.textContent = "← TURN";
               hudTurn.classList.remove("hidden");
-            } else if (cmd === rightLane && rightLane >= 0) {
+            } else if (onRight) {
               hudTurn.textContent = "TURN →";
               hudTurn.classList.remove("hidden");
-            } else if (turnWindow.seg === seg) {
-              // In window but wrong lane — keep quiet unless we just showed MOVE closer
-              if (hudTurn.textContent === "← TURN" || hudTurn.textContent === "TURN →" || hudTurn.textContent === "← TURN  ·  TURN →") {
-                hudTurn.classList.add("hidden");
-              }
+            } else if (
+              hudTurn.textContent === "← TURN" ||
+              hudTurn.textContent === "TURN →" ||
+              hudTurn.textContent === "← TURN  ·  TURN →"
+            ) {
+              hudTurn.classList.add("hidden");
             }
           }
-        }
-        if (turnWindow && turnWindow.seg === seg) {
-          turnWindow.timer -= dt;
-          if (turnWindow.timer <= 0 || dz < -2) {
-            seg.userData.turnResolved = true;
-            turnWindow = null;
-            if (hudTurn) hudTurn.classList.add("hidden");
-          }
+        } else if (turnWindow && turnWindow.seg === seg && dz <= -2) {
+          // Passed the junction without turning
+          seg.userData.turnResolved = true;
+          turnWindow = null;
+          if (hudTurn) hudTurn.classList.add("hidden");
         }
       }
 
@@ -4161,6 +4218,7 @@ window.__endlessChase = {
   setupMenuScene,
   beginBiomeTransition,
   beginIntersectionDrift,
+  tryCommitIntersectionTurn,
   turnLaneForSide,
   getSave: () => ({
     ...save,

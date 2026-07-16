@@ -76,7 +76,7 @@ export function heatGraceFor(distance) {
 export function heatPressureMul(distance) {
   return HEAT_RISE_EASY_MUL + difficulty01(distance) * (1 - HEAT_RISE_EASY_MUL);
 }
-/** Commit window while approaching an intersection center (seconds). */
+/** Commit window while approaching an intersection center (seconds). Unused for expiry — proximity band gates turns. */
 export const TURN_WINDOW = 1.25;
 /** Cosmetic lane-change yaw kick (radians). */
 export const TURN_YAW = (25 * Math.PI) / 180;
@@ -86,8 +86,12 @@ export const TURN_DRIFT_DURATION = 1.05;
 export const TURN_DRIFT_YAW = Math.PI / 2;
 /** How far into the cross-street arm the drift arcs (meters past road half). */
 export const TURN_DRIFT_ARC = 7.5;
-/** Show turn cue when intersection center is within this Z distance. */
-export const TURN_HUD_AHEAD = 12;
+/**
+ * Show turn cue / accept turn swipe when intersection center is within this
+ * Z distance ahead (and until just past center). Must last the whole approach —
+ * a short wall-clock timer made late swipes miss the turn.
+ */
+export const TURN_HUD_AHEAD = 18;
 export const MIN_SWIPE = 40;
 /** Max duration for a tap (gas station). Swipes have no time limit. */
 export const TAP_MAX_MS = 450;
