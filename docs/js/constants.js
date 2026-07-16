@@ -175,7 +175,7 @@ export const NES = {
   green: 0x00e436,
   asphalt: 0x292a32,
   curb: 0x5a5a6e,
-  forest: 0x008751,
+  forest: 0x0a5a30,
 };
 
 /** Per-biome fog / sky / ground — keeps NES palette, differentiates stretches. */
@@ -185,7 +185,7 @@ export const BIOME_ATMOS = {
     fogNear: 35,
     fogFar: 95,
     clear: 0x1d2b53,
-    ground: 0x008751,
+    ground: 0x2f3a38,
     sky: ["#0f1730", "#1d2b53", "#3a4570", "#5a6588"],
     stars: "#fff1e8",
   },
