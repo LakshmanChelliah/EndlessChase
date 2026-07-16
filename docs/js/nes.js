@@ -942,38 +942,75 @@ function addThreeLampSignal(root, half, tex) {
  * Do not UV-flip — that re-mirrors the glyphs for this camera setup.
  */
 function makeGasTextTexture() {
-  const w = 64;
-  const h = 32;
+  // Higher-res NES neon: thick glyphs + dark outline so they read at chase distance.
+  const cell = 3;
+  const cols = 22; // letter grid width in cells
+  const rows = 10;
+  const padX = 6;
+  const padY = 5;
+  const w = padX * 2 + cols * cell;
+  const h = padY * 2 + rows * cell;
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#ffec27";
 
-  /** Fill a 1-cell block in an 8×8 letter grid placed at (ox, oy). */
-  function px(ox, oy, x, y) {
-    ctx.fillRect(ox + x * 2, oy + y * 2, 2, 2);
+  /** 1-cell block in an 8×8 letter grid at cell origin (ox, oy). */
+  function stamp(ox, oy, x, y, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(padX + (ox + x) * cell, padY + (oy + y) * cell, cell, cell);
   }
-  function drawG(ox, oy) {
-    for (let x = 1; x <= 6; x++) { px(ox, oy, x, 0); px(ox, oy, x, 7); }
-    for (let y = 1; y <= 6; y++) px(ox, oy, 0, y);
-    for (let y = 4; y <= 6; y++) px(ox, oy, 6, y);
-    for (let x = 3; x <= 6; x++) px(ox, oy, x, 4);
+  function drawLetter(ox, oy, plot, color) {
+    for (const [x, y] of plot) stamp(ox, oy, x, y, color);
   }
-  function drawA(ox, oy) {
-    for (let x = 1; x <= 5; x++) px(ox, oy, x, 0);
-    for (let y = 1; y <= 7; y++) { px(ox, oy, 0, y); px(ox, oy, 6, y); }
-    for (let x = 1; x <= 5; x++) px(ox, oy, x, 3);
+
+  // Chunky 7×8 capital forms (cell coords).
+  const G = [];
+  for (let x = 1; x <= 5; x++) { G.push([x, 0], [x, 7]); }
+  for (let y = 1; y <= 6; y++) G.push([0, y]);
+  for (let y = 4; y <= 6; y++) G.push([6, y]);
+  for (let x = 3; x <= 6; x++) G.push([x, 4]);
+  G.push([6, 3]);
+
+  const A = [];
+  for (let x = 1; x <= 5; x++) A.push([x, 0]);
+  for (let y = 1; y <= 7; y++) { A.push([0, y], [6, y]); }
+  for (let x = 1; x <= 5; x++) A.push([x, 3]);
+
+  const S = [];
+  for (let x = 1; x <= 5; x++) { S.push([x, 0], [x, 3], [x, 7]); }
+  for (let y = 1; y <= 2; y++) S.push([0, y]);
+  for (let y = 5; y <= 6; y++) S.push([6, y]);
+  S.push([0, 0], [6, 0], [0, 3], [6, 3], [0, 7], [6, 7]);
+
+  // Outline pass (dark) then neon fill — outline is a 1-cell halo.
+  function withOutline(ox, oy, plot) {
+    const halo = new Set();
+    for (const [x, y] of plot) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          halo.add(`${x + dx},${y + dy}`);
+        }
+      }
+    }
+    const body = new Set(plot.map(([x, y]) => `${x},${y}`));
+    for (const key of halo) {
+      if (body.has(key)) continue;
+      const [x, y] = key.split(",").map(Number);
+      stamp(ox, oy, x, y, "#3b1408");
+    }
+    // Neon fill + hot core (draw yellow first, then white on interior cells)
+    drawLetter(ox, oy, plot, "#ffec27");
+    const core = plot.filter(([x, y]) => x >= 1 && x <= 5 && y >= 1 && y <= 6);
+    drawLetter(ox, oy, core, "#fff9a8");
   }
-  function drawS(ox, oy) {
-    for (let x = 1; x <= 6; x++) { px(ox, oy, x, 0); px(ox, oy, x, 3); px(ox, oy, x, 7); }
-    for (let y = 1; y <= 2; y++) px(ox, oy, 0, y);
-    for (let y = 5; y <= 6; y++) px(ox, oy, 6, y);
-  }
-  drawG(4, 8);
-  drawA(24, 8);
-  drawS(44, 8);
+
+  // Left→right G A S (8-cell stride with 1-cell gap).
+  withOutline(0, 1, G);
+  withOutline(8, 1, A);
+  withOutline(16, 1, S);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.magFilter = THREE.NearestFilter;
@@ -989,10 +1026,26 @@ function addGasSignLetters(parent, x, y, z) {
   letterRoot.name = "gasSignLetters";
   letterRoot.position.set(x, y, z);
   // PlaneGeometry faces +Z; yaw π so the painted front faces the chase cam (−Z).
-  // After yaw: texture U=0 (G) sits on world +X = screen-left.
   letterRoot.rotation.y = Math.PI;
 
   const gasTex = makeGasTextTexture();
+
+  // Soft neon wash behind glyphs only (kept dim so letters stay readable).
+  const plate = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.2, 1.25),
+    new THREE.MeshBasicMaterial({
+      color: 0xff2244,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      side: THREE.FrontSide,
+    })
+  );
+  plate.name = "gasLetterPlate";
+  plate.userData.gasLetterGlow = true;
+  plate.position.set(0, 0, -0.01);
+  letterRoot.add(plate);
+
   const gasMat = new THREE.MeshBasicMaterial({
     map: gasTex,
     transparent: true,
@@ -1000,30 +1053,50 @@ function addGasSignLetters(parent, x, y, z) {
     side: THREE.FrontSide,
   });
   gasMat.userData.gasLetter = true;
-  const gasPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.7), gasMat);
+  const gasPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.45, 1.4), gasMat);
   gasPlane.name = "gasLetterPlane";
   gasPlane.userData.gasLetter = true;
-  gasPlane.position.set(0, 0, 0.02);
+  gasPlane.position.set(0, 0.02, 0.05);
+  gasPlane.renderOrder = 3;
   letterRoot.add(gasPlane);
 
+  // Outer letter halo
   const glowMat = new THREE.MeshBasicMaterial({
     map: gasTex,
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.28,
     depthWrite: false,
     depthTest: false,
     side: THREE.FrontSide,
   });
   glowMat.userData.gasLetterGlow = true;
-  const gasGlow = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.1), glowMat);
+  const gasGlow = new THREE.Mesh(new THREE.PlaneGeometry(3.75, 1.55), glowMat);
   gasGlow.name = "gasLetterGlow";
   gasGlow.userData.gasLetterGlow = true;
-  gasGlow.position.set(0, 0, 0.01);
-  gasGlow.renderOrder = 1;
+  gasGlow.position.set(0, 0.02, 0.03);
+  gasGlow.renderOrder = 2;
   letterRoot.add(gasGlow);
 
   parent.add(letterRoot);
   return letterRoot;
+}
+
+/** Build a hollow rectangular trim from four thin boxes (avoids solid-slab frames). */
+function addRectFrame(parent, cx, cy, cz, w, h, t, depth, color) {
+  const mat = basicColor(color);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(w, t, depth), mat);
+  top.position.set(cx, cy + (h - t) * 0.5, cz);
+  parent.add(top);
+  const bot = new THREE.Mesh(new THREE.BoxGeometry(w, t, depth), mat);
+  bot.position.set(cx, cy - (h - t) * 0.5, cz);
+  parent.add(bot);
+  const sideH = h - t * 2;
+  const left = new THREE.Mesh(new THREE.BoxGeometry(t, sideH, depth), mat);
+  left.position.set(cx - (w - t) * 0.5, cy, cz);
+  parent.add(left);
+  const right = new THREE.Mesh(new THREE.BoxGeometry(t, sideH, depth), mat);
+  right.position.set(cx + (w - t) * 0.5, cy, cz);
+  parent.add(right);
 }
 
 /**
@@ -1090,19 +1163,30 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   boothSign.position.set(side * padX + side * 2.2, 3.05, -1.5);
   group.add(boothSign);
 
-  // Tall roadside GAS sign — only the pixel “GAS” lettering glows/flickers
+  // Tall roadside GAS pylon — framed neon cabinet + flickering GAS letters
   const pylonX = side * (half + 1.15);
   const pylonZ = 5.2;
   const pylon = new THREE.Group();
   pylon.name = "gasPylon";
-  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.35, 5.6, 0.35), basicColor(NES.curb));
-  mast.position.set(pylonX, 2.8, pylonZ);
+  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.38, 5.8, 0.38), basicColor(NES.curb));
+  mast.position.set(pylonX, 2.9, pylonZ);
   pylon.add(mast);
-  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(4.0, 2.2, 0.45), basicColor(0x0a0a18));
+  const collar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.22, 0.7), basicColor(NES.yellow));
+  collar.position.set(pylonX, 5.05, pylonZ);
+  pylon.add(collar);
+
+  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(4.15, 2.35, 0.5), basicColor(0x080814));
   cabinet.name = "gasSignCabinet";
-  cabinet.position.set(pylonX, 6.3, pylonZ);
+  cabinet.position.set(pylonX, 6.35, pylonZ);
   pylon.add(cabinet);
-  addGasSignLetters(pylon, pylonX, 6.3, pylonZ - 0.28);
+
+  // Hollow neon frame (edge strips) so the face stays dark behind the letters
+  const faceZ = pylonZ - 0.28;
+  const faceY = 6.35;
+  addRectFrame(pylon, pylonX, faceY, faceZ, 4.3, 2.5, 0.16, 0.14, NES.red);
+  addRectFrame(pylon, pylonX, faceY, faceZ - 0.03, 4.0, 2.2, 0.09, 0.1, NES.yellow);
+
+  addGasSignLetters(pylon, pylonX, faceY + 0.02, faceZ - 0.06);
   group.add(pylon);
 
   // Price board pole near curb (shorter than the neon pylon)
@@ -1142,13 +1226,18 @@ export function pulseGasSignFlicker(seg, timeSec) {
     if (!o.material) return;
     if (o.userData.gasLetter) {
       o.material.color.setHex(color);
-      o.material.opacity = Math.max(0.25, lit);
+      o.material.opacity = Math.max(0.55, lit);
       o.visible = lit > 0.05;
     } else if (o.userData.gasLetterGlow) {
-      o.material.color.setHex(color);
-      o.material.opacity = 0.12 + 0.45 * lit;
-      const s = 0.95 + 0.18 * lit;
-      o.scale.set(s, s, 1);
+      if (o.name === "gasLetterPlate") {
+        o.material.color.setHex(0xff2244);
+        o.material.opacity = 0.08 + 0.18 * lit;
+      } else {
+        o.material.color.setHex(color);
+        o.material.opacity = 0.12 + 0.28 * lit;
+        const s = 0.97 + 0.1 * lit;
+        o.scale.set(s, s, 1);
+      }
       o.visible = lit > 0.05;
     }
   });
