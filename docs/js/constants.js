@@ -80,25 +80,6 @@ export const TURN_COOLDOWN_SEGS = 10;
 export const TURN_WINDOW = 1.25;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
-
-/**
- * Temple Run–style parallel paths: lanes appear/vanish along the run.
- * Path strips are drawn per open lane with a visible gap between them.
- */
-/** Quiet opening before path topology starts mutating */
-export const PATH_INTRO_SEGS = 8;
-/** Minimum straight segments between path open/close events */
-export const PATH_COOLDOWN_SEGS = 3;
-/** Chance to mutate path topology when cooldown allows (ramps with distance) */
-export const PATH_CHANGE_BASE = 0.28;
-/** Width of each parallel asphalt strip (world units) */
-export const PATH_STRIP_WIDTH = 2.8;
-/** Minimum clear gap between strip edges when paths are split */
-export const PATH_MIN_GAP = 2.4;
-/** Half-width used for on-path collision / fall checks */
-export const PATH_HIT_HALF = 1.55;
-/** Seconds off a path before the wreck registers */
-export const PATH_FALL_GRACE = 0.22;
 /** Max duration for a tap (gas station). Swipes have no time limit. */
 export const TAP_MAX_MS = 450;
 /** Ignore synthetic mouse clicks this long after a real touch. */
