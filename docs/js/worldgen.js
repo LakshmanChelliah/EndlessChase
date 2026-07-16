@@ -224,7 +224,7 @@ export function buildTransitionPlan(fromBiome, toBiome) {
     });
   }
 
-  // Enter — new biome visuals; player adopts when crossing this tile
+  // Enter — commit to the new biome; no foreign mix (avoids city towers / grey pads in suburbs)
   plan.push({
     biome: toBiome,
     kind: "",
@@ -236,8 +236,8 @@ export function buildTransitionPlan(fromBiome, toBiome) {
     closedLaneXs: [],
     fromBiome,
     toBiome,
-    mixBiome: fromBiome,
-    mixWeight: 0.35,
+    mixBiome: null,
+    mixWeight: 0,
     layoutBiome: toBiome,
     atmosT: 0.92,
   });

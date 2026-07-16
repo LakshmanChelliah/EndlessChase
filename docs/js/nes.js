@@ -6,8 +6,8 @@
  * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=32";
-import { pickTurnBiomes } from "./worldgen.js?v=24";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, SHOULDER, layoutFor } from "./constants.js?v=33";
+import { pickTurnBiomes } from "./worldgen.js?v=26";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -261,10 +261,13 @@ export function makeBankLandmark(tex) {
  * Screen-locked NES sky (parented to the camera).
  * Must NOT be a world-space sphere — the player drives past z≈120 and
  * would clip through a fixed dome (that read as a yellow wall).
+ *
+ * No atlas stars: on a low-poly BackSide sphere + NearestFilter, a 1×1 star
+ * texel stretches into a giant grey/white slab in the upper sky.
  */
 export function addSky(camera) {
-  const w = 4;
-  const h = 32;
+  const w = 8;
+  const h = 64;
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -278,7 +281,7 @@ export function addSky(camera) {
   map.colorSpace = THREE.SRGBColorSpace;
   map.needsUpdate = true;
 
-  const skyGeo = new THREE.SphereGeometry(40, 16, 10);
+  const skyGeo = new THREE.SphereGeometry(40, 24, 16);
   const skyMat = new THREE.MeshBasicMaterial({
     map,
     side: THREE.BackSide,
@@ -301,15 +304,13 @@ function paintSkyCanvas(ctx, w, h, atmos) {
   const g = ctx.createLinearGradient(0, 0, 0, h);
   const stops = atmos.sky;
   g.addColorStop(0, stops[0]);
-  g.addColorStop(0.45, stops[1]);
-  g.addColorStop(0.82, stops[2]);
+  g.addColorStop(0.4, stops[1]);
+  g.addColorStop(0.75, stops[2]);
   g.addColorStop(1, stops[3]);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = atmos.stars || "#fff1e8";
-  for (const [x, y] of [[1, 2], [3, 5], [0, 8], [2, 11], [1, 14], [3, 17], [0, 20]]) {
-    ctx.fillRect(x, y, 1, 1);
-  }
+  // Intentionally no star pixels — see addSky note.
+  void atmos.stars;
 }
 
 /**
@@ -489,8 +490,13 @@ function clearTaperGround(seg) {
   const g = seg.userData.taperGround;
   if (!g) return;
   seg.remove(g);
-  if (g.geometry) g.geometry.dispose();
-  if (g.material) g.material.dispose();
+  g.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+      else obj.material.dispose();
+    }
+  });
   seg.userData.taperGround = null;
 }
 
@@ -504,23 +510,39 @@ function setTaperDecorVisible(seg, visible) {
 }
 
 /**
- * Wide berm underlay so narrowing asphalt doesn't open a void to the clear color.
- * Covers original road footprint + roadside margin for the full tile length.
+ * Berm underlay so narrowing asphalt doesn't open a void to the clear color.
+ * Uses biome ground (not neon NES.forest) plus dark shoulders at the asphalt edge.
  */
 function addTaperGround(seg, widthStart, widthEnd) {
   clearTaperGround(seg);
-  const base = seg.userData.baseWidth || layoutFor(seg.userData.biome).width;
+  const biome = seg.userData.biome || "city";
+  const atmosG = (BIOME_ATMOS[biome] || BIOME_ATMOS.city).ground;
+  const base = seg.userData.baseWidth || layoutFor(biome).width;
   const span = Math.max(widthStart, widthEnd, base) + 14;
+  const group = new THREE.Group();
+  group.userData.isTaperGround = true;
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(span, SEG_LEN + 0.4),
-    basicColor(NES.forest)
+    basicColor(atmosG)
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = 0.002;
-  ground.userData.isTaperGround = true;
   ground.renderOrder = -1;
-  seg.add(ground);
-  seg.userData.taperGround = ground;
+  group.add(ground);
+  // Dark shoulder strips soften the asphalt → grass cut
+  const edgeHalf = Math.max(widthStart, widthEnd) / 2;
+  for (const side of [-1, 1]) {
+    const shoulder = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.8, SEG_LEN + 0.4),
+      basicColor(SHOULDER)
+    );
+    shoulder.rotation.x = -Math.PI / 2;
+    shoulder.position.set(side * (edgeHalf + 0.95), 0.004, 0);
+    shoulder.renderOrder = -1;
+    group.add(shoulder);
+  }
+  seg.add(group);
+  seg.userData.taperGround = group;
 }
 
 function addTaperLaneMarks(seg, widthStart, widthEnd, markT = 0.5) {
@@ -649,6 +671,7 @@ export function clearMixBiomeOverlay(seg) {
 /**
  * Attach temporary roadside hints of another biome during corridor tiles.
  * Both sides, density scaled by mixWeight. Cleared on recycle via clearMixBiomeOverlay.
+ * City mix sits on grey walks (never neon grass). Rural mix uses muted ground + dirt pad.
  * @param {number} [mixWeight=0.55]
  */
 export function applyMixBiomeOverlay(seg, mixBiome, tex, mixWeight = 0.55) {
@@ -659,18 +682,36 @@ export function applyMixBiomeOverlay(seg, mixBiome, tex, mixWeight = 0.55) {
   const half = (seg.userData.layoutWidth || seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
   const group = new THREE.Group();
   group.userData.isMixGroup = true;
+  const ruralG = BIOME_ATMOS.rural.ground;
   for (const side of [-1, 1]) {
+    // Dark shoulder at asphalt edge so mix pads don't hard-cut the curb
+    const shoulder = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.5, SEG_LEN * 0.85),
+      basicColor(SHOULDER)
+    );
+    shoulder.rotation.x = -Math.PI / 2;
+    shoulder.position.set(side * (half + 0.95), 0.014, 0);
+    group.add(shoulder);
+
     if (mixBiome === "rural" || mixBiome === "highway") {
       const grass = new THREE.Mesh(
-        new THREE.PlaneGeometry(7 + w * 2, SEG_LEN * (0.55 + w * 0.35)),
-        basicColor(NES.forest)
+        new THREE.PlaneGeometry(6 + w * 1.5, SEG_LEN * (0.5 + w * 0.3)),
+        basicColor(ruralG)
       );
       grass.rotation.x = -Math.PI / 2;
-      grass.position.set(side * (half + 4.5 + w), 0.025, 0);
+      grass.position.set(side * (half + 4.2 + w * 0.5), 0.022, 0);
       group.add(grass);
       if (mixBiome === "rural" && w > 0.35) {
+        const pad = new THREE.Mesh(
+          new THREE.PlaneGeometry(4.2, 4.5),
+          basicColor(0x3a4a30)
+        );
+        pad.rotation.x = -Math.PI / 2;
+        const hz = side > 0 ? 2 : -2;
+        pad.position.set(side * (half + 5.0), 0.03, hz);
+        group.add(pad);
         const house = makeBuildingBox(2.6, 2.0, 3.0, tex.house);
-        house.position.set(side * (half + 5.2), 1.0, side > 0 ? 2 : -2);
+        house.position.set(side * (half + 5.0), 1.0, hz);
         group.add(house);
       }
       if (mixBiome === "highway" && w > 0.4) {
@@ -682,19 +723,31 @@ export function applyMixBiomeOverlay(seg, mixBiome, tex, mixWeight = 0.55) {
         group.add(rail);
       }
     } else if (mixBiome === "city") {
+      // Wide walk pads cover rural berms so city foreshadow isn't "buildings on lawn"
+      const hostRural = seg.userData.biome === "rural" || seg.userData.biome === "highway";
+      const walkW = hostRural ? 10 + w * 3 : 6.5 + w * 2;
+      const walkX = hostRural ? half + 5.2 : half + 4.0 + w * 0.4;
       const walk = new THREE.Mesh(
-        new THREE.PlaneGeometry(5 + w * 2, SEG_LEN * (0.5 + w * 0.3)),
+        new THREE.PlaneGeometry(walkW, SEG_LEN * (0.6 + w * 0.3)),
         basicColor(0x3a3d48)
       );
       walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * (half + 3.8 + w), 0.02, 0);
+      walk.position.set(side * walkX, 0.028, 0);
       group.add(walk);
-      if (w > 0.35) {
+      // Buildings only once the walk has real presence
+      if (w > 0.4) {
         const { map, preset } = pickBuildingVariant(tex, Math.random);
-        const h = preset.hMin + w * 1.5;
+        const h = preset.hMin + w * 1.1;
         const b = makeBuildingBox(preset.w * 0.75, h, preset.d * 0.75, map);
-        b.position.set(side * (half + 4), h / 2, side > 0 ? -1.5 : 1.5);
+        b.position.set(side * (walkX - (hostRural ? 0.6 : 0.2)), h / 2, side > 0 ? -1.5 : 1.5);
         group.add(b);
+      }
+      if (w > 0.65) {
+        const { map, preset } = pickBuildingVariant(tex, Math.random);
+        const h2 = preset.hMin + w * 0.9;
+        const b2 = makeBuildingBox(preset.w * 0.65, h2, preset.d * 0.65, map);
+        b2.position.set(side * (walkX + 1.2), h2 / 2, side > 0 ? 2.2 : -2.2);
+        group.add(b2);
       }
     }
   }
@@ -1311,14 +1364,23 @@ export function makeSegment(tex, biome, opts = {}) {
     // Wide berm so houses sit fully on grass, not half in the void
     const bermW = 12;
     const bermCenter = half + 1.2 + bermW / 2;
+    const ruralG = BIOME_ATMOS.rural.ground;
     for (const side of [-1, 1]) {
       for (const zc of patchCenters) {
-        const grass = new THREE.Mesh(new THREE.PlaneGeometry(bermW, patchLen), basicColor(NES.forest));
+        // Dark shoulder softens curb → grass seam
+        const shoulder = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.6, patchLen),
+          basicColor(SHOULDER)
+        );
+        shoulder.rotation.x = -Math.PI / 2;
+        shoulder.position.set(side * (half + 0.95), 0.014, zc);
+        root.add(shoulder);
+        const grass = new THREE.Mesh(new THREE.PlaneGeometry(bermW, patchLen), basicColor(ruralG));
         grass.rotation.x = -Math.PI / 2;
         grass.position.set(side * bermCenter, 0.02, zc);
         root.add(grass);
         if (gasStation || patchLen < 3) continue;
-        const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, Math.min(5.5, patchLen - 0.5)), basicColor(0x4a5a38));
+        const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, Math.min(5.5, patchLen - 0.5)), basicColor(0x3a4a30));
         pad.rotation.x = -Math.PI / 2;
         const houseX = side * (bermCenter + 0.5);
         pad.position.set(houseX, 0.03, zc + (rnd() - 0.5) * Math.min(2, patchLen * 0.3));
@@ -1394,6 +1456,14 @@ export function makeSegment(tex, biome, opts = {}) {
     const walkCenter = half + 0.8 + walkW / 2;
     for (const side of [-1, 1]) {
       for (const zc of patchCenters) {
+        // Dirt shoulder between curb and sidewalk (avoids asphalt → green pop)
+        const shoulder = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.4, patchLen),
+          basicColor(SHOULDER)
+        );
+        shoulder.rotation.x = -Math.PI / 2;
+        shoulder.position.set(side * (half + 0.85), 0.012, zc);
+        root.add(shoulder);
         const walk = new THREE.Mesh(new THREE.PlaneGeometry(walkW, patchLen), basicColor(0x3a3d48));
         walk.rotation.x = -Math.PI / 2;
         walk.position.set(side * walkCenter, 0.015, zc);
@@ -1446,22 +1516,30 @@ export function makeSegment(tex, biome, opts = {}) {
   }
 
   // Mixed scenery during mid-transition (skip on intersection gap center)
+  // Prefer runtime applyMixBiomeOverlay for corridor tiles; keep a light baked hint for pooled mix tiles.
   if (mixBiome && mixBiome !== biome && !intersection) {
     const side = rnd() > 0.5 ? 1 : -1;
     if (mixBiome === "rural") {
-      const grass = new THREE.Mesh(new THREE.PlaneGeometry(8, SEG_LEN * 0.7), basicColor(NES.forest));
+      const grass = new THREE.Mesh(
+        new THREE.PlaneGeometry(7, SEG_LEN * 0.65),
+        basicColor(BIOME_ATMOS.rural.ground)
+      );
       grass.rotation.x = -Math.PI / 2;
-      grass.position.set(side * (half + 5), 0.025, 0);
+      grass.position.set(side * (half + 4.8), 0.022, 0);
       root.add(grass);
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), basicColor(0x3a4a30));
+      pad.rotation.x = -Math.PI / 2;
+      pad.position.set(side * (half + 5.2), 0.03, 0);
+      root.add(pad);
     } else if (mixBiome === "city") {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0x3a3d48));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(6.5, SEG_LEN * 0.65), basicColor(0x3a3d48));
       walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * (half + 4), 0.02, 0);
+      walk.position.set(side * (half + 4.2), 0.02, 0);
       root.add(walk);
       const { map, preset } = pickBuildingVariant(tex, rnd);
       const h = preset.hMin + ((rnd() * preset.hSpan) | 0);
       const b = makeBuildingBox(preset.w * 0.85, h, preset.d * 0.85, map);
-      b.position.set(side * (half + 4), h / 2, 0);
+      b.position.set(side * (half + 4.2), h / 2, 0);
       root.add(b);
     }
   }
