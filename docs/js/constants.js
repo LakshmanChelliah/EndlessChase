@@ -80,12 +80,14 @@ export function heatPressureMul(distance) {
 export const TURN_WINDOW = 1.25;
 /** Cosmetic lane-change yaw kick (radians). */
 export const TURN_YAW = (25 * Math.PI) / 180;
-/** Locked intersection drift duration (seconds). */
-export const TURN_DRIFT_DURATION = 1.35;
+/** Locked intersection drift duration — yaw in + hold (seconds). */
+export const TURN_DRIFT_DURATION = 1.15;
+/** Soft unwind from ~90° back to chase heading (seconds). */
+export const TURN_DRIFT_EXIT = 0.38;
 /** Peak yaw during a full intersection drift (±π/2). */
 export const TURN_DRIFT_YAW = Math.PI / 2;
 /** Lateral bulge into the cross-street mid-drift (meters). */
-export const TURN_DRIFT_ARC = 9;
+export const TURN_DRIFT_ARC = 10.5;
 /**
  * Show turn cue / accept turn swipe when intersection center is within this
  * Z distance ahead (and until just past center). Must last the whole approach —

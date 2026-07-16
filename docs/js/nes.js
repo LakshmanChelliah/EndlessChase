@@ -736,16 +736,16 @@ function addCrossStreet(root, half, width, biome = "city", tex = null) {
     arm.rotation.x = -Math.PI / 2;
     arm.position.set(side * (half + armLen / 2), 0.04, 0);
     root.add(arm);
-    // Deep sidewalk + block fill so fog doesn't read as a void beyond the curb
+    // Short, dark curb pads — long light planes foreshorten into "floating sky slabs"
     for (const zSide of [-1, 1]) {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.98, 8.5), basicColor(0x3a3d48));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(22, armLen * 0.55), 5.5), basicColor(0x242632));
       walk.rotation.x = -Math.PI / 2;
-      walk.position.set(side * (half + armLen / 2), 0.016, zSide * (armHalf + 4.4));
+      walk.position.set(side * (half + 12), 0.016, zSide * (armHalf + 3.2));
       root.add(walk);
       if (biome === "city") {
-        const block = new THREE.Mesh(new THREE.PlaneGeometry(armLen * 0.9, 10), basicColor(0x2a2c38));
+        const block = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(18, armLen * 0.4), 6), basicColor(0x181a24));
         block.rotation.x = -Math.PI / 2;
-        block.position.set(side * (half + armLen / 2), 0.011, zSide * (armHalf + 12));
+        block.position.set(side * (half + 14), 0.011, zSide * (armHalf + 7.5));
         root.add(block);
       }
     }
@@ -862,8 +862,9 @@ function makeSignalHead(poleX, poleZ, facing) {
     const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.72, 0.38), basicColor(NES.asphalt));
     bulb.position.set(poleX, y, poleZ + facing * 0.48);
     bulb.name = name;
+    // Small glow only — large DoubleSide quads read as floating grey/green slabs in sky
     const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.8, 2.8),
+      new THREE.PlaneGeometry(1.15, 1.15),
       new THREE.MeshBasicMaterial({
         color: NES.white,
         transparent: true,
@@ -872,7 +873,7 @@ function makeSignalHead(poleX, poleZ, facing) {
         side: THREE.DoubleSide,
       })
     );
-    glow.position.set(poleX, y, poleZ + facing * 0.75);
+    glow.position.set(poleX, y, poleZ + facing * 0.55);
     glow.name = name + "Glow";
     head.add(bulb, glow);
   };
@@ -1324,7 +1325,7 @@ export function pulseLightGlow(seg, timeSec) {
   const g = seg.userData.lightGroup;
   if (!g) return;
   const s = seg.userData.lightState;
-  const pulse = 1.15 + 0.22 * Math.sin(timeSec * 10);
+  const pulse = 1.05 + 0.1 * Math.sin(timeSec * 10);
   const names =
     s === "red" ? ["bulbRedGlow", "bulbRedBGlow"]
       : s === "yellow" ? ["bulbYellowGlow", "bulbYellowBGlow"]
@@ -1333,7 +1334,7 @@ export function pulseLightGlow(seg, timeSec) {
     const glow = g.getObjectByName(name);
     if (!glow) continue;
     glow.scale.set(pulse, pulse, 1);
-    glow.material.opacity = 0.55 + 0.28 * Math.sin(timeSec * 10);
+    glow.material.opacity = 0.4 + 0.18 * Math.sin(timeSec * 10);
   }
 }
 

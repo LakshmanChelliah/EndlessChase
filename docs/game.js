@@ -14,7 +14,7 @@ import {
   SEG_LEN, NES_W, NES_H, NES, MAX_UPGRADE,
   BRAKE_DURATION, BRAKE_SPEED_MUL, BASE_MAX_SPEED, BASE_ACCEL, BASE_BRAKE,
   HEAT_SLOW_THRESHOLD, HEAT_RISE, HEAT_DECAY,
-  TURN_YAW, TURN_DRIFT_DURATION, TURN_DRIFT_YAW, TURN_DRIFT_ARC, TURN_HUD_AHEAD,
+  TURN_YAW, TURN_DRIFT_DURATION, TURN_DRIFT_EXIT, TURN_DRIFT_YAW, TURN_DRIFT_ARC, TURN_HUD_AHEAD,
   MIN_SWIPE, TAP_MAX_MS, TOUCH_MOUSE_GUARD_MS,
   INTERSECTION_COOLDOWN_SEGS,
   LIGHT_GREEN, LIGHT_YELLOW, LIGHT_RED, LIGHT_HUD_AHEAD, NPC_STOP_OFFSET,
@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=37";
+} from "./js/constants.js?v=38";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=34";
+} from "./js/nes.js?v=35";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, decideSegment, buildTransitionPlan,
@@ -1077,11 +1077,16 @@ function beginIntersectionDrift(side, seg) {
     seg: junction,
     t: 0,
     duration: TURN_DRIFT_DURATION,
+    exitT: 0,
+    exitDuration: TURN_DRIFT_EXIT,
+    phase: "drift", // drift → exit → done
     fromX: laneX,
     landLane: landLane >= 0 ? landLane : layout.defaultLane,
     landX,
     fromZ: playerZ,
     fromYaw: turnYaw || player.rotation.y || 0,
+    peakYaw: side < 0 ? -TURN_DRIFT_YAW : TURN_DRIFT_YAW,
+    tipX: landX + side * TURN_DRIFT_ARC,
   };
   turnWindow = null;
   junction.userData.turnResolved = true;
@@ -1099,77 +1104,109 @@ function beginIntersectionDrift(side, seg) {
   return true;
 }
 
-/** Advance drift pose; commit ~90° along heading, keep world flowing, snap-straight on finish. */
+/** Pose car + chase cam for the current turn yaw (shared by drift + soft exit). */
+function applyIntersectionTurnPose(tr, yawU, dt) {
+  const jZ = tr.seg?.position?.z ?? playerZ;
+  const move = Math.max(10, speed) * 0.88 * dt;
+  const lateral = Math.sin(turnYaw) * move;
+  let forward = Math.max(0.16, Math.cos(turnYaw)) * move;
+
+  if (tr.phase === "drift" && yawU >= 0.8) {
+    // Stay parked on the junction so the look stays on the arm opening
+    playerZ = THREE.MathUtils.damp(playerZ, jZ + 1.2, 5, dt);
+    forward = 0;
+  } else if (tr.phase === "exit") {
+    // Resume +Z as heading unwinds so the cheat-reset feels like acceleration out
+    forward = Math.max(forward, speed * 0.55 * dt);
+  }
+
+  laneX += lateral;
+  playerZ += forward;
+
+  if (tr.phase === "exit") {
+    // Blend back onto the curb forward lane while unwinding
+    laneX = THREE.MathUtils.damp(laneX, tr.landX, 7.5, dt);
+  } else {
+    // Commit INTO the cross-street arm (do not yank back to main road mid-hold)
+    const tip = tr.tipX ?? tr.landX + tr.side * TURN_DRIFT_ARC;
+    const tipBlend = THREE.MathUtils.lerp(tr.fromX, tip, Math.min(1, yawU * 1.15));
+    laneX = THREE.MathUtils.damp(laneX, tipBlend, 4.2, dt);
+  }
+
+  laneVel = 0;
+  distance = playerZ;
+  const bank = tr.side * 0.22 * Math.min(1, Math.abs(turnYaw) / TURN_DRIFT_YAW);
+  player.position.set(laneX, 0, playerZ);
+  player.rotation.set(bank * 0.4, turnYaw, bank);
+
+  // Fully orbit behind the car's heading — no half-lerp to straight chase (that read as crab-slide)
+  const yawAmt = Math.min(1, Math.abs(turnYaw) / TURN_DRIFT_YAW);
+  const back = THREE.MathUtils.lerp(13.5, 11.2, yawAmt);
+  const camX = laneX - Math.sin(turnYaw) * back;
+  const camZ = playerZ - Math.cos(turnYaw) * back;
+  const camY = THREE.MathUtils.lerp(8.4, 7.2, yawAmt);
+  if (tr.phase === "exit") {
+    const exitU = easeInOutCubic(Math.min(1, tr.exitT / tr.exitDuration));
+    const chase = gameplayCamPos(laneX, playerZ);
+    camera.position.set(
+      THREE.MathUtils.lerp(camX, chase.x, exitU),
+      THREE.MathUtils.lerp(camY, chase.y, exitU),
+      THREE.MathUtils.lerp(camZ, chase.z, exitU)
+    );
+    const look = gameplayCamLook(laneX, playerZ);
+    const lookX = laneX + Math.sin(turnYaw) * (14 + yawAmt * 8);
+    const lookZ = THREE.MathUtils.lerp(jZ, playerZ + 14, 1 - yawAmt * 0.85);
+    setCameraLook(
+      THREE.MathUtils.lerp(lookX, look.x, exitU),
+      THREE.MathUtils.lerp(0.35, look.y, exitU),
+      THREE.MathUtils.lerp(lookZ, look.z, exitU)
+    );
+  } else {
+    camera.position.set(camX, camY, camZ);
+    // Look down the cross-street asphalt mouth
+    setCameraLook(
+      laneX + Math.sin(turnYaw) * (14 + yawAmt * 10),
+      0.35,
+      THREE.MathUtils.lerp(playerZ + 12, jZ, yawAmt)
+    );
+  }
+  // Roll after lookAt so the view banks into the corner (lookAt clears euler z)
+  const rollFade = tr.phase === "exit"
+    ? 1 - easeInOutCubic(Math.min(1, tr.exitT / tr.exitDuration))
+    : 1;
+  camera.rotateZ(-bank * 0.65 * rollFade);
+  camFovTarget = tr.phase === "exit" ? 73 : 78;
+  worldGround.position.z = playerZ + 80;
+}
+
+/** Advance drift → soft exit; world stays +Z, presentation sells the corner. */
 function updateIntersectionTurn(dt) {
   if (!intersectionTurn) return false;
   const tr = intersectionTurn;
+
+  if (tr.phase === "exit") {
+    tr.exitT += dt;
+    const exitU = easeInOutCubic(Math.min(1, tr.exitT / tr.exitDuration));
+    turnYaw = THREE.MathUtils.lerp(tr.peakYaw, 0, exitU);
+    turnYawVel = 0;
+    applyIntersectionTurnPose(tr, 1 - exitU, dt);
+    if (tr.exitT >= tr.exitDuration) finishIntersectionDrift();
+    return true;
+  }
+
   tr.t += dt;
   const uLinear = Math.min(1, tr.t / tr.duration);
   const u = easeInOutCubic(uLinear);
-  // Three.js +Y yaw: positive turns toward +X (screen right). Left turn (−X) needs negative yaw.
-  const yawPeak = tr.side < 0 ? -TURN_DRIFT_YAW : TURN_DRIFT_YAW;
-  // Reach full turn by ~60% and HOLD — never ease yaw back (that read as undoing the turn).
-  const yawU = Math.min(1, u / 0.6);
-  turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawPeak, easeOutCubic(yawU));
+  // Reach full turn by ~55% and HOLD — never ease yaw back during drift (that undid the turn).
+  const yawU = Math.min(1, u / 0.55);
+  turnYaw = THREE.MathUtils.lerp(tr.fromYaw, tr.peakYaw, easeOutCubic(yawU));
   turnYawVel = 0;
-
-  // Drive along heading. Soft +Z floor avoids a hard stall at ±90°, but once
-  // fully turned we must NOT blast past the junction — that aimed the camera
-  // into the next block's building wall instead of the cross-street asphalt.
-  const move = Math.max(10, speed) * 0.85 * dt;
-  const lateral = Math.sin(turnYaw) * move;
-  let forward = Math.max(0.18, Math.cos(turnYaw)) * move;
-  if (yawU >= 0.85) {
-    // Hold near the junction center so the look-into-arm stays on the opening
-    const jZ = tr.seg?.position?.z;
-    if (jZ != null) {
-      const targetZ = jZ + 1.5;
-      playerZ = THREE.MathUtils.damp(playerZ, targetZ, 4.5, dt);
-      forward = 0;
-    } else {
-      forward = Math.min(forward, 3.5 * dt);
-    }
-  }
-  laneX += lateral;
-  playerZ += forward;
-  // Pull toward curb landing lane once mostly turned
-  if (yawU >= 0.85) {
-    laneX = THREE.MathUtils.damp(laneX, tr.landX, 6.5, dt);
-  } else {
-    // Bias toward the turn side early so the path reads as entering the arm
-    const tip = tr.landX + tr.side * TURN_DRIFT_ARC * 0.85;
-    laneX = THREE.MathUtils.damp(laneX, tip, 3.8, dt);
-  }
-  laneVel = 0;
-  distance = playerZ;
-  const bank = tr.side * 0.18 * Math.min(1, yawU * 1.35);
-  player.position.set(laneX, 0, playerZ);
-  player.rotation.set(bank * 0.35, turnYaw, bank);
-
-  // Chase cam behind heading; look down the cross-street mouth at junction Z
-  const back = 12;
-  const camX = laneX - Math.sin(turnYaw) * back;
-  const camZ =
-    playerZ -
-    Math.cos(turnYaw) * Math.max(0.35, Math.cos(Math.abs(turnYaw))) * back -
-    (1 - Math.abs(Math.cos(turnYaw))) * 5;
-  camera.position.set(
-    THREE.MathUtils.lerp(laneX * 0.06, camX, 0.7),
-    8.2,
-    THREE.MathUtils.lerp(playerZ - 13, camZ, 0.7)
-  );
-  const jZ = tr.seg?.position?.z ?? playerZ;
-  const lookDist = 12 + Math.abs(Math.sin(turnYaw)) * 10;
-  setCameraLook(
-    laneX + Math.sin(turnYaw) * lookDist,
-    0.45,
-    THREE.MathUtils.lerp(playerZ + Math.max(2, Math.cos(turnYaw) * 10), jZ, Math.min(1, yawU))
-  );
-  camFovTarget = 76;
-  worldGround.position.z = playerZ + 80;
+  applyIntersectionTurnPose(tr, yawU, dt);
 
   if (uLinear >= 1) {
-    finishIntersectionDrift();
+    tr.phase = "exit";
+    tr.exitT = 0;
+    tr.peakYaw = turnYaw;
   }
   return true;
 }
@@ -1183,17 +1220,17 @@ function finishIntersectionDrift() {
   laneTargetX = landX;
   laneX = landX;
   laneVel = 0;
-  // Instant heading/camera reset — same-frame snap hides the endless-runner axis reset
   turnYaw = 0;
   turnYawVel = 0;
   // Keep a healthy post-turn speed so flow doesn't feel paused
   const limiter = BASE_MAX_SPEED * topSpeedFactor(save);
-  speed = Math.max(speed, limiter * 0.88);
+  speed = Math.max(speed, limiter * 0.9);
   braking = false;
   brakeTimer = 0;
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(0, 0, 0);
   camera.position.copy(gameplayCamPos(laneX, playerZ));
+  camera.rotation.z = 0;
   const look = gameplayCamLook(laneX, playerZ);
   setCameraLook(look.x, look.y, look.z);
   camFovTarget = 72;
@@ -1201,7 +1238,7 @@ function finishIntersectionDrift() {
   setSpeedlines(boostTimer > 0);
   // Only clear cross traffic / very near cars — keep ahead traffic so the road stays alive
   clearTurnHazards();
-  triggerShake(0.06, 0.08);
+  triggerShake(0.05, 0.07);
   if (hudTurn) {
     hudTurn.textContent = "TURN OK";
     hudTurn.classList.remove("hidden");
@@ -4369,7 +4406,14 @@ window.__endlessChase = {
     difficulty: +difficulty01(distance).toFixed(3),
     trafficInterval: +trafficSpawnInterval(distance).toFixed(2),
     turnActive: !!turnWindow,
-    intersectionTurn: intersectionTurn ? { side: intersectionTurn.side, t: +intersectionTurn.t.toFixed(2) } : null,
+    intersectionTurn: intersectionTurn
+      ? {
+          side: intersectionTurn.side,
+          t: +intersectionTurn.t.toFixed(2),
+          phase: intersectionTurn.phase,
+          exitT: +intersectionTurn.exitT.toFixed(2),
+        }
+      : null,
     controlUsable: playerControlLayout().usable.slice(),
     biome: activeBiome, heat, gas, braking, coins: save.coins, highScore: save.highScore | 0,
     nearbyStation: !!nearbyStation,
