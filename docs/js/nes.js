@@ -936,7 +936,10 @@ function addThreeLampSignal(root, half, tex) {
 }
 
 /**
- * Pixel “GAS” atlas for the roadside neon sign (nearest-filter, transparent bg).
+ * Pixel “GAS” atlas — painted left→right in canvas space.
+ * Mapped onto a fixed Plane (not a Sprite) yawed to face the chase cam (−Z).
+ * Sprites billboard and mirror under a +Z chase cam; a static plane does not.
+ * Do not UV-flip — that re-mirrors the glyphs for this camera setup.
  */
 function makeGasTextTexture() {
   const w = 64;
@@ -979,6 +982,48 @@ function makeGasTextTexture() {
   tex.needsUpdate = true;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+function addGasSignLetters(parent, x, y, z) {
+  const letterRoot = new THREE.Group();
+  letterRoot.name = "gasSignLetters";
+  letterRoot.position.set(x, y, z);
+  // PlaneGeometry faces +Z; yaw π so the painted front faces the chase cam (−Z).
+  // After yaw: texture U=0 (G) sits on world +X = screen-left.
+  letterRoot.rotation.y = Math.PI;
+
+  const gasTex = makeGasTextTexture();
+  const gasMat = new THREE.MeshBasicMaterial({
+    map: gasTex,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
+  });
+  gasMat.userData.gasLetter = true;
+  const gasPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.7), gasMat);
+  gasPlane.name = "gasLetterPlane";
+  gasPlane.userData.gasLetter = true;
+  gasPlane.position.set(0, 0, 0.02);
+  letterRoot.add(gasPlane);
+
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: gasTex,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.FrontSide,
+  });
+  glowMat.userData.gasLetterGlow = true;
+  const gasGlow = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.1), glowMat);
+  gasGlow.name = "gasLetterGlow";
+  gasGlow.userData.gasLetterGlow = true;
+  gasGlow.position.set(0, 0, 0.01);
+  gasGlow.renderOrder = 1;
+  letterRoot.add(gasGlow);
+
+  parent.add(letterRoot);
+  return letterRoot;
 }
 
 /**
@@ -1045,7 +1090,7 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   boothSign.position.set(side * padX + side * 2.2, 3.05, -1.5);
   group.add(boothSign);
 
-  // Tall roadside GAS sign — only the pixel “GAS” text glows/flickers
+  // Tall roadside GAS sign — only the pixel “GAS” lettering glows/flickers
   const pylonX = side * (half + 1.15);
   const pylonZ = 5.2;
   const pylon = new THREE.Group();
@@ -1057,45 +1102,7 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   cabinet.name = "gasSignCabinet";
   cabinet.position.set(pylonX, 6.3, pylonZ);
   pylon.add(cabinet);
-
-  // Sprite faces the chase cam; UV is mirrored so on-screen text reads “GAS”
-  // (portrait chase cam otherwise shows the atlas reversed left↔right).
-  const letterRoot = new THREE.Group();
-  letterRoot.name = "gasSignLetters";
-  const gasTex = makeGasTextTexture();
-  gasTex.wrapS = THREE.RepeatWrapping;
-  gasTex.repeat.x = -1;
-  gasTex.offset.x = 1;
-  gasTex.needsUpdate = true;
-  const gasMat = new THREE.SpriteMaterial({
-    map: gasTex,
-    transparent: true,
-    depthWrite: false,
-  });
-  gasMat.userData.gasLetter = true;
-  const gasSprite = new THREE.Sprite(gasMat);
-  gasSprite.name = "gasLetterPlane";
-  gasSprite.userData.gasLetter = true;
-  gasSprite.position.set(pylonX, 6.3, pylonZ - 0.15);
-  gasSprite.scale.set(3.6, 1.7, 1);
-  letterRoot.add(gasSprite);
-  // Soft halo — slightly larger sprite, lower opacity
-  const glowMat = new THREE.SpriteMaterial({
-    map: gasTex,
-    transparent: true,
-    opacity: 0.4,
-    depthWrite: false,
-    depthTest: false,
-  });
-  glowMat.userData.gasLetterGlow = true;
-  const gasGlow = new THREE.Sprite(glowMat);
-  gasGlow.name = "gasLetterGlow";
-  gasGlow.userData.gasLetterGlow = true;
-  gasGlow.position.set(pylonX, 6.3, pylonZ - 0.12);
-  gasGlow.scale.set(4.4, 2.1, 1);
-  gasGlow.renderOrder = 1;
-  letterRoot.add(gasGlow);
-  pylon.add(letterRoot);
+  addGasSignLetters(pylon, pylonX, 6.3, pylonZ - 0.28);
   group.add(pylon);
 
   // Price board pole near curb (shorter than the neon pylon)
@@ -1139,9 +1146,9 @@ export function pulseGasSignFlicker(seg, timeSec) {
       o.visible = lit > 0.05;
     } else if (o.userData.gasLetterGlow) {
       o.material.color.setHex(color);
-      o.material.opacity = 0.08 + 0.4 * lit;
+      o.material.opacity = 0.12 + 0.45 * lit;
       const s = 0.95 + 0.18 * lit;
-      o.scale.set(4.4 * s, 2.1 * s, 1);
+      o.scale.set(s, s, 1);
       o.visible = lit > 0.05;
     }
   });

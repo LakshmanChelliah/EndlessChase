@@ -37,6 +37,36 @@ if (!station?.hasPylon) throw new Error("gas pylon missing: " + JSON.stringify(s
 if (!station?.hasLetters) throw new Error("gas GAS letters missing: " + JSON.stringify(stations));
 if (station.glowOpacity == null) throw new Error("gas letter glow missing");
 
+// GAS text must be a yawed Plane (not a billboard Sprite) with no UV mirror.
+// Sprite + repeat.x=-1 was still mirrored under the +Z chase cam.
+const letterOrient = await page.evaluate(() => {
+  const player = window.__endlessChase.getPlayer();
+  let scene = player;
+  while (scene.parent) scene = scene.parent;
+  scene.updateMatrixWorld(true);
+  let plane = null;
+  let sprite = null;
+  scene.traverse((o) => {
+    if (o.name === "gasLetterPlane") plane = o;
+    if (o.isSprite && o.userData?.gasLetter) sprite = o;
+  });
+  if (!plane) return { ok: false, reason: "missing-gasLetterPlane" };
+  if (sprite) return { ok: false, reason: "sprite-still-used" };
+  const map = plane.material?.map;
+  const repeatX = map?.repeat?.x ?? 1;
+  if (repeatX < 0) return { ok: false, reason: "uv-mirrored", repeatX };
+  const root = plane.parent;
+  const yaw = root?.rotation?.y ?? 0;
+  // Expect ~π yaw so the plane faces the chase cam
+  if (Math.abs(Math.abs(yaw) - Math.PI) > 0.2) {
+    return { ok: false, reason: "bad-yaw", yaw };
+  }
+  return { ok: true, repeatX, yaw: +yaw.toFixed(3), isMesh: !!plane.isMesh };
+});
+if (!letterOrient.ok) {
+  throw new Error("gas letter orientation broken: " + JSON.stringify(letterOrient));
+}
+
 const reqLane = spawned.requiredLane | 0;
 for (let i = 0; i < 8; i++) {
   const lane = await page.evaluate(() => window.__endlessChase.getState().lane);
@@ -100,6 +130,7 @@ console.log("GAS_STATION_OK", {
   phase: st.gasVisit.phase,
   requiredLane: reqLane,
   flickerSamples: opacities,
+  letterOrient,
   spawned,
 });
 await browser.close();
