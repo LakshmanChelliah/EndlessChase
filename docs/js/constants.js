@@ -80,7 +80,7 @@ export const TURN_COOLDOWN_SEGS = 10;
 export const TURN_WINDOW = 1.25;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
-/** Max duration for a tap (gas station). Swipes have no time limit. */
+/** Max duration for a tap (boarding skip). Swipes have no time limit. */
 export const TAP_MAX_MS = 450;
 /** Ignore synthetic mouse clicks this long after a real touch. */
 export const TOUCH_MOUSE_GUARD_MS = 700;
@@ -125,9 +125,9 @@ export const GAS_DRAIN_BRAKE_MUL = 0.35;
 export const GAS_EMPTY_SPEED_MUL = 0.32;
 /** Minimum straight segments between gas stations */
 export const GAS_STATION_COOLDOWN_SEGS = 18;
-/** Show / allow tap when station is this far ahead (meters) */
+/** Show station prompt when this far ahead (meters) */
 export const GAS_HUD_AHEAD = 28;
-/** Interact range — tap station while within this distance */
+/** Interact range — swipe into station while within this distance */
 export const GAS_INTERACT_RANGE = 16;
 /** HUD color tiers */
 export const GAS_COLOR_OK = 40;

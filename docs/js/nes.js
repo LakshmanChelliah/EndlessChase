@@ -863,7 +863,53 @@ function addThreeLampSignal(root, half, tex) {
 }
 
 /**
- * Roadside NES gas station — canopy, pumps, price board.
+ * Pixel “GAS” atlas for the roadside neon sign (nearest-filter, transparent bg).
+ */
+function makeGasTextTexture() {
+  const w = 64;
+  const h = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#ffec27";
+
+  /** Fill a 1-cell block in an 8×8 letter grid placed at (ox, oy). */
+  function px(ox, oy, x, y) {
+    ctx.fillRect(ox + x * 2, oy + y * 2, 2, 2);
+  }
+  function drawG(ox, oy) {
+    for (let x = 1; x <= 6; x++) { px(ox, oy, x, 0); px(ox, oy, x, 7); }
+    for (let y = 1; y <= 6; y++) px(ox, oy, 0, y);
+    for (let y = 4; y <= 6; y++) px(ox, oy, 6, y);
+    for (let x = 3; x <= 6; x++) px(ox, oy, x, 4);
+  }
+  function drawA(ox, oy) {
+    for (let x = 1; x <= 5; x++) px(ox, oy, x, 0);
+    for (let y = 1; y <= 7; y++) { px(ox, oy, 0, y); px(ox, oy, 6, y); }
+    for (let x = 1; x <= 5; x++) px(ox, oy, x, 3);
+  }
+  function drawS(ox, oy) {
+    for (let x = 1; x <= 6; x++) { px(ox, oy, x, 0); px(ox, oy, x, 3); px(ox, oy, x, 7); }
+    for (let y = 1; y <= 2; y++) px(ox, oy, 0, y);
+    for (let y = 5; y <= 6; y++) px(ox, oy, 6, y);
+  }
+  drawG(4, 8);
+  drawA(24, 8);
+  drawS(44, 8);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Roadside NES gas station — canopy, pumps, tall flickering GAS pylon.
  * @param {1|-1} side 1 = right of road, -1 = left
  */
 export function addGasStationVisuals(root, half, biome, side = 1) {
@@ -871,7 +917,7 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   group.name = "gasStation";
   group.userData.gasSide = side;
   const padX = half + (biome === "city" ? 6.2 : 5.4);
-  // Anchor used for screen-space "Tap to fill up!" projection
+  // Anchor used for screen-space station prompt projection
   const anchor = new THREE.Object3D();
   anchor.name = "gasAnchor";
   anchor.position.set(side * padX, 4.2, 0);
@@ -883,7 +929,6 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   );
   lot.rotation.x = -Math.PI / 2;
   lot.position.set(side * padX, 0.03, 0);
-  lot.userData.gasHit = true;
   group.add(lot);
 
   // Canopy posts + roof
@@ -892,79 +937,139 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
     for (const oz of [-3.2, 3.2]) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.28, postH, 0.28), basicColor(NES.curb));
       post.position.set(side * (padX) + side * ox, postH / 2, oz);
-      post.userData.gasHit = true;
       group.add(post);
     }
   }
   const roof = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.45, 9.2), basicColor(NES.red));
   roof.position.set(side * padX, postH + 0.15, 0);
-  roof.userData.gasHit = true;
   group.add(roof);
   const trim = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.22, 9.6), basicColor(NES.yellow));
   trim.position.set(side * padX, postH - 0.05, 0);
-  trim.userData.gasHit = true;
   group.add(trim);
   // Bright canopy edge so stations read from chase-cam distance
   const lip = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.12, 9.8), basicColor(NES.white));
   lip.position.set(side * padX, postH + 0.4, 0);
-  lip.userData.gasHit = true;
   group.add(lip);
 
   // Pumps — sit toward the road curb from the lot center
   for (const oz of [-2.2, 0.4, 2.8]) {
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.4, 0.55), basicColor(0xc2c3c7));
     body.position.set(side * padX - side * 0.6, 0.7, oz);
-    body.userData.gasHit = true;
     group.add(body);
     const hose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 0.12), basicColor(NES.black));
     hose.position.set(side * padX - side * 1.05, 0.55, oz);
-    hose.userData.gasHit = true;
     group.add(hose);
     const nozzle = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.18), basicColor(NES.orange));
     nozzle.position.set(side * padX - side * 1.25, 0.95, oz);
-    nozzle.userData.gasHit = true;
     group.add(nozzle);
   }
 
   // Store booth farther from the road
   const booth = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.4, 3.2), basicColor(NES.navy));
   booth.position.set(side * padX + side * 2.2, 1.2, -1.5);
-  booth.userData.gasHit = true;
   group.add(booth);
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.1, 0.22), basicColor(NES.green));
-  sign.position.set(side * padX + side * 2.2, 3.05, -1.5);
-  sign.userData.gasHit = true;
-  group.add(sign);
-  const signGlow = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.4, 1.6),
-    new THREE.MeshBasicMaterial({
-      color: NES.green,
-      transparent: true,
-      opacity: 0.35,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
-  );
-  signGlow.position.set(side * padX + side * 2.2, 3.05, -1.35);
-  signGlow.userData.gasHit = true;
-  group.add(signGlow);
+  const boothSign = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.1, 0.22), basicColor(NES.green));
+  boothSign.position.set(side * padX + side * 2.2, 3.05, -1.5);
+  group.add(boothSign);
 
-  // Price board pole near curb
+  // Tall roadside GAS sign — only the pixel “GAS” text glows/flickers
+  const pylonX = side * (half + 1.15);
+  const pylonZ = 5.2;
+  const pylon = new THREE.Group();
+  pylon.name = "gasPylon";
+  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.35, 5.6, 0.35), basicColor(NES.curb));
+  mast.position.set(pylonX, 2.8, pylonZ);
+  pylon.add(mast);
+  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(4.0, 2.2, 0.45), basicColor(0x0a0a18));
+  cabinet.name = "gasSignCabinet";
+  cabinet.position.set(pylonX, 6.3, pylonZ);
+  pylon.add(cabinet);
+
+  // Nearest-filter canvas “GAS” so the word stays readable at NES resolution
+  const letterRoot = new THREE.Group();
+  letterRoot.name = "gasSignLetters";
+  const gasTex = makeGasTextTexture();
+  const gasMat = new THREE.MeshBasicMaterial({
+    map: gasTex,
+    transparent: true,
+    alphaTest: 0.15,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  gasMat.userData.gasLetter = true;
+  const gasPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.7), gasMat);
+  gasPlane.name = "gasLetterPlane";
+  gasPlane.userData.gasLetter = true;
+  gasPlane.position.set(pylonX, 6.3, pylonZ - 0.28);
+  letterRoot.add(gasPlane);
+  // Soft halo only around the glyph (same texture, tinted, larger)
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: gasTex.clone(),
+    transparent: true,
+    opacity: 0.45,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide,
+  });
+  glowMat.map.needsUpdate = true;
+  glowMat.userData.gasLetterGlow = true;
+  const gasGlow = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.1), glowMat);
+  gasGlow.name = "gasLetterGlow";
+  gasGlow.userData.gasLetterGlow = true;
+  gasGlow.position.set(pylonX, 6.3, pylonZ - 0.26);
+  gasGlow.renderOrder = 1;
+  letterRoot.add(gasGlow);
+  pylon.add(letterRoot);
+  group.add(pylon);
+
+  // Price board pole near curb (shorter than the neon pylon)
   const pole = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.6, 0.2), basicColor(NES.curb));
-  pole.position.set(side * (half + 1.1), 1.8, 4.5);
-  pole.userData.gasHit = true;
+  pole.position.set(side * (half + 1.1), 1.8, 3.2);
   group.add(pole);
   const board = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.3, 0.15), basicColor(NES.white));
-  board.position.set(side * (half + 1.1), 3.4, 4.5);
-  board.userData.gasHit = true;
+  board.position.set(side * (half + 1.1), 3.4, 3.2);
   group.add(board);
   const digit = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.55, 0.08), basicColor(NES.red));
-  digit.position.set(side * (half + 1.1), 3.55, side > 0 ? 4.58 : 4.42);
-  digit.userData.gasHit = true;
+  digit.position.set(side * (half + 1.1), 3.55, side > 0 ? 3.28 : 3.12);
   group.add(digit);
 
   root.add(group);
   return group;
+}
+
+/**
+ * Flicker only the neon “GAS” text (color + glow opacity).
+ */
+export function pulseGasSignFlicker(seg, timeSec) {
+  const group = seg.userData.gasGroup;
+  if (!group || seg.userData.gasResolved) return;
+  const letters = group.getObjectByName("gasSignLetters");
+  if (!letters) return;
+
+  const buzz = Math.sin(timeSec * 23.1) * Math.sin(timeSec * 41.7 + 1.3);
+  const stutter = Math.sin(timeSec * 7.4) * Math.sin(timeSec * 13.9 + 0.7);
+  let lit = 1;
+  if (buzz > 0.88) lit = 0.08;
+  else if (buzz > 0.72) lit = 0.35;
+  else if (stutter > 0.92) lit = 0.18;
+  else lit = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(timeSec * 11));
+
+  const color = lit > 0.5 ? NES.yellow : lit > 0.2 ? NES.orange : NES.red;
+  letters.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    if (o.userData.gasLetter) {
+      o.material.color.setHex(color);
+      o.material.opacity = Math.max(0.25, lit);
+      o.visible = lit > 0.05;
+    } else if (o.userData.gasLetterGlow) {
+      o.material.color.setHex(color);
+      o.material.opacity = 0.1 + 0.5 * lit;
+      const s = 0.95 + 0.18 * lit;
+      o.scale.set(s, s, 1);
+      o.visible = lit > 0.05;
+    }
+  });
+  letters.userData.flickerLit = lit;
 }
 
 /**

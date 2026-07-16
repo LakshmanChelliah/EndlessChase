@@ -28,7 +28,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=32";
+} from "./js/constants.js?v=33";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -44,10 +44,11 @@ import {
 import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
+  pulseGasSignFlicker,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=29";
+} from "./js/nes.js?v=37";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
@@ -110,7 +111,7 @@ const HOWTO_STEPS = [
   },
   {
     title: "FILL GAS",
-    body: "Pull into the outer curb lane near a station, tap FILL UP TANK, then HOLD TO FILL. Cops close in while you pump — release and merge before you get busted.",
+    body: "Watch for the flickering GAS sign, pull into the outer curb lane, swipe toward the station to pull in, then HOLD TO FILL. Cops close in while you pump — release and merge before you get busted.",
     callout: "Empty tank forces a slow coast that fills the COPS bar.",
   },
 ];
@@ -1712,7 +1713,7 @@ function showGasHint(msg = "Move closer to enter") {
   gasHintTimer = 1.4;
 }
 
-/** Static FILL UP TANK CTA — only in the curb lane while alongside an open station. */
+/** Static SWIPE TO ENTER CTA — only in the curb lane while alongside an open station. */
 function updateStationFloat(seg) {
   if (!hudStationFloat || !seg || gasVisit || seg.userData.gasResolved) {
     hideStationFloat();
@@ -1728,7 +1729,9 @@ function updateStationFloat(seg) {
     hideStationFloat();
     return;
   }
-  hudStationFloat.textContent = "FILL UP TANK";
+  const side = seg.userData.gasSide < 0 ? -1 : 1;
+  // Inverted steering: swipe left pulls right (into a right-side lot)
+  hudStationFloat.textContent = side > 0 ? "SWIPE ← TO ENTER" : "SWIPE → TO ENTER";
   hudStationFloat.classList.remove("hidden");
 }
 
@@ -2086,34 +2089,23 @@ function tryBeginGasVisit(seg) {
   return true;
 }
 
-function tryTapGasStation(clientX, clientY) {
+/**
+ * Swipe into the curb lot: when already in the station lane, a lateral swipe
+ * toward the berm (inverted: left→right lot, right→left lot) pulls in.
+ * Returns true when the gesture was consumed (enter or blocked).
+ */
+function trySwipeEnterGas(dir) {
   if (!running || !alive || gasVisit) return false;
+  if (dir !== "left" && dir !== "right") return false;
   const seg = nearbyStation || findInteractableStation();
   if (!seg) return false;
   const dz = Math.abs(seg.position.z - playerZ);
   if (dz > GAS_INTERACT_RANGE) return false;
-
-  if (hudStationFloat && !hudStationFloat.classList.contains("hidden")) {
-    const r = hudStationFloat.getBoundingClientRect();
-    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
-      return tryBeginGasVisit(seg);
-    }
-  }
-
-  const stage = document.getElementById("game-stage") || canvas;
-  const rect = stage.getBoundingClientRect();
-  const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-  const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
-  const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-  const hits = raycaster.intersectObject(seg.userData.gasGroup, true);
-  if (hits.length && hits.some((h) => h.object.userData.gasHit)) {
-    return tryBeginGasVisit(seg);
-  }
-  if (nearbyStation === seg && dz < GAS_INTERACT_RANGE * 0.75) {
-    return tryBeginGasVisit(seg);
-  }
-  return false;
+  if (!playerInStationLane(seg)) return false;
+  const side = seg.userData.gasSide < 0 ? -1 : 1;
+  const towardStation = (side > 0 && dir === "left") || (side < 0 && dir === "right");
+  if (!towardStation) return false;
+  return tryBeginGasVisit(seg);
 }
 
 function startBrake() {
@@ -3140,6 +3132,8 @@ function onSwipe(dir) {
   const { layout, usable } = playerControlLayout();
   // Inverted side-to-side: swipe left → move right lane, swipe right → move left
   if (dir === "left" || dir === "right") {
+    // Curb-lane swipe toward a station pulls in (replaces tap-to-enter)
+    if (trySwipeEnterGas(dir)) return;
     const delta = dir === "left" ? 1 : -1;
     // Use commanded target so mid-spring swipes stack instead of re-issuing the same lane
     const current = commandedLaneIndex(layout);
@@ -3199,12 +3193,9 @@ function pointerUp(x, y, id = 0) {
   const dy = y - start.y;
   const dt = performance.now() - start.t;
   const dist = Math.hypot(dx, dy);
-  // Tap (not swipe) — skip boarding, or try gas station interact
+  // Tap (not swipe) — skip boarding only (gas stations use swipe-to-enter)
   if (dist < MIN_SWIPE) {
-    if (dt < TAP_MAX_MS) {
-      if (boarding) skipBoarding();
-      else tryTapGasStation(x, y);
-    }
+    if (dt < TAP_MAX_MS && boarding) skipBoarding();
     return;
   }
   // Swipe completed on release (threshold not hit during move, e.g. very fast flick)
@@ -3353,14 +3344,6 @@ window.addEventListener("keyup", (e) => {
   // Sticky brake: release of S does not resume — only swipe up / W / Space
   if (key === "s" || key === "ArrowDown") keysBrake = false;
 });
-
-if (hudStationFloat) {
-  hudStationFloat.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (nearbyStation) tryBeginGasVisit(nearbyStation);
-  });
-}
 
 if (hudMergeBtn) {
   hudMergeBtn.addEventListener("click", (e) => {
@@ -3696,6 +3679,7 @@ function tick(now) {
       }
 
       if (seg.userData.gasStation && !seg.userData.gasResolved && !gasVisit) {
+        pulseGasSignFlicker(seg, now / 1000);
         const aheadDz = seg.position.z - playerZ;
         // Passed the station without stopping — dismiss prompt and lock it out
         if (aheadDz < -2) {
@@ -4207,6 +4191,83 @@ window.__endlessChase = {
       ok: !!car,
       segZ: seg.position.z,
       cross: car ? { x: car.position.x, vx: car.userData.vx } : null,
+    };
+  },
+  /** Inspect gas pylons on active station tiles (flicker / spawn checks). */
+  getGasStations: () => activeSegments
+    .filter((s) => s.userData.gasStation && s.userData.gasGroup)
+    .map((s) => {
+      const g = s.userData.gasGroup;
+      const letters = g.getObjectByName("gasSignLetters");
+      const glowOpacity = letters && letters.userData.flickerLit != null
+        ? +Number(letters.userData.flickerLit).toFixed(3)
+        : (letters ? 1 : null);
+      return {
+        z: +s.position.z.toFixed(1),
+        dz: +(s.position.z - playerZ).toFixed(1),
+        side: s.userData.gasSide < 0 ? -1 : 1,
+        resolved: !!s.userData.gasResolved,
+        hasPylon: !!g.getObjectByName("gasPylon"),
+        hasLetters: !!letters,
+        glowOpacity,
+        requiredLane: requiredLaneForStation(s),
+      };
+    }),
+  /** Test helper: attempt curb-lane swipe enter without a real gesture. */
+  debugTrySwipeEnterGas: (dir = "left") => {
+    const stations = activeSegments
+      .filter((s) => s.userData.gasStation && !s.userData.gasResolved)
+      .map((s) => ({
+        dz: +(s.position.z - playerZ).toFixed(2),
+        side: s.userData.gasSide,
+        laneOk: playerInStationLane(s),
+        req: requiredLaneForStation(s),
+      }));
+    const ok = trySwipeEnterGas(dir);
+    return {
+      ok,
+      dir,
+      lane,
+      running,
+      alive,
+      nearbyStation: !!nearbyStation,
+      gasVisit: gasVisit ? gasVisit.phase : null,
+      stations,
+    };
+  },
+  /** Test helper: stamp a gas station on a clear segment ahead. */
+  debugSpawnGas: (side = 1, preferDz = 18) => {
+    side = side < 0 ? -1 : 1;
+    const target = Math.max(12, preferDz);
+    let seg = null;
+    let best = Infinity;
+    for (const s of activeSegments) {
+      if (s.userData.intersection || s.userData.turnOffer || s.userData.transitionPhase) continue;
+      const dz = s.position.z - playerZ;
+      if (dz < 10 || dz > 55) continue;
+      const err = Math.abs(dz - target);
+      if (err < best) {
+        best = err;
+        seg = s;
+      }
+    }
+    if (!seg) return { ok: false, reason: "no-seg" };
+    if (seg.userData.gasGroup) {
+      seg.remove(seg.userData.gasGroup);
+      seg.userData.gasGroup = null;
+    }
+    seg.userData.gasStation = true;
+    seg.userData.gasResolved = false;
+    seg.userData.gasSide = side;
+    const half = (seg.userData.baseWidth || layoutForSegment(seg).width) / 2;
+    seg.userData.gasGroup = addGasStationVisuals(seg, half, seg.userData.biome, side);
+    nearbyStation = null;
+    return {
+      ok: true,
+      side,
+      z: +seg.position.z.toFixed(1),
+      dz: +(seg.position.z - playerZ).toFixed(1),
+      requiredLane: requiredLaneForStation(seg),
     };
   },
   /** Test helper: force the nearest intersection light phase. */
