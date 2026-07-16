@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=39";
+} from "./js/constants.js?v=41";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=36";
+} from "./js/nes.js?v=38";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, decideSegment, buildTransitionPlan,
@@ -1150,8 +1150,7 @@ function applyIntersectionTurnPose(tr, yawU, dt) {
     (1 - Math.abs(Math.cos(turnYaw))) * 4.5;
   const camY = THREE.MathUtils.lerp(8.4, 7.5, yawAmt);
   if (tr.phase === "exit") {
-    const raw = Math.min(1, tr.exitT / tr.exitDuration);
-    const exitU = raw * raw * (3 - 2 * raw);
+    const exitU = Math.min(1, tr.exitT / tr.exitDuration);
     const chase = gameplayCamPos(laneX, playerZ);
     camera.position.set(
       THREE.MathUtils.lerp(camX, chase.x, exitU),
@@ -1188,9 +1187,8 @@ function updateIntersectionTurn(dt) {
 
   if (tr.phase === "exit") {
     tr.exitT += dt;
-    // Mostly-linear unwind so the settle is visible (inOut felt like a snap)
-    const raw = Math.min(1, tr.exitT / tr.exitDuration);
-    const exitU = raw * raw * (3 - 2 * raw); // smoothstep
+    // Linear unwind — eased curves spent too long near the ends and read as a snap
+    const exitU = Math.min(1, tr.exitT / tr.exitDuration);
     turnYaw = THREE.MathUtils.lerp(tr.peakYaw, 0, exitU);
     turnYawVel = 0;
     applyIntersectionTurnPose(tr, 1 - exitU, dt);

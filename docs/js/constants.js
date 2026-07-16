@@ -83,7 +83,7 @@ export const TURN_YAW = (25 * Math.PI) / 180;
 /** Locked intersection drift duration — yaw in + hold (seconds). */
 export const TURN_DRIFT_DURATION = 1.15;
 /** Soft unwind from ~90° back to chase heading (seconds). */
-export const TURN_DRIFT_EXIT = 0.62;
+export const TURN_DRIFT_EXIT = 0.7;
 /** Peak yaw during a full intersection drift (±π/2). */
 export const TURN_DRIFT_YAW = Math.PI / 2;
 /** Lateral bulge into the cross-street mid-drift (meters). */

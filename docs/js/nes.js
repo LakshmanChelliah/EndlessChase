@@ -262,25 +262,10 @@ export function makeBankLandmark(tex) {
  * would clip through a fixed dome (that read as a yellow wall).
  */
 export function addSky(camera) {
-  // Wider canvas — a 4px-wide gradient + LinearFilter smeared into a grey sky band
-  const w = 64;
-  const h = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  paintSkyCanvas(ctx, w, h, BIOME_ATMOS.city);
-
-  const map = new THREE.CanvasTexture(canvas);
-  map.magFilter = THREE.LinearFilter;
-  map.minFilter = THREE.LinearFilter;
-  map.generateMipmaps = false;
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.needsUpdate = true;
-
-  const skyGeo = new THREE.SphereGeometry(40, 48, 24);
+  // Solid color dome — canvas gradients on a sphere read as a floating grey band
+  const skyGeo = new THREE.SphereGeometry(40, 24, 16);
   const skyMat = new THREE.MeshBasicMaterial({
-    map,
+    color: BIOME_ATMOS.city.clear,
     side: THREE.BackSide,
     fog: false,
     depthWrite: false,
@@ -289,33 +274,9 @@ export function addSky(camera) {
   sky.name = "sky";
   sky.frustumCulled = false;
   sky.renderOrder = -10;
-  sky.userData.canvas = canvas;
-  sky.userData.ctx = ctx;
-  sky.userData.map = map;
   sky.userData.biome = "city";
   camera.add(sky);
   return sky;
-}
-
-function paintSkyCanvas(ctx, w, h, atmos) {
-  const g = ctx.createLinearGradient(0, 0, 0, h);
-  const stops = atmos.sky;
-  g.addColorStop(0, stops[0]);
-  g.addColorStop(0.45, stops[1]);
-  g.addColorStop(0.82, stops[2]);
-  g.addColorStop(1, stops[3]);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  // Tiny dim stars only — bright 1px stars on a tiny atlas bloomed into a grey band
-  ctx.fillStyle = atmos.stars || "#c8d0e0";
-  ctx.globalAlpha = 0.55;
-  for (const [x, y] of [
-    [8, 10], [22, 18], [40, 8], [55, 28], [12, 36], [33, 22], [48, 40],
-    [5, 50], [28, 44], [60, 14], [18, 60], [44, 55],
-  ]) {
-    ctx.fillRect(x, y, 1, 1);
-  }
-  ctx.globalAlpha = 1;
 }
 
 /**
@@ -336,9 +297,8 @@ export function applyBiomeAtmosphere(scene, sky, ground, biome, renderer) {
   if (scene.background) scene.background.setHex(atmos.clear);
   if (renderer) renderer.setClearColor(atmos.clear);
   if (ground?.material) ground.material.color.setHex(atmos.ground);
-  if (sky?.userData?.ctx && sky.userData.biome !== biome) {
-    paintSkyCanvas(sky.userData.ctx, sky.userData.canvas.width, sky.userData.canvas.height, atmos);
-    sky.userData.map.needsUpdate = true;
+  if (sky?.material && sky.userData.biome !== biome) {
+    sky.material.color.setHex(atmos.clear);
     sky.userData.biome = biome;
   }
 }
