@@ -56,7 +56,8 @@ import {
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
-} from "./js/siren.js?v=8";
+} from "./js/siren.js?v=9";
+import { playSfx, stopSfx, stopAllSfx } from "./js/sfx.js?v=1";
 
 /** How far ahead NPCs scan for closed lanes; actual merge trigger is jittered per car. */
 const MERGE_LOOKAHEAD = 28;
@@ -1588,14 +1589,29 @@ function spawnOpeningChaseCop() {
   activeTraffic.push(car);
 }
 
+/** Last gas UI tier for edge-triggered low/critical SFX: "ok" | "low" | "critical" */
+let gasUiTier = "ok";
+
+function gasTierFor(g) {
+  if (g < GAS_COLOR_LOW) return "critical";
+  if (g < GAS_COLOR_OK) return "low";
+  return "ok";
+}
+
 function updateGasUI() {
   const g = Math.max(0, Math.min(100, gas));
   if (hudGasFill) hudGasFill.style.width = `${g}%`;
+  const tier = gasTierFor(g);
   if (hudGasBlock) {
     hudGasBlock.classList.remove("ok", "low", "critical");
-    if (g < GAS_COLOR_LOW) hudGasBlock.classList.add("critical");
-    else if (g < GAS_COLOR_OK) hudGasBlock.classList.add("low");
-    else hudGasBlock.classList.add("ok");
+    hudGasBlock.classList.add(tier);
+  }
+  if (tier !== gasUiTier) {
+    if (running && alive) {
+      if (tier === "critical") playSfx("gasCritical");
+      else if (tier === "low") playSfx("gasLow");
+    }
+    gasUiTier = tier;
   }
 }
 
@@ -1847,6 +1863,7 @@ function beginPullOut() {
 }
 
 function endGasVisit({ resume = true, busted = false } = {}) {
+  stopSfx("gasFill");
   if (gasVisit?.cop) {
     const idx = activeTraffic.indexOf(gasVisit.cop);
     if (idx >= 0) activeTraffic.splice(idx, 1);
@@ -1888,8 +1905,12 @@ function bustAtPump() {
 
 function setPumpHolding(on) {
   if (!gasVisit || gasVisit.phase !== "pumping") return;
-  gasVisit.holding = !!on;
-  if (btnPumpHold) btnPumpHold.classList.toggle("holding", !!on);
+  const next = !!on;
+  const was = !!gasVisit.holding;
+  gasVisit.holding = next;
+  if (btnPumpHold) btnPumpHold.classList.toggle("holding", next);
+  if (next && !was) playSfx("gasFill");
+  else if (!next && was) stopSfx("gasFill");
 }
 
 function updatePumpHoldUI() {
@@ -1946,6 +1967,8 @@ function updateGasVisit(dt) {
 
     if (gas >= 100) {
       gas = 100;
+      stopSfx("gasFill");
+      playSfx("gasFull");
       enterWaitClear();
       return;
     }
@@ -2238,13 +2261,16 @@ function endRun(reason) {
   if (menuBoardingEl) menuBoardingEl.classList.add("hidden");
   hideCoach();
   sirenOpeningT = 0;
+  stopAllSfx();
   stopSiren();
   sirenSmoothVol = 0;
   setSpeedlines(false);
   if (reason === "bust") {
+    playSfx("arrested");
     triggerFlash("bust");
     triggerShake(0.55, 0.45);
   } else {
+    playSfx("crash");
     triggerFlash("wreck");
     triggerShake(0.7, 0.4);
   }
@@ -2287,8 +2313,12 @@ function endRun(reason) {
   updateHeatVignette();
 }
 
-function crash() { endRun("wreck"); }
-function bust() { endRun("bust"); }
+function crash() {
+  endRun("wreck");
+}
+function bust() {
+  endRun("bust");
+}
 
 function parkPlayerCurbside() {
   player.position.set(MENU_PARK.x, 0, MENU_PARK.z);
@@ -2303,6 +2333,7 @@ function applyMenuCamera() {
 /** Attract / title street: bank curb + player parked for the getaway. */
 function setupMenuScene() {
   clearWorld();
+  stopAllSfx();
   stopSiren();
   sirenOpeningT = 0;
   sirenSmoothVol = 0;
@@ -3300,6 +3331,7 @@ document.body.addEventListener("touchmove", (e) => {
 
 document.getElementById("btn-play").onclick = () => {
   unlockSirenAudio();
+  playSfx("uiBlip");
   if (!loadHintsSeen().howto) {
     openHowto({ thenPlay: true });
     return;
@@ -3328,6 +3360,7 @@ btnCoachNext?.addEventListener("click", (e) => {
 });
 document.getElementById("btn-retry").onclick = () => {
   unlockSirenAudio();
+  playSfx("uiBlip");
   hideCoach();
   if (btnRetry) btnRetry.disabled = false;
   startRun({ instant: true });
@@ -3637,6 +3670,7 @@ function tick(now) {
                 hudLight.textContent = "RED! BOOST";
                 hudLight.style.color = "#ff004d";
                 noteMissionStat("boosts", 1);
+                playSfx("boost");
               } else {
                 hudLight.textContent = "RED SLOW";
                 hudLight.style.color = "#ffa300";
@@ -3768,6 +3802,7 @@ function tick(now) {
       ) {
         t.userData.nearMissed = true;
         triggerShake(0.14, 0.16);
+        playSfx("nearMiss");
       }
     }
 
@@ -3847,6 +3882,7 @@ function tick(now) {
         save.coins += 1;
         writeSave(save);
         noteMissionStat("coins", 1);
+        playSfx("coin");
       }
     }
 
@@ -4018,6 +4054,7 @@ window.__endlessChase = {
     sirenOpeningT: +sirenOpeningT.toFixed(2),
     sirenVol: +sirenSmoothVol.toFixed(3),
     siren: getSirenDebug(),
+    sfx: { gasUiTier },
     playerX: +player.position.x.toFixed(2),
     playerZ: +player.position.z.toFixed(2),
     playerYaw: +player.rotation.y.toFixed(3),

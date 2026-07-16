@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<!--
+  Endless Chase — SFX audition page (debug / design).
+  Procedural NES-style cues from js/sfx.js. Not linked from the main menu.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Endless Chase — SFX Preview</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #0d1020;
+      --bg1: #1a1f38;
+      --ink: #f4f0e6;
+      --muted: #9aa3c2;
+      --accent: #ffec27;
+      --panel: #12162a;
+      --btn: #2a3358;
+      --btn-hi: #3d4a7a;
+      --ok: #00e436;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: radial-gradient(ellipse at 50% 0%, #243056 0%, var(--bg0) 55%);
+      color: var(--ink);
+      font-family: "Press Start 2P", monospace;
+    }
+    body {
+      padding: 24px 16px 48px;
+      image-rendering: pixelated;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    h1 {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--accent);
+      margin: 0 0 8px;
+      text-shadow: 2px 2px 0 #000;
+    }
+    .sub {
+      font-size: 8px;
+      line-height: 1.8;
+      color: var(--muted);
+      margin: 0 0 20px;
+    }
+    .sub a { color: var(--ok); }
+    .status {
+      font-size: 8px;
+      color: var(--ok);
+      min-height: 1.6em;
+      margin-bottom: 16px;
+    }
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      background: var(--panel);
+      border: 2px solid #3a4468;
+      padding: 12px;
+    }
+    .meta { min-width: 0; }
+    .label {
+      font-size: 9px;
+      color: var(--ink);
+      margin: 0 0 6px;
+    }
+    .id {
+      color: var(--accent);
+    }
+    .desc {
+      font-size: 7px;
+      line-height: 1.7;
+      color: var(--muted);
+      margin: 0;
+    }
+    button {
+      font-family: inherit;
+      font-size: 8px;
+      color: var(--ink);
+      background: var(--btn);
+      border: 2px solid #5a6aa0;
+      padding: 10px 12px;
+      cursor: pointer;
+      min-width: 72px;
+    }
+    button:hover, button:focus-visible {
+      background: var(--btn-hi);
+      outline: none;
+      border-color: var(--accent);
+    }
+    button.stop {
+      border-color: #ff004d;
+      color: #ffb4c4;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SFX PREVIEW</h1>
+    <p class="sub">
+      Procedural NES cues for Endless Chase.
+      Click Play to unlock audio, then audition each sound.
+      <a href="./">← Back to game</a>
+    </p>
+    <p id="status" class="status" aria-live="polite"></p>
+    <div id="list" class="list"></div>
+  </div>
+  <script type="module">
+    import {
+      SFX_CATALOG, playSfx, stopSfx, unlockSfxAudio,
+    } from "./js/sfx.js?v=1";
+
+    const list = document.getElementById("list");
+    const status = document.getElementById("status");
+
+    function setStatus(msg) {
+      status.textContent = msg;
+    }
+
+    for (const item of SFX_CATALOG) {
+      const row = document.createElement("div");
+      row.className = "row";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.innerHTML = `<p class="label"><span class="id">${item.id}</span> — ${item.label}</p>`
+        + `<p class="desc">${item.desc}</p>`;
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      const playBtn = document.createElement("button");
+      playBtn.type = "button";
+      playBtn.textContent = item.id === "gasFill" ? "Start" : "Play";
+      playBtn.addEventListener("click", () => {
+        unlockSfxAudio();
+        playSfx(item.id);
+        setStatus(`Playing: ${item.id}`);
+      });
+      actions.appendChild(playBtn);
+
+      if (item.id === "gasFill") {
+        const stopBtn = document.createElement("button");
+        stopBtn.type = "button";
+        stopBtn.className = "stop";
+        stopBtn.textContent = "Stop";
+        stopBtn.addEventListener("click", () => {
+          stopSfx("gasFill");
+          setStatus("Stopped: gasFill");
+        });
+        actions.appendChild(stopBtn);
+      }
+
+      row.appendChild(meta);
+      row.appendChild(actions);
+      list.appendChild(row);
+    }
+
+    // Unlock on first pointer anywhere (iOS-friendly)
+    document.body.addEventListener("pointerdown", () => unlockSfxAudio(), { once: true, passive: true });
+  </script>
+</body>
+</html>
