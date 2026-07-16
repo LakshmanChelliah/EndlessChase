@@ -81,7 +81,7 @@ export const TURN_WINDOW = 1.25;
 /** Cosmetic lane-change yaw kick (radians). */
 export const TURN_YAW = (25 * Math.PI) / 180;
 /** Locked intersection drift duration (seconds). */
-export const TURN_DRIFT_DURATION = 1.25;
+export const TURN_DRIFT_DURATION = 1.35;
 /** Peak yaw during a full intersection drift (±π/2). */
 export const TURN_DRIFT_YAW = Math.PI / 2;
 /** Lateral bulge into the cross-street mid-drift (meters). */

@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=35";
+} from "./js/constants.js?v=36";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -1052,29 +1052,35 @@ function beginIntersectionDrift(side, seg) {
   setSpeedlines(true);
 }
 
-/** Advance drift pose; ease into the landing curb lane and straighten by the end. */
+/** Advance drift pose; commit ~90° along heading, hold turned, snap-straight on finish. */
 function updateIntersectionTurn(dt) {
   if (!intersectionTurn) return false;
   const tr = intersectionTurn;
   tr.t += dt;
-  const u = easeInOutCubic(Math.min(1, tr.t / tr.duration));
+  const uLinear = Math.min(1, tr.t / tr.duration);
+  const u = easeInOutCubic(uLinear);
   // Three.js +Y yaw: positive turns toward +X (screen right). Left turn (−X) needs negative yaw.
   const yawPeak = tr.side < 0 ? -TURN_DRIFT_YAW : TURN_DRIFT_YAW;
-  // Peak mid-turn, return to straight by the end for a smooth merge into the curb lane
-  const yawAmt = Math.sin(Math.PI * u);
-  turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawPeak, yawAmt);
+  // Reach full turn by ~65% and HOLD — never ease yaw back (that read as undoing the turn).
+  const yawU = Math.min(1, u / 0.65);
+  turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawPeak, easeOutCubic(yawU));
   turnYawVel = 0;
-  // Blend toward landing curb lane while bulging into the cross street mid-arc
-  const baseX = THREE.MathUtils.lerp(tr.fromX, tr.landX, u);
-  laneX = baseX + tr.side * TURN_DRIFT_ARC * Math.sin(Math.PI * u);
+
+  // Move along current heading so path matches the turn (not a sideways strafe on +Z)
+  const move = Math.max(8, speed) * 0.72 * dt;
+  laneX += Math.sin(turnYaw) * move;
+  playerZ += Math.cos(turnYaw) * move;
+  // Once fully turned, soft-pull toward the curb landing lane before the snap reset
+  if (yawU >= 1) {
+    laneX = THREE.MathUtils.damp(laneX, tr.landX, 5.5, dt);
+  }
   laneVel = 0;
-  playerZ = tr.fromZ + speed * Math.min(tr.t, tr.duration) * 0.55;
   distance = playerZ;
-  const bank = tr.side * 0.22 * Math.sin(Math.PI * u);
+  const bank = tr.side * 0.2 * (1 - Math.abs(yawU - 1) * 0.15) * Math.min(1, yawU * 1.4);
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(bank * 0.35, turnYaw, bank);
 
-  // Chase cam orbits with yaw so the turn reads clearly
+  // Chase cam stays behind the turned heading for the whole committed turn
   const back = 14;
   const camX = laneX - Math.sin(turnYaw) * back;
   const camZ = playerZ - Math.cos(turnYaw) * back;
@@ -1084,10 +1090,10 @@ function updateIntersectionTurn(dt) {
     1.0,
     playerZ + Math.cos(turnYaw) * 14
   );
-  camFovTarget = 74;
+  camFovTarget = 76;
   worldGround.position.z = playerZ + 80;
 
-  if (u >= 1) {
+  if (uLinear >= 1) {
     finishIntersectionDrift();
   }
   return true;
@@ -1102,13 +1108,20 @@ function finishIntersectionDrift() {
   laneTargetX = landX;
   laneX = landX;
   laneVel = 0;
+  // Instant heading/camera reset — same-frame snap hides the endless-runner axis reset
   turnYaw = 0;
   turnYawVel = 0;
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(0, 0, 0);
+  camera.position.copy(gameplayCamPos(laneX, playerZ));
+  const look = gameplayCamLook(laneX, playerZ);
+  setCameraLook(look.x, look.y, look.z);
+  camFovTarget = 72;
   intersectionTurn = null;
   setSpeedlines(false);
   clearNearbyTrafficForTurn();
+  triggerFlash("boost");
+  triggerShake(0.08, 0.1);
   if (hudTurn) {
     hudTurn.textContent = "TURN OK";
     hudTurn.classList.remove("hidden");
