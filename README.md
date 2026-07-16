@@ -103,7 +103,7 @@ Manual QA: [design/UITestChecklist.md](design/UITestChecklist.md).
 | Swipe down · S | Brake (sticky until up) |
 | Swipe up · W · Space | Resume / speed up |
 | Turn cues | Swipe onto on-ramp to switch biome |
-| Gas stations | Outer curb lane → swipe toward lot → hold to fill |
+| Gas stations | Outer curb lane → swipe in → hold to fill → swipe out to merge |
 
 ## License & disclaimer
 

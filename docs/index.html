@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=31" />
+  <link rel="stylesheet" href="styles.css?v=32" />
 </head>
 <body>
   <div id="game-root">
@@ -107,8 +107,28 @@
           <div id="hud-speed" class="speedo" aria-label="Speed">0</div>
         </div>
 
-        <div id="hud-station-float" class="station-float hidden" role="status" aria-live="polite">SWIPE TO ENTER</div>
-        <button type="button" id="hud-merge-btn" class="merge-btn hidden">MERGE WHEN CLEAR</button>
+        <div id="hud-station-float" class="swipe-cue hidden" role="status" aria-live="polite">
+          <span class="swipe-cue-arrows" aria-hidden="true">
+            <span class="swipe-cue-chevron">‹</span>
+            <span class="swipe-cue-chevron">‹</span>
+            <span class="swipe-cue-chevron">‹</span>
+          </span>
+          <span class="swipe-cue-copy">
+            <span class="swipe-cue-action">ENTER</span>
+            <span class="swipe-cue-hint">SWIPE</span>
+          </span>
+        </div>
+        <div id="hud-merge-btn" class="swipe-cue swipe-cue-merge hidden" role="status" aria-live="polite">
+          <span class="swipe-cue-arrows" aria-hidden="true">
+            <span class="swipe-cue-chevron">‹</span>
+            <span class="swipe-cue-chevron">‹</span>
+            <span class="swipe-cue-chevron">‹</span>
+          </span>
+          <span class="swipe-cue-copy">
+            <span class="swipe-cue-action">MERGE</span>
+            <span class="swipe-cue-hint">SWIPE WHEN CLEAR</span>
+          </span>
+        </div>
       </section>
 
       <section id="panel-pump" class="panel pump-panel hidden" aria-modal="true" role="dialog" aria-labelledby="pump-title">
@@ -186,6 +206,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=79"></script>
+  <script type="module" src="game.js?v=80"></script>
 </body>
 </html>

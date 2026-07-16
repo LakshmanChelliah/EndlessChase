@@ -13,7 +13,8 @@
 - [ ] Collision shows **Wrecked!**; **Retry** works
 - [ ] Turn cue; swipe L/R switches biome via on-ramp
 - [ ] Gas station flickering sign visible early; must be in matching outer lane or see "Move closer to enter"
-- [ ] Swipe toward station to pull in (tap does not enter); hold to fill; cops approach; release or full tank pulls out
+- [ ] Swipe cue shows enter direction; swipe toward station to pull in (tap does not enter); hold to fill
+- [ ] After fill, swipe cue shows merge direction; swipe toward road (or up) to merge — no merge button
 - [ ] Holding until heat 100 → Busted
 - [ ] Empty tank forces coast → heat / bust; gas text/bar turns red below 15%
 - [ ] Coins + Garage upgrades persist across reload

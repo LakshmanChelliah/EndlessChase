@@ -111,7 +111,7 @@ const HOWTO_STEPS = [
   },
   {
     title: "FILL GAS",
-    body: "Watch for the flickering GAS sign, pull into the outer curb lane, swipe toward the station to pull in, then HOLD TO FILL. Cops close in while you pump — release and merge before you get busted.",
+    body: "Watch for the flickering GAS sign, pull into the outer curb lane, swipe toward the station to pull in, then HOLD TO FILL. When done, swipe toward the road to merge before the cops close in.",
     callout: "Empty tank forces a slow coast that fills the COPS bar.",
   },
 ];
@@ -1720,17 +1720,40 @@ function randomStartGas() {
 function hideStationFloat() {
   if (hudStationFloat) {
     hudStationFloat.classList.add("hidden");
+    hudStationFloat.classList.remove("dir-left", "dir-right");
     hudStationFloat.style.left = "";
     hudStationFloat.style.top = "";
   }
 }
 
 function hideMergeBtn() {
-  if (hudMergeBtn) hudMergeBtn.classList.add("hidden");
+  if (hudMergeBtn) {
+    hudMergeBtn.classList.add("hidden");
+    hudMergeBtn.classList.remove("dir-left", "dir-right");
+  }
+}
+
+function setSwipeCueDir(el, dir) {
+  if (!el) return;
+  el.classList.toggle("dir-left", dir === "left");
+  el.classList.toggle("dir-right", dir === "right");
+}
+
+/** Swipe direction that pulls into a station lot (inverted steering). */
+function enterSwipeDirForSide(side) {
+  return side > 0 ? "left" : "right";
+}
+
+/** Swipe direction that merges back onto the road from a lot. */
+function mergeSwipeDirForSide(side) {
+  return side > 0 ? "right" : "left";
 }
 
 function showMergeBtn() {
-  if (hudMergeBtn) hudMergeBtn.classList.remove("hidden");
+  if (!hudMergeBtn || !gasVisit) return;
+  const dir = mergeSwipeDirForSide(gasVisit.side);
+  setSwipeCueDir(hudMergeBtn, dir);
+  hudMergeBtn.classList.remove("hidden");
 }
 
 function hideGasHint() {
@@ -1745,7 +1768,7 @@ function showGasHint(msg = "Move closer to enter") {
   gasHintTimer = 1.4;
 }
 
-/** Static SWIPE TO ENTER CTA — only in the curb lane while alongside an open station. */
+/** Swipe-cue ENTER indicator — curb lane alongside an open station. */
 function updateStationFloat(seg) {
   if (!hudStationFloat || !seg || gasVisit || seg.userData.gasResolved) {
     hideStationFloat();
@@ -1762,8 +1785,7 @@ function updateStationFloat(seg) {
     return;
   }
   const side = seg.userData.gasSide < 0 ? -1 : 1;
-  // Inverted steering: swipe left pulls right (into a right-side lot)
-  hudStationFloat.textContent = side > 0 ? "SWIPE ← TO ENTER" : "SWIPE → TO ENTER";
+  setSwipeCueDir(hudStationFloat, enterSwipeDirForSide(side));
   hudStationFloat.classList.remove("hidden");
 }
 
@@ -2020,7 +2042,7 @@ function updatePumpHoldUI() {
   if (pumpHeatFill) pumpHeatFill.style.width = `${Math.min(100, heat)}%`;
   if (pumpPreview) {
     pumpPreview.classList.toggle("hot", heat >= 70);
-    if (heat >= 85) pumpPreview.textContent = "COPS CLOSING IN — RELEASE & MERGE!";
+    if (heat >= 85) pumpPreview.textContent = "COPS CLOSING IN — RELEASE THEN SWIPE TO MERGE!";
     else if (gasVisit?.holding) pumpPreview.textContent = "FILLING… DANGER RISING";
     else pumpPreview.textContent = "HOLD TO FILL · COPS CLOSING IN";
   }
@@ -2138,6 +2160,19 @@ function trySwipeEnterGas(dir) {
   const towardStation = (side > 0 && dir === "left") || (side < 0 && dir === "right");
   if (!towardStation) return false;
   return tryBeginGasVisit(seg);
+}
+
+/**
+ * After pumping: swipe toward the road (or up) to merge when the cue is showing.
+ */
+function trySwipeMergeOut(dir) {
+  if (!gasVisit || gasVisit.phase !== "waitClear" || !alive) return false;
+  const need = mergeSwipeDirForSide(gasVisit.side);
+  if (dir === need || dir === "up") {
+    beginPullOut();
+    return true;
+  }
+  return false;
 }
 
 function startBrake() {
@@ -3140,7 +3175,12 @@ function updateIntro(dt) {
 }
 
 function onSwipe(dir) {
-  if (!alive || gasVisit) return;
+  if (!alive) return;
+  // Merge out of the lot with a swipe toward the road (or up)
+  if (gasVisit) {
+    if (gasVisit.phase === "waitClear" && trySwipeMergeOut(dir)) return;
+    return;
+  }
   if (!running) {
     // Boarding: any gesture skips to curb pull-out
     if (boarding) {
@@ -3207,7 +3247,8 @@ function pointerMove(x, y, id = 0) {
   // Fire as soon as the swipe crosses the threshold — no time cutoff.
   // Slow deliberate swipes used to miss when only resolved on release within 450ms.
   swipeConsumed = true;
-  if (gasVisit) return;
+  // Allow merge-out swipes while waiting to clear; other gas phases ignore gestures
+  if (gasVisit && gasVisit.phase !== "waitClear") return;
   emitSwipeFromDelta(dx, dy);
 }
 
@@ -3220,7 +3261,7 @@ function pointerUp(x, y, id = 0) {
     swipeConsumed = false;
     return;
   }
-  if (gasVisit) return;
+  if (gasVisit && gasVisit.phase !== "waitClear") return;
   const dx = x - start.x;
   const dy = y - start.y;
   const dt = performance.now() - start.t;
@@ -3331,9 +3372,22 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (gasVisit?.phase === "waitClear") {
+    if (e.repeat) return;
     if (key === " " || key === "Enter" || key === "w" || key === "ArrowUp") {
       e.preventDefault();
       beginPullOut();
+      return;
+    }
+    // Lateral toward the road (same mapping as the swipe cue)
+    if (key === "a" || key === "ArrowLeft") {
+      e.preventDefault();
+      trySwipeMergeOut("left");
+      return;
+    }
+    if (key === "d" || key === "ArrowRight") {
+      e.preventDefault();
+      trySwipeMergeOut("right");
+      return;
     }
     return;
   }
@@ -3376,14 +3430,6 @@ window.addEventListener("keyup", (e) => {
   // Sticky brake: release of S does not resume — only swipe up / W / Space
   if (key === "s" || key === "ArrowDown") keysBrake = false;
 });
-
-if (hudMergeBtn) {
-  hudMergeBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (gasVisit?.phase === "waitClear") beginPullOut();
-  });
-}
 
 function bindPumpHold(el) {
   if (!el) return;

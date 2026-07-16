@@ -1,5 +1,5 @@
 /**
- * Gas station UX: flickering pylon + swipe/keyboard enter (tap does not enter).
+ * Gas station UX: swipe cues + flicker + enter/merge (tap does not enter/merge).
  * Expects `npm run serve` on the target URL (default http://localhost:4173).
  */
 import { chromium } from "playwright";
@@ -28,7 +28,7 @@ await page.waitForFunction(() => window.__endlessChase?.getState()?.running === 
 await page.evaluate(() => window.__endlessChase.debugClearHazards());
 await page.keyboard.press("s");
 
-const spawned = await page.evaluate(() => window.__endlessChase.debugSpawnGas(1, 14));
+const spawned = await page.evaluate(() => window.__endlessChase.debugSpawnGas(1, 18));
 if (!spawned?.ok) throw new Error("debugSpawnGas failed: " + JSON.stringify(spawned));
 
 const stations = await page.evaluate(() => window.__endlessChase.getGasStations());
@@ -37,28 +37,7 @@ if (!station?.hasPylon) throw new Error("gas pylon missing: " + JSON.stringify(s
 if (!station?.hasLetters) throw new Error("gas GAS letters missing: " + JSON.stringify(stations));
 if (station.glowOpacity == null) throw new Error("gas letter glow missing");
 
-const reqLane = spawned.requiredLane | 0;
-for (let i = 0; i < 8; i++) {
-  const lane = await page.evaluate(() => window.__endlessChase.getState().lane);
-  if (lane === reqLane) break;
-  if (lane < reqLane) await page.keyboard.press("a");
-  else await page.keyboard.press("d");
-  await page.waitForTimeout(280);
-}
-
-await page.waitForFunction((need) => {
-  const st = window.__endlessChase.getState();
-  const floatEl = document.getElementById("hud-station-float");
-  const g = window.__endlessChase.getGasStations().find((s) => !s.resolved);
-  return st.lane === need && g && g.dz < 16 && g.dz > -2
-    && floatEl && !floatEl.classList.contains("hidden");
-}, reqLane, { timeout: 20000 });
-
-const floatText = await page.locator("#hud-station-float").innerText();
-if (!/SWIPE/i.test(floatText)) {
-  throw new Error("expected SWIPE prompt, got: " + floatText);
-}
-
+// Flicker while station is still ahead
 const opacities = await page.evaluate(async () => {
   const samples = [];
   for (let i = 0; i < 10; i++) {
@@ -73,31 +52,80 @@ if (uniq.size < 2) {
   throw new Error("gas sign did not flicker: " + JSON.stringify(opacities));
 }
 
+const reqLane = spawned.requiredLane | 0;
+for (let i = 0; i < 8; i++) {
+  const lane = await page.evaluate(() => window.__endlessChase.getState().lane);
+  if (lane === reqLane) break;
+  if (lane < reqLane) await page.keyboard.press("a");
+  else await page.keyboard.press("d");
+  await page.waitForTimeout(220);
+}
+
+await page.waitForFunction((need) => {
+  const st = window.__endlessChase.getState();
+  const floatEl = document.getElementById("hud-station-float");
+  const g = window.__endlessChase.getGasStations().find((s) => !s.resolved);
+  return st.lane === need && g && g.dz < 16 && g.dz > 0
+    && floatEl && !floatEl.classList.contains("hidden");
+}, reqLane, { timeout: 20000 });
+
+const floatText = await page.locator("#hud-station-float").innerText();
+if (!/SWIPE/i.test(floatText) || !/ENTER/i.test(floatText)) {
+  throw new Error("expected swipe ENTER cue, got: " + floatText);
+}
+const enterDirOk = await page.evaluate(() => {
+  const el = document.getElementById("hud-station-float");
+  return el && el.classList.contains("dir-left");
+});
+if (!enterDirOk) throw new Error("enter cue missing dir-left class");
+
 await page.evaluate(() => window.__endlessChase.debugClearHazards());
 
 // Tap on canvas must not enter
 await page.click("#c");
-await page.waitForTimeout(150);
+await page.waitForTimeout(100);
 let st = await page.evaluate(() => window.__endlessChase.getState());
 if (st.gasVisit) throw new Error("tap entered gas station (should not)");
 
-// Focused canvas + A (swipe-left) toward right-side lot
-await page.keyboard.press("a");
+// Enter via the same path as a curb-lane swipe
+const diag = await page.evaluate(() => window.__endlessChase.debugTrySwipeEnterGas("left"));
+if (!diag.ok) throw new Error("enter failed: " + JSON.stringify(diag));
+st = await page.evaluate(() => window.__endlessChase.getState());
+if (!st.gasVisit) throw new Error("swipe did not enter gas station");
+
+// Wait for pumping, brief hold, release → waitClear
+await page.waitForFunction(() => window.__endlessChase.getState().gasVisit?.phase === "pumping", null, { timeout: 5000 });
+await page.keyboard.down(" ");
+await page.waitForTimeout(350);
+await page.keyboard.up(" ");
+await page.waitForFunction(() => window.__endlessChase.getState().gasVisit?.phase === "waitClear", null, { timeout: 5000 });
+
+const mergeVisible = await page.evaluate(() => {
+  const el = document.getElementById("hud-merge-btn");
+  return !!(el && !el.classList.contains("hidden") && el.classList.contains("dir-right")
+    && /MERGE/i.test(el.textContent || "") && /SWIPE/i.test(el.textContent || ""));
+});
+if (!mergeVisible) throw new Error("merge swipe cue not visible with dir-right");
+
+// Tap must not merge
+await page.click("#c");
 await page.waitForTimeout(100);
 st = await page.evaluate(() => window.__endlessChase.getState());
-if (!st.gasVisit) {
-  // Fallback: same code path the gesture uses
-  const diag = await page.evaluate(() => window.__endlessChase.debugTrySwipeEnterGas("left"));
-  if (!diag.ok) throw new Error("enter failed: " + JSON.stringify(diag));
-  st = await page.evaluate(() => window.__endlessChase.getState());
+if (st.gasVisit?.phase !== "waitClear") throw new Error("tap merged out (should not)");
+
+// Swipe toward road (D = right for right-side lot)
+await page.keyboard.press("d");
+await page.waitForTimeout(200);
+st = await page.evaluate(() => window.__endlessChase.getState());
+if (st.gasVisit?.phase === "waitClear") {
+  throw new Error("swipe did not merge out of gas station");
 }
-if (!st.gasVisit) throw new Error("swipe did not enter gas station");
 
 if (errors.length) throw new Error("page errors: " + errors.join("; "));
 
 console.log("GAS_STATION_OK", {
   floatText,
-  phase: st.gasVisit.phase,
+  phaseAfterMerge: st.gasVisit?.phase || "done",
   requiredLane: reqLane,
   flickerSamples: opacities,
   spawned,
