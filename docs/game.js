@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=33";
+} from "./js/nes.js?v=34";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, decideSegment, buildTransitionPlan,
@@ -1113,11 +1113,23 @@ function updateIntersectionTurn(dt) {
   turnYaw = THREE.MathUtils.lerp(tr.fromYaw, yawPeak, easeOutCubic(yawU));
   turnYawVel = 0;
 
-  // Drive along heading, but never stall world scroll: keep a strong +Z floor so
-  // the endless road keeps flowing while turned (pure lateral freeze felt like a stop).
+  // Drive along heading. Soft +Z floor avoids a hard stall at ±90°, but once
+  // fully turned we must NOT blast past the junction — that aimed the camera
+  // into the next block's building wall instead of the cross-street asphalt.
   const move = Math.max(10, speed) * 0.85 * dt;
   const lateral = Math.sin(turnYaw) * move;
-  const forward = Math.max(0.55, Math.cos(turnYaw)) * move;
+  let forward = Math.max(0.18, Math.cos(turnYaw)) * move;
+  if (yawU >= 0.85) {
+    // Hold near the junction center so the look-into-arm stays on the opening
+    const jZ = tr.seg?.position?.z;
+    if (jZ != null) {
+      const targetZ = jZ + 1.5;
+      playerZ = THREE.MathUtils.damp(playerZ, targetZ, 4.5, dt);
+      forward = 0;
+    } else {
+      forward = Math.min(forward, 3.5 * dt);
+    }
+  }
   laneX += lateral;
   playerZ += forward;
   // Pull toward curb landing lane once mostly turned
@@ -1125,8 +1137,8 @@ function updateIntersectionTurn(dt) {
     laneX = THREE.MathUtils.damp(laneX, tr.landX, 6.5, dt);
   } else {
     // Bias toward the turn side early so the path reads as entering the arm
-    const tip = tr.landX + tr.side * TURN_DRIFT_ARC * 0.65;
-    laneX = THREE.MathUtils.damp(laneX, tip, 3.2, dt);
+    const tip = tr.landX + tr.side * TURN_DRIFT_ARC * 0.85;
+    laneX = THREE.MathUtils.damp(laneX, tip, 3.8, dt);
   }
   laneVel = 0;
   distance = playerZ;
@@ -1134,8 +1146,7 @@ function updateIntersectionTurn(dt) {
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(bank * 0.35, turnYaw, bank);
 
-  // Chase cam stays behind the turned heading; look down the cross-street asphalt
-  // (not into corner facades) so the junction reads as a real turn.
+  // Chase cam behind heading; look down the cross-street mouth at junction Z
   const back = 12;
   const camX = laneX - Math.sin(turnYaw) * back;
   const camZ =
@@ -1147,12 +1158,12 @@ function updateIntersectionTurn(dt) {
     8.2,
     THREE.MathUtils.lerp(playerZ - 13, camZ, 0.7)
   );
-  const lookDist = 14 + Math.abs(Math.sin(turnYaw)) * 8;
+  const jZ = tr.seg?.position?.z ?? playerZ;
+  const lookDist = 12 + Math.abs(Math.sin(turnYaw)) * 10;
   setCameraLook(
     laneX + Math.sin(turnYaw) * lookDist,
-    0.6,
-    // Hold look near junction Z so we see the arm opening, not a far sidewalk wall
-    playerZ + Math.max(2, Math.cos(turnYaw) * 10)
+    0.45,
+    THREE.MathUtils.lerp(playerZ + Math.max(2, Math.cos(turnYaw) * 10), jZ, Math.min(1, yawU))
   );
   camFovTarget = 76;
   worldGround.position.z = playerZ + 80;

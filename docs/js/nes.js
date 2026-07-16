@@ -729,9 +729,12 @@ function addCrossStreet(root, half, width, biome = "city", tex = null) {
   const rnd = () => Math.random();
 
   for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.PlaneGeometry(armLen, armW), basicColor(NES.asphalt));
+    const arm = new THREE.Mesh(
+      new THREE.PlaneGeometry(armLen, armW),
+      new THREE.MeshBasicMaterial({ color: NES.asphalt, side: THREE.DoubleSide })
+    );
     arm.rotation.x = -Math.PI / 2;
-    arm.position.set(side * (half + armLen / 2), 0.012, 0);
+    arm.position.set(side * (half + armLen / 2), 0.04, 0);
     root.add(arm);
     // Deep sidewalk + block fill so fog doesn't read as a void beyond the curb
     for (const zSide of [-1, 1]) {
