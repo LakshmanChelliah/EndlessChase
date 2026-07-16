@@ -4195,8 +4195,32 @@ window.__endlessChase = {
       mix: !!s.userData.mixGroup,
       taperMarks: !!s.userData.taperMarkGroup,
       ground: !!s.userData.taperGround,
+      atmosT: s.userData.atmosT ?? null,
       z: +s.position.z.toFixed(1),
     })),
+  /** Snap player into a usable lane center (QA / playtest). */
+  debugSetLane: (laneIndex) => {
+    const { layout, usable } = playerControlLayout();
+    let i = laneIndex;
+    if (i == null || !usable.includes(i)) {
+      i = usable.includes(layout.defaultLane) ? layout.defaultLane : usable[0];
+    }
+    if (i == null || i < 0 || i >= layout.count) return null;
+    lane = i;
+    laneX = layout.xs[i];
+    laneTargetX = layout.xs[i];
+    laneVel = 0;
+    player.position.x = laneX;
+    return { lane, laneX, usable: usable.slice() };
+  },
+  debugAdvance: (meters = 40) => {
+    const d = Math.max(0, +meters || 0);
+    playerZ += d;
+    distance = playerZ;
+    player.position.z = playerZ;
+    while (nextSpawnZ < playerZ + 8 * SEG_LEN) spawnSegment();
+    return { playerZ, distance, queue: transitionQueue.length, transitioning };
+  },
   getCross: () => activeCross.map((c) => ({
     x: +c.position.x.toFixed(2),
     z: +c.position.z.toFixed(2),
