@@ -863,6 +863,52 @@ function addThreeLampSignal(root, half, tex) {
 }
 
 /**
+ * Pixel “GAS” atlas for the roadside neon sign (nearest-filter, transparent bg).
+ */
+function makeGasTextTexture() {
+  const w = 64;
+  const h = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#ffec27";
+
+  /** Fill a 1-cell block in an 8×8 letter grid placed at (ox, oy). */
+  function px(ox, oy, x, y) {
+    ctx.fillRect(ox + x * 2, oy + y * 2, 2, 2);
+  }
+  function drawG(ox, oy) {
+    for (let x = 1; x <= 6; x++) { px(ox, oy, x, 0); px(ox, oy, x, 7); }
+    for (let y = 1; y <= 6; y++) px(ox, oy, 0, y);
+    for (let y = 4; y <= 6; y++) px(ox, oy, 6, y);
+    for (let x = 3; x <= 6; x++) px(ox, oy, x, 4);
+  }
+  function drawA(ox, oy) {
+    for (let x = 1; x <= 5; x++) px(ox, oy, x, 0);
+    for (let y = 1; y <= 7; y++) { px(ox, oy, 0, y); px(ox, oy, 6, y); }
+    for (let x = 1; x <= 5; x++) px(ox, oy, x, 3);
+  }
+  function drawS(ox, oy) {
+    for (let x = 1; x <= 6; x++) { px(ox, oy, x, 0); px(ox, oy, x, 3); px(ox, oy, x, 7); }
+    for (let y = 1; y <= 2; y++) px(ox, oy, 0, y);
+    for (let y = 5; y <= 6; y++) px(ox, oy, 6, y);
+  }
+  drawG(4, 8);
+  drawA(24, 8);
+  drawS(44, 8);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
  * Roadside NES gas station — canopy, pumps, tall flickering GAS pylon.
  * @param {1|-1} side 1 = right of road, -1 = left
  */
@@ -926,92 +972,54 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
   boothSign.position.set(side * padX + side * 2.2, 3.05, -1.5);
   group.add(boothSign);
 
-  // Tall roadside GAS pylon — billboard faces approaching traffic so it reads early
-  const pylonX = side * (half + 1.55);
-  const pylonZ = 6.4;
+  // Tall roadside GAS sign — only the pixel “GAS” text glows/flickers
+  const pylonX = side * (half + 1.15);
+  const pylonZ = 5.2;
   const pylon = new THREE.Group();
   pylon.name = "gasPylon";
-  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.32, 8.4, 0.32), basicColor(NES.curb));
-  mast.position.set(pylonX, 4.2, pylonZ);
+  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.35, 5.6, 0.35), basicColor(NES.curb));
+  mast.position.set(pylonX, 2.8, pylonZ);
   pylon.add(mast);
-  // Thick cabinet readable as a lit tower from chase cam
-  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(2.8, 4.0, 0.55), basicColor(NES.navy));
+  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(4.0, 2.2, 0.45), basicColor(0x0a0a18));
   cabinet.name = "gasSignCabinet";
-  cabinet.position.set(pylonX, 9.4, pylonZ);
+  cabinet.position.set(pylonX, 6.3, pylonZ);
   pylon.add(cabinet);
-  // Billboard faces the player approach (−Z) so it is not edge-on to chase cam
-  const faceMat = new THREE.MeshBasicMaterial({
-    color: NES.red,
+
+  // Nearest-filter canvas “GAS” so the word stays readable at NES resolution
+  const letterRoot = new THREE.Group();
+  letterRoot.name = "gasSignLetters";
+  const gasTex = makeGasTextTexture();
+  const gasMat = new THREE.MeshBasicMaterial({
+    map: gasTex,
     transparent: true,
-    opacity: 1,
+    alphaTest: 0.15,
     depthWrite: false,
-    depthTest: false,
     side: THREE.DoubleSide,
   });
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 3.6), faceMat);
-  face.name = "gasSignFace";
-  face.position.set(pylonX, 9.4, pylonZ - 0.32);
-  face.renderOrder = 3;
-  pylon.add(face);
-  const faceBack = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 3.6), faceMat.clone());
-  faceBack.name = "gasSignFaceBack";
-  faceBack.position.set(pylonX, 9.4, pylonZ + 0.32);
-  faceBack.renderOrder = 3;
-  pylon.add(faceBack);
-  // Chunky letter bars — yellow “GAS” silhouette
-  const letterMat = new THREE.MeshBasicMaterial({ color: NES.yellow, depthTest: false, depthWrite: false });
-  const letterY = [10.5, 9.4, 8.3];
-  for (let i = 0; i < 3; i++) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.7, 0.28), letterMat);
-    bar.name = `gasSignLetter${i}`;
-    bar.position.set(pylonX, letterY[i], pylonZ);
-    bar.renderOrder = 4;
-    pylon.add(bar);
-  }
-  // Wide glow quads face the road + approach so the bloom pops at distance
+  gasMat.userData.gasLetter = true;
+  const gasPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.7), gasMat);
+  gasPlane.name = "gasLetterPlane";
+  gasPlane.userData.gasLetter = true;
+  gasPlane.position.set(pylonX, 6.3, pylonZ - 0.28);
+  letterRoot.add(gasPlane);
+  // Soft halo only around the glyph (same texture, tinted, larger)
   const glowMat = new THREE.MeshBasicMaterial({
-    color: NES.red,
+    map: gasTex.clone(),
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.45,
     depthWrite: false,
     depthTest: false,
     side: THREE.DoubleSide,
   });
-  const glow = new THREE.Mesh(new THREE.PlaneGeometry(5.8, 7.2), glowMat);
-  glow.name = "gasSignGlow";
-  glow.position.set(pylonX - side * 0.2, 9.4, pylonZ - 0.55);
-  glow.renderOrder = 2;
-  pylon.add(glow);
-  const glowSide = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 6.6), glowMat.clone());
-  glowSide.name = "gasSignGlowSide";
-  glowSide.position.set(pylonX - side * 0.9, 9.4, pylonZ);
-  glowSide.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
-  glowSide.renderOrder = 2;
-  pylon.add(glowSide);
-  const halo = new THREE.Mesh(
-    new THREE.PlaneGeometry(8.0, 9.2),
-    new THREE.MeshBasicMaterial({
-      color: NES.orange,
-      transparent: true,
-      opacity: 0.4,
-      depthWrite: false,
-      depthTest: false,
-      side: THREE.DoubleSide,
-    })
-  );
-  halo.name = "gasSignHalo";
-  halo.position.set(pylonX - side * 0.15, 9.4, pylonZ - 0.7);
-  halo.renderOrder = 1;
-  pylon.add(halo);
-  // Cap beacon — always-bright tip so the tower stays findable during dropouts
-  const beacon = new THREE.Mesh(
-    new THREE.BoxGeometry(1.1, 0.45, 1.1),
-    new THREE.MeshBasicMaterial({ color: NES.yellow, depthTest: false, depthWrite: false })
-  );
-  beacon.name = "gasSignBeacon";
-  beacon.position.set(pylonX, 11.7, pylonZ);
-  beacon.renderOrder = 5;
-  pylon.add(beacon);
+  glowMat.map.needsUpdate = true;
+  glowMat.userData.gasLetterGlow = true;
+  const gasGlow = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.1), glowMat);
+  gasGlow.name = "gasLetterGlow";
+  gasGlow.userData.gasLetterGlow = true;
+  gasGlow.position.set(pylonX, 6.3, pylonZ - 0.26);
+  gasGlow.renderOrder = 1;
+  letterRoot.add(gasGlow);
+  pylon.add(letterRoot);
   group.add(pylon);
 
   // Price board pole near curb (shorter than the neon pylon)
@@ -1030,61 +1038,38 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
 }
 
 /**
- * Neon flicker on the tall GAS pylon so stations read early from chase cam.
- * Mostly lit with irregular dropouts — classic faulty roadside sign.
- * Never goes fully dark: a yellow beacon stays findable during stutters.
+ * Flicker only the neon “GAS” text (color + glow opacity).
  */
 export function pulseGasSignFlicker(seg, timeSec) {
   const group = seg.userData.gasGroup;
   if (!group || seg.userData.gasResolved) return;
-  const face = group.getObjectByName("gasSignFace");
-  const faceBack = group.getObjectByName("gasSignFaceBack");
-  const glow = group.getObjectByName("gasSignGlow");
-  const glowSide = group.getObjectByName("gasSignGlowSide");
-  const halo = group.getObjectByName("gasSignHalo");
-  const beacon = group.getObjectByName("gasSignBeacon");
-  if (!face || !glow) return;
+  const letters = group.getObjectByName("gasSignLetters");
+  if (!letters) return;
 
-  // Irregular dropout: product of fast sines creates sparse "off" spikes
   const buzz = Math.sin(timeSec * 23.1) * Math.sin(timeSec * 41.7 + 1.3);
   const stutter = Math.sin(timeSec * 7.4) * Math.sin(timeSec * 13.9 + 0.7);
   let lit = 1;
-  if (buzz > 0.88) lit = 0.22;
-  else if (buzz > 0.72) lit = 0.45;
-  else if (stutter > 0.92) lit = 0.3;
-  else lit = 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(timeSec * 9.5));
+  if (buzz > 0.88) lit = 0.08;
+  else if (buzz > 0.72) lit = 0.35;
+  else if (stutter > 0.92) lit = 0.18;
+  else lit = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(timeSec * 11));
 
-  const hot = lit > 0.55;
-  const faceColor = hot ? NES.red : NES.orange;
-  const letterColor = hot ? NES.yellow : NES.white;
-  face.material.color.setHex(faceColor);
-  face.material.opacity = Math.max(0.35, lit);
-  if (faceBack) {
-    faceBack.material.color.setHex(faceColor);
-    faceBack.material.opacity = Math.max(0.35, lit);
-  }
-  for (let i = 0; i < 3; i++) {
-    const letter = group.getObjectByName(`gasSignLetter${i}`);
-    if (letter) letter.material.color.setHex(letterColor);
-  }
-  glow.material.color.setHex(hot ? NES.red : NES.orange);
-  glow.material.opacity = 0.28 + 0.55 * lit;
-  const pulse = 0.95 + 0.2 * lit;
-  glow.scale.set(pulse, pulse, 1);
-  if (glowSide) {
-    glowSide.material.color.setHex(hot ? NES.red : NES.orange);
-    glowSide.material.opacity = 0.22 + 0.5 * lit;
-    glowSide.scale.set(pulse, pulse, 1);
-  }
-  if (halo) {
-    halo.material.opacity = 0.16 + 0.38 * lit;
-    halo.scale.set(0.95 + 0.22 * lit, 0.95 + 0.22 * lit, 1);
-  }
-  if (beacon) {
-    // Beacon stays bright and blinks opposite the main dropout for visibility
-    beacon.material.color.setHex(lit < 0.4 ? NES.white : NES.yellow);
-    beacon.scale.setScalar(lit < 0.4 ? 1.35 : 1 + 0.15 * Math.sin(timeSec * 14));
-  }
+  const color = lit > 0.5 ? NES.yellow : lit > 0.2 ? NES.orange : NES.red;
+  letters.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    if (o.userData.gasLetter) {
+      o.material.color.setHex(color);
+      o.material.opacity = Math.max(0.25, lit);
+      o.visible = lit > 0.05;
+    } else if (o.userData.gasLetterGlow) {
+      o.material.color.setHex(color);
+      o.material.opacity = 0.1 + 0.5 * lit;
+      const s = 0.95 + 0.18 * lit;
+      o.scale.set(s, s, 1);
+      o.visible = lit > 0.05;
+    }
+  });
+  letters.userData.flickerLit = lit;
 }
 
 /**

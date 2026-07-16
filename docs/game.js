@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=32";
+} from "./js/nes.js?v=37";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
@@ -4146,14 +4146,18 @@ window.__endlessChase = {
     .filter((s) => s.userData.gasStation && s.userData.gasGroup)
     .map((s) => {
       const g = s.userData.gasGroup;
-      const glow = g.getObjectByName("gasSignGlow");
+      const letters = g.getObjectByName("gasSignLetters");
+      const glowOpacity = letters && letters.userData.flickerLit != null
+        ? +Number(letters.userData.flickerLit).toFixed(3)
+        : (letters ? 1 : null);
       return {
         z: +s.position.z.toFixed(1),
         dz: +(s.position.z - playerZ).toFixed(1),
         side: s.userData.gasSide < 0 ? -1 : 1,
         resolved: !!s.userData.gasResolved,
         hasPylon: !!g.getObjectByName("gasPylon"),
-        glowOpacity: glow ? +glow.material.opacity.toFixed(3) : null,
+        hasLetters: !!letters,
+        glowOpacity,
         requiredLane: requiredLaneForStation(s),
       };
     }),

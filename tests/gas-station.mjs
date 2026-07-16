@@ -34,7 +34,8 @@ if (!spawned?.ok) throw new Error("debugSpawnGas failed: " + JSON.stringify(spaw
 const stations = await page.evaluate(() => window.__endlessChase.getGasStations());
 const station = stations.find((s) => !s.resolved);
 if (!station?.hasPylon) throw new Error("gas pylon missing: " + JSON.stringify(stations));
-if (station.glowOpacity == null) throw new Error("gas sign glow missing");
+if (!station?.hasLetters) throw new Error("gas GAS letters missing: " + JSON.stringify(stations));
+if (station.glowOpacity == null) throw new Error("gas letter glow missing");
 
 const reqLane = spawned.requiredLane | 0;
 for (let i = 0; i < 8; i++) {
