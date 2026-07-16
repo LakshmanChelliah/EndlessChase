@@ -337,6 +337,60 @@ export function applyBiomeAtmosphere(scene, sky, ground, biome, renderer) {
   }
 }
 
+function hexLerp(a, b, t) {
+  const ar = (a >> 16) & 255;
+  const ag = (a >> 8) & 255;
+  const ab = a & 255;
+  const br = (b >> 16) & 255;
+  const bg = (b >> 8) & 255;
+  const bb = b & 255;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return (r << 16) | (g << 8) | bl;
+}
+
+function mixHexStrings(a, b, t) {
+  const pa = parseInt(String(a).replace("#", ""), 16);
+  const pb = parseInt(String(b).replace("#", ""), 16);
+  const m = hexLerp(pa, pb, t);
+  return `#${m.toString(16).padStart(6, "0")}`;
+}
+
+/**
+ * Soft-lerp atmosphere between biomes (no hard fog/sky/ground pop).
+ * @param {number} t 0 = from, 1 = to
+ */
+export function lerpBiomeAtmosphere(scene, sky, ground, fromBiome, toBiome, t, renderer) {
+  const a = BIOME_ATMOS[fromBiome] || BIOME_ATMOS.city;
+  const b = BIOME_ATMOS[toBiome] || BIOME_ATMOS.city;
+  const u = Math.min(1, Math.max(0, t));
+  const fog = hexLerp(a.fog, b.fog, u);
+  const clear = hexLerp(a.clear, b.clear, u);
+  const groundC = hexLerp(a.ground, b.ground, u);
+  if (scene.fog) {
+    scene.fog.color.setHex(fog);
+    scene.fog.near = a.fogNear + (b.fogNear - a.fogNear) * u;
+    scene.fog.far = a.fogFar + (b.fogFar - a.fogFar) * u;
+  }
+  if (scene.background) scene.background.setHex(clear);
+  if (renderer) renderer.setClearColor(clear);
+  if (ground?.material) ground.material.color.setHex(groundC);
+  if (sky?.userData?.ctx) {
+    const key = `${fromBiome}>${toBiome}@${u.toFixed(2)}`;
+    if (sky.userData.lerpKey !== key) {
+      const blended = {
+        sky: a.sky.map((c, i) => mixHexStrings(c, b.sky[i] || c, u)),
+        stars: mixHexStrings(a.stars || "#fff1e8", b.stars || "#fff1e8", u),
+      };
+      paintSkyCanvas(sky.userData.ctx, sky.userData.canvas.width, sky.userData.canvas.height, blended);
+      sky.userData.map.needsUpdate = true;
+      sky.userData.lerpKey = key;
+      if (u >= 0.97) sky.userData.biome = toBiome;
+    }
+  }
+}
+
 export function makeCar(spriteTex) {
   const root = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.55, 2.8), basicColor(0x1a1c2c));
@@ -594,36 +648,55 @@ export function clearMixBiomeOverlay(seg) {
 
 /**
  * Attach temporary roadside hints of another biome during corridor tiles.
- * Cleared on recycle via clearMixBiomeOverlay.
+ * Both sides, density scaled by mixWeight. Cleared on recycle via clearMixBiomeOverlay.
+ * @param {number} [mixWeight=0.55]
  */
-export function applyMixBiomeOverlay(seg, mixBiome, tex) {
+export function applyMixBiomeOverlay(seg, mixBiome, tex, mixWeight = 0.55) {
   clearMixBiomeOverlay(seg);
   if (!mixBiome || mixBiome === seg.userData.biome) return;
+  const w = Math.min(1, Math.max(0, mixWeight));
+  if (w < 0.08) return;
   const half = (seg.userData.layoutWidth || seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
   const group = new THREE.Group();
   group.userData.isMixGroup = true;
-  const side = 1;
-  if (mixBiome === "rural" || mixBiome === "highway") {
-    const grass = new THREE.Mesh(new THREE.PlaneGeometry(8, SEG_LEN * 0.7), basicColor(NES.forest));
-    grass.rotation.x = -Math.PI / 2;
-    grass.position.set(side * (half + 5), 0.025, 0);
-    group.add(grass);
-    if (mixBiome === "rural") {
-      const house = makeBuildingBox(2.8, 2.2, 3.2, tex.house);
-      house.position.set(side * (half + 5.5), 1.1, 2);
-      group.add(house);
+  for (const side of [-1, 1]) {
+    if (mixBiome === "rural" || mixBiome === "highway") {
+      const grass = new THREE.Mesh(
+        new THREE.PlaneGeometry(7 + w * 2, SEG_LEN * (0.55 + w * 0.35)),
+        basicColor(NES.forest)
+      );
+      grass.rotation.x = -Math.PI / 2;
+      grass.position.set(side * (half + 4.5 + w), 0.025, 0);
+      group.add(grass);
+      if (mixBiome === "rural" && w > 0.35) {
+        const house = makeBuildingBox(2.6, 2.0, 3.0, tex.house);
+        house.position.set(side * (half + 5.2), 1.0, side > 0 ? 2 : -2);
+        group.add(house);
+      }
+      if (mixBiome === "highway" && w > 0.4) {
+        const rail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.12, 0.5, SEG_LEN * 0.6),
+          basicColor(0xc2c3c7)
+        );
+        rail.position.set(side * (half + 0.55), 0.32, 0);
+        group.add(rail);
+      }
+    } else if (mixBiome === "city") {
+      const walk = new THREE.Mesh(
+        new THREE.PlaneGeometry(5 + w * 2, SEG_LEN * (0.5 + w * 0.3)),
+        basicColor(0x3a3d48)
+      );
+      walk.rotation.x = -Math.PI / 2;
+      walk.position.set(side * (half + 3.8 + w), 0.02, 0);
+      group.add(walk);
+      if (w > 0.35) {
+        const { map, preset } = pickBuildingVariant(tex, Math.random);
+        const h = preset.hMin + w * 1.5;
+        const b = makeBuildingBox(preset.w * 0.75, h, preset.d * 0.75, map);
+        b.position.set(side * (half + 4), h / 2, side > 0 ? -1.5 : 1.5);
+        group.add(b);
+      }
     }
-  } else if (mixBiome === "city") {
-    const walk = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN * 0.6), basicColor(0x3a3d48));
-    walk.rotation.x = -Math.PI / 2;
-    walk.position.set(side * (half + 4), 0.02, 0);
-    group.add(walk);
-    const mixRnd = () => Math.random();
-    const { map, preset } = pickBuildingVariant(tex, mixRnd);
-    const h = preset.hMin + 1;
-    const b = makeBuildingBox(preset.w * 0.85, h, preset.d * 0.85, map);
-    b.position.set(side * (half + 4), h / 2, 0);
-    group.add(b);
   }
   seg.add(group);
   seg.userData.mixGroup = group;

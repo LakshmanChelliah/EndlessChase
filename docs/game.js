@@ -28,7 +28,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=33";
+} from "./js/constants.js?v=34";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -46,14 +46,14 @@ import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   pulseGasSignFlicker,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-  applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
+  applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, lerpBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=37";
+} from "./js/nes.js?v=38";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=24";
+} from "./js/worldgen.js?v=25";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -871,6 +871,7 @@ function stampSegmentDefaults(seg) {
   seg.userData.transitionPhase = null;
   seg.userData.widthStart = layout.width;
   seg.userData.widthEnd = layout.width;
+  seg.userData.atmosT = 0;
 }
 
 function returnObstacle(o) {
@@ -913,10 +914,28 @@ function spawnTransitionObstacles(seg, closedLaneXs) {
 function adoptBiomeFromSegment(seg) {
   if (!seg || !seg.userData.adoptBiome) return;
   const next = seg.userData.biome;
-  if (!next || next === activeBiome) return;
+  if (!next || next === activeBiome) {
+    if (
+      next &&
+      next === activeBiome &&
+      !transitionQueue.length &&
+      transitioning &&
+      transitionTo === next
+    ) {
+      transitioning = false;
+      transitionFrom = null;
+      transitionTo = null;
+      transitionCloseLanes = [];
+      applyBiomeAtmosphere(scene, sky, worldGround, activeBiome, renderer);
+    }
+    return;
+  }
   activeBiome = next;
-  applyBiomeAtmosphere(scene, sky, worldGround, activeBiome, renderer);
-  // Do not auto-merge the player — only sync lane index if already on a valid center
+  // Atmosphere keeps lerping via updateTransitionAtmosphere — snap only if already near done
+  const t = seg.userData.atmosT;
+  if (t == null || t >= 0.9) {
+    applyBiomeAtmosphere(scene, sky, worldGround, activeBiome, renderer);
+  }
   syncPlayerLaneIndexIfAligned();
   if (!transitionQueue.length && transitioning && transitionTo === next) {
     transitioning = false;
@@ -924,6 +943,18 @@ function adoptBiomeFromSegment(seg) {
     transitionTo = null;
     transitionCloseLanes = [];
   }
+}
+
+/** Soft fog/sky/ground blend while driving the transition corridor (no hard pop). */
+function updateTransitionAtmosphere() {
+  if (!transitioning || !transitionFrom || !transitionTo) return;
+  const seg = getSegmentAt(playerZ);
+  let t = 0.35;
+  if (seg?.userData?.atmosT != null) t = seg.userData.atmosT;
+  else if (seg?.userData?.transitionPhase === "enter" || seg?.userData?.adoptBiome) t = 0.92;
+  else if (seg?.userData?.transitionPhase === "exit") t = 0.08;
+  else if (seg?.userData?.transitionPhase === "settle") t = 1;
+  lerpBiomeAtmosphere(scene, sky, worldGround, transitionFrom, transitionTo, t, renderer);
 }
 
 /**
@@ -1453,6 +1484,7 @@ function spawnTransitionStep(plan) {
   seg.userData.widthEnd = plan.widthEnd;
   seg.userData.layoutBiome = plan.layoutBiome || plan.biome;
   seg.userData.adoptBiome = !!plan.adopt;
+  seg.userData.atmosT = plan.atmosT ?? 0;
   // Do NOT flip activeBiome here — adoption is player-position based
   placeSegment(seg);
 
@@ -1464,7 +1496,7 @@ function spawnTransitionStep(plan) {
     applyRoadTaper(seg, plan.widthStart, plan.widthEnd, plan.markT);
   }
   if (plan.mixBiome) {
-    applyMixBiomeOverlay(seg, plan.mixBiome, tex);
+    applyMixBiomeOverlay(seg, plan.mixBiome, tex, plan.mixWeight ?? 0.55);
   } else {
     clearMixBiomeOverlay(seg);
   }
@@ -3567,6 +3599,7 @@ function tick(now) {
     if (heat >= 85 && Math.random() < 0.22) triggerShake(0.04, 0.06);
 
     const { seg: playerSeg, layout, usable } = playerControlLayout();
+    updateTransitionAtmosphere();
     adoptBiomeFromSegment(playerSeg);
     // Rebind lane index to physical X after layoutBiome flips — never retarget laneTargetX.
     syncPlayerLaneIndexIfAligned();

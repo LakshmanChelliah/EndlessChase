@@ -76,7 +76,7 @@ export function heatGraceFor(distance) {
 export function heatPressureMul(distance) {
   return HEAT_RISE_EASY_MUL + difficulty01(distance) * (1 - HEAT_RISE_EASY_MUL);
 }
-export const TURN_COOLDOWN_SEGS = 10;
+export const TURN_COOLDOWN_SEGS = 18;
 export const TURN_WINDOW = 1.25;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
