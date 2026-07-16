@@ -29,7 +29,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=38";
+} from "./js/constants.js?v=39";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=35";
+} from "./js/nes.js?v=36";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, decideSegment, buildTransitionPlan,
@@ -1139,12 +1139,16 @@ function applyIntersectionTurnPose(tr, yawU, dt) {
   player.position.set(laneX, 0, playerZ);
   player.rotation.set(bank * 0.4, turnYaw, bank);
 
-  // Fully orbit behind the car's heading — no half-lerp to straight chase (that read as crab-slide)
+  // Orbit with the car, but keep a slight +Z bias at peak yaw so the view
+  // stays a 3/4 chase into the arm (pure side-on looked top-down/broken).
   const yawAmt = Math.min(1, Math.abs(turnYaw) / TURN_DRIFT_YAW);
-  const back = THREE.MathUtils.lerp(13.5, 11.2, yawAmt);
+  const back = THREE.MathUtils.lerp(13.5, 11.5, yawAmt);
   const camX = laneX - Math.sin(turnYaw) * back;
-  const camZ = playerZ - Math.cos(turnYaw) * back;
-  const camY = THREE.MathUtils.lerp(8.4, 7.2, yawAmt);
+  const camZ =
+    playerZ -
+    Math.cos(turnYaw) * back -
+    (1 - Math.abs(Math.cos(turnYaw))) * 4.5;
+  const camY = THREE.MathUtils.lerp(8.4, 7.5, yawAmt);
   if (tr.phase === "exit") {
     const exitU = easeInOutCubic(Math.min(1, tr.exitT / tr.exitDuration));
     const chase = gameplayCamPos(laneX, playerZ);
@@ -1154,27 +1158,24 @@ function applyIntersectionTurnPose(tr, yawU, dt) {
       THREE.MathUtils.lerp(camZ, chase.z, exitU)
     );
     const look = gameplayCamLook(laneX, playerZ);
-    const lookX = laneX + Math.sin(turnYaw) * (14 + yawAmt * 8);
-    const lookZ = THREE.MathUtils.lerp(jZ, playerZ + 14, 1 - yawAmt * 0.85);
+    const lookX = laneX + Math.sin(turnYaw) * (12 + yawAmt * 8);
+    const lookZ = THREE.MathUtils.lerp(jZ + 2, playerZ + 14, 1 - yawAmt * 0.7);
     setCameraLook(
       THREE.MathUtils.lerp(lookX, look.x, exitU),
-      THREE.MathUtils.lerp(0.35, look.y, exitU),
+      THREE.MathUtils.lerp(0.55, look.y, exitU),
       THREE.MathUtils.lerp(lookZ, look.z, exitU)
     );
   } else {
     camera.position.set(camX, camY, camZ);
-    // Look down the cross-street asphalt mouth
+    // Look into the cross-street mouth (asphalt + paint), not a pure side ortho
     setCameraLook(
-      laneX + Math.sin(turnYaw) * (14 + yawAmt * 10),
-      0.35,
-      THREE.MathUtils.lerp(playerZ + 12, jZ, yawAmt)
+      laneX + Math.sin(turnYaw) * (12 + yawAmt * 9),
+      0.55,
+      THREE.MathUtils.lerp(playerZ + 10, jZ + 2, yawAmt)
     );
   }
-  // Roll after lookAt so the view banks into the corner (lookAt clears euler z)
-  const rollFade = tr.phase === "exit"
-    ? 1 - easeInOutCubic(Math.min(1, tr.exitT / tr.exitDuration))
-    : 1;
-  camera.rotateZ(-bank * 0.65 * rollFade);
+  // Never touch camera.rotation after lookAt — writing euler.z corrupts a
+  // sideways lookAt into a top-down/sheared view. Bank is car-only.
   camFovTarget = tr.phase === "exit" ? 73 : 78;
   worldGround.position.z = playerZ + 80;
 }

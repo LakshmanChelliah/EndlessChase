@@ -83,7 +83,7 @@ export const TURN_YAW = (25 * Math.PI) / 180;
 /** Locked intersection drift duration — yaw in + hold (seconds). */
 export const TURN_DRIFT_DURATION = 1.15;
 /** Soft unwind from ~90° back to chase heading (seconds). */
-export const TURN_DRIFT_EXIT = 0.38;
+export const TURN_DRIFT_EXIT = 0.48;
 /** Peak yaw during a full intersection drift (±π/2). */
 export const TURN_DRIFT_YAW = Math.PI / 2;
 /** Lateral bulge into the cross-street mid-drift (meters). */
@@ -201,7 +201,7 @@ export const BIOME_ATMOS = {
     fogFar: 95,
     clear: 0x1d2b53,
     ground: 0x008751,
-    sky: ["#0f1730", "#1d2b53", "#3a4570", "#5a6588"],
+    sky: ["#0f1730", "#1d2b53", "#2a3558", "#3a4568"],
     stars: "#fff1e8",
   },
   rural: {

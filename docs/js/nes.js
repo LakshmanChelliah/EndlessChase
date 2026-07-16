@@ -271,13 +271,15 @@ export function addSky(camera) {
   paintSkyCanvas(ctx, w, h, BIOME_ATMOS.city);
 
   const map = new THREE.CanvasTexture(canvas);
-  map.magFilter = THREE.NearestFilter;
-  map.minFilter = THREE.NearestFilter;
+  // Linear filter — NearestFilter on a low-poly sky sphere turned light
+  // gradient bands into floating grey/white rectangular facets.
+  map.magFilter = THREE.LinearFilter;
+  map.minFilter = THREE.LinearFilter;
   map.generateMipmaps = false;
   map.colorSpace = THREE.SRGBColorSpace;
   map.needsUpdate = true;
 
-  const skyGeo = new THREE.SphereGeometry(40, 16, 10);
+  const skyGeo = new THREE.SphereGeometry(40, 32, 20);
   const skyMat = new THREE.MeshBasicMaterial({
     map,
     side: THREE.BackSide,
