@@ -681,6 +681,11 @@ html, body {
   color: var(--nes-gray);
 }
 
+.gauge-label-crit {
+  color: var(--nes-red);
+  letter-spacing: 0.08em;
+}
+
 .fuel-row {
   display: flex;
   align-items: center;
@@ -747,6 +752,58 @@ html, body {
 .gas-gauge.ok .fuel-body { background: var(--nes-green); }
 .gas-gauge.low .fuel-body { background: var(--nes-orange); }
 .gas-gauge.critical .fuel-body { background: var(--nes-red); }
+
+/* Critical (<15%): pulse the whole fuel cluster so empty tank is hard to miss */
+.gas-gauge.critical {
+  animation: gas-crit-pulse 0.55s steps(2) infinite;
+}
+
+.gas-gauge.critical .gas-bar {
+  border-color: var(--nes-red);
+  box-shadow: 0 0 0 1px var(--nes-red);
+}
+
+.gas-gauge.critical .gas-fill {
+  animation: gas-fill-blink 0.45s steps(2) infinite;
+}
+
+.gas-gauge.critical .fuel-icon {
+  animation: gas-icon-flash 0.45s steps(2) infinite;
+}
+
+.gas-gauge.critical .gauge-label-ok { display: none; }
+.gas-gauge.critical .gauge-label-crit { display: inline; }
+.gas-gauge:not(.critical) .gauge-label-crit { display: none; }
+
+@keyframes gas-crit-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.35); }
+}
+
+@keyframes gas-fill-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes gas-icon-flash {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.6); }
+}
+
+.gas-warn {
+  position: static;
+  transform: none;
+  margin-top: 0;
+  padding: 0.25rem 0.45rem;
+  background: rgba(0, 0, 0, 0.82);
+  border: 2px solid var(--nes-red);
+  color: var(--nes-red);
+  font-size: 0.55rem;
+  letter-spacing: 0.06em;
+  text-shadow: 2px 2px 0 #000;
+  pointer-events: none;
+  animation: cue-pop 0.28s steps(3), cue-flash 0.5s steps(2) infinite;
+}
 
 .speedo {
   position: relative;

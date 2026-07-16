@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=30" />
+  <link rel="stylesheet" href="styles.css?v=31" />
 </head>
 <body>
   <div id="game-root">
@@ -79,6 +79,7 @@
           <div id="hud-light" class="light-hint hidden"></div>
           <div id="hud-turn" class="turn-cue hidden"></div>
           <div id="hud-lane-warn" class="lane-warn hidden">WRONG WAY</div>
+          <div id="hud-gas-warn" class="gas-warn hidden" aria-live="assertive">LOW FUEL</div>
           <div id="hud-gas-hint" class="gas-hint hidden">Move closer to enter</div>
           <div id="hud-coach" class="hud-coach hidden" aria-live="polite">
             <p id="hud-coach-text" class="hud-coach-text"></p>
@@ -89,7 +90,8 @@
         <div id="hud-cluster" class="gauge-cluster" aria-label="Gauges">
           <div id="hud-gas-block" class="gas-gauge ok" aria-label="Fuel">
             <div class="gauge-labels">
-              <span class="gauge-label">FUEL</span>
+              <span class="gauge-label gauge-label-ok">FUEL</span>
+              <span class="gauge-label gauge-label-crit">LOW!</span>
             </div>
             <div class="fuel-row">
               <div class="fuel-icon" aria-hidden="true">
