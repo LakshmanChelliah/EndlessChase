@@ -5,7 +5,7 @@
  * curb-parked, and cross roles never leak into the next life (frozen / no collide).
  */
 import { pickCivilianCarId } from "./cars.js?v=23";
-import { createVehicle, ensureBlinkers } from "./vehicle.js?v=26";
+import { createVehicle, ensureBlinkers, ensureBrakeLights } from "./vehicle.js?v=27";
 
 /** @type {Record<string, import("three").Object3D[]>} */
 const civFree = Object.create(null);
@@ -37,6 +37,10 @@ export function resetTrafficRoleFlags(car) {
   u.lane = 0;
   u.speed = 0;
   u.cruiseSpeed = 0;
+  u._prevSpeed = undefined;
+  u._prevAbsVx = undefined;
+  if (u.brakeL) u.brakeL.visible = false;
+  if (u.brakeR) u.brakeR.visible = false;
 }
 
 /**
@@ -53,6 +57,7 @@ export function rentCivilian(scene, carId = pickCivilianCarId()) {
   car.visible = true;
   resetTrafficRoleFlags(car);
   ensureBlinkers(car);
+  ensureBrakeLights(car);
   return car;
 }
 
@@ -75,6 +80,7 @@ export function rentPolice(scene) {
   // Police pool cars are always police-skinned; role flags still start clean.
   car.userData.police = true;
   ensureBlinkers(car);
+  ensureBrakeLights(car);
   return car;
 }
 
@@ -94,6 +100,7 @@ export function rentCross(scene) {
   }
   car.visible = true;
   resetTrafficRoleFlags(car);
+  ensureBrakeLights(car);
   return car;
 }
 
