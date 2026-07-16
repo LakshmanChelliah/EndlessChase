@@ -102,7 +102,7 @@ Manual QA: [design/UITestChecklist.md](design/UITestChecklist.md).
 | Swipe L/R · A/D | Change lanes (inverted) |
 | Swipe down · S | Brake (sticky until up) |
 | Swipe up · W · Space | Resume / speed up |
-| Turn cues | Outer forward lane + swipe at a light to drift-turn |
+| Turn cues | Outer forward lane + inverted swipe at a light to drift-turn |
 | Gas stations | Outer curb lane → pull in → hold to fill |
 
 ## License & disclaimer

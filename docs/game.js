@@ -110,8 +110,8 @@ const HOWTO_STEPS = [
   },
   {
     title: "INTERSECTION TURNS",
-    body: "At a light, move into the outermost forward lane on the side you want, then swipe that way to drift the corner. Miss it and you go straight.",
-    callout: "Leftmost lane → swipe left · Rightmost forward lane → swipe right",
+    body: "At a light, move into the outermost forward lane on the side you want, then swipe like steering (inverted) to drift the corner. Miss it and you go straight.",
+    callout: "Leftmost lane → swipe right · Rightmost forward lane → swipe left",
   },
   {
     title: "FILL GAS",
@@ -1134,6 +1134,16 @@ function intersectionTurnTarget() {
 }
 
 /**
+ * Map swipe/key direction to turn side.
+ * Matches inverted lane steering: swipe left → right turn (+X), swipe right → left turn (−X).
+ * @param {"left"|"right"} dir
+ * @returns {-1|1}
+ */
+function turnSideFromSwipe(dir) {
+  return dir === "left" ? 1 : -1;
+}
+
+/**
  * Commit a directional drift if in the matching outermost forward lane.
  * @param {"left"|"right"} dir
  * @returns {boolean}
@@ -1142,7 +1152,7 @@ function tryCommitIntersectionTurn(dir) {
   if (dir !== "left" && dir !== "right") return false;
   const seg = intersectionTurnTarget();
   if (!seg) return false;
-  const side = dir === "left" ? -1 : 1;
+  const side = turnSideFromSwipe(dir);
   const { layout, usable } = playerControlLayout();
   const required = turnLaneForSide(layout, side, usable);
   if (required < 0) return false;
@@ -3206,15 +3216,15 @@ function onSwipe(dir) {
   }
   pendingSwipe = null;
 
-  // Intersection drift: swipe toward the side while in that outermost forward lane
-  // (window stays open for the whole approach — not a short wall-clock timer)
+  // Intersection drift — same inverted lateral mapping as lane changes:
+  // swipe left → right turn, swipe right → left turn (when in that curb lane).
   if (dir === "left" || dir === "right") {
     if (tryCommitIntersectionTurn(dir)) return;
     // If we're in the matching turn lane at an open intersection, do not
     // fall through to inverted lane-change (that steals you out of the turn lane).
     const seg = intersectionTurnTarget();
     if (seg) {
-      const side = dir === "left" ? -1 : 1;
+      const side = turnSideFromSwipe(dir);
       const { layout, usable } = playerControlLayout();
       const required = turnLaneForSide(layout, side, usable);
       const current = commandedLaneIndex(layout);
@@ -3794,14 +3804,17 @@ function tick(now) {
             rightLane >= 0 &&
             (cmd === rightLane || Math.abs(laneX - layout.xs[rightLane]) < 1.1);
           if (hudTurn) {
+            // Arrows show which way to swipe (inverted, same as lane changes)
             if (onLeft && onRight) {
               hudTurn.textContent = "← TURN  ·  TURN →";
               hudTurn.classList.remove("hidden");
             } else if (onLeft) {
-              hudTurn.textContent = "← TURN";
+              // Left turn: swipe right
+              hudTurn.textContent = "TURN →";
               hudTurn.classList.remove("hidden");
             } else if (onRight) {
-              hudTurn.textContent = "TURN →";
+              // Right turn: swipe left
+              hudTurn.textContent = "← TURN";
               hudTurn.classList.remove("hidden");
             } else if (
               hudTurn.textContent === "← TURN" ||
