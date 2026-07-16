@@ -57,7 +57,7 @@ import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
 } from "./js/siren.js?v=9";
-import { playSfx, stopSfx, stopAllSfx } from "./js/sfx.js?v=1";
+import { playSfx, stopSfx, stopAllSfx } from "./js/sfx.js?v=2";
 
 /** How far ahead NPCs scan for closed lanes; actual merge trigger is jittered per car. */
 const MERGE_LOOKAHEAD = 28;

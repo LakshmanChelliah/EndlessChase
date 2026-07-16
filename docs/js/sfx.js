@@ -11,7 +11,7 @@ import {
 
 /** Catalog for preview UI / docs. */
 export const SFX_CATALOG = [
-  { id: "coin", label: "Coin collect", desc: "Bright short ascending square blip (~100ms)" },
+  { id: "coin", label: "Coin collect", desc: "Metallic two-note pickup (classic coin clink)" },
   { id: "gasFill", label: "Gas filling", desc: "Soft rising triangle + noise glug (loop while held)" },
   { id: "gasFull", label: "Gas tank full", desc: "Quick rising arpeggio — tank sealed" },
   { id: "gasLow", label: "Low gas warning", desc: "Soft two-tone warning chime (edge once)" },
@@ -97,8 +97,15 @@ function noiseBurst({
 }
 
 function playCoin() {
-  tone(880, { type: "square", dur: 0.055, gain: 0.18, freqEnd: 1320, release: 0.03 });
-  tone(1320, { type: "square", start: 0.05, dur: 0.07, gain: 0.14, freqEnd: 1760, release: 0.04 });
+  // Classic NES coin: held B5 → E6 fifth (no pitch slide), bright square + thin metallic ring
+  const b5 = 987.77;
+  const e6 = 1318.51;
+  tone(b5, { type: "square", dur: 0.07, gain: 0.22, attack: 0.002, release: 0.035 });
+  tone(b5 * 2, { type: "triangle", dur: 0.05, gain: 0.06, attack: 0.002, release: 0.03 });
+  tone(e6, { type: "square", start: 0.065, dur: 0.14, gain: 0.2, attack: 0.002, release: 0.08 });
+  tone(e6 * 2, { type: "triangle", start: 0.065, dur: 0.11, gain: 0.07, attack: 0.002, release: 0.07 });
+  // Tiny high sparkle so it reads as metal, not a soft blip
+  tone(e6 * 3, { type: "square", start: 0.07, dur: 0.06, gain: 0.04, attack: 0.001, release: 0.04 });
 }
 
 function playGasFull() {
