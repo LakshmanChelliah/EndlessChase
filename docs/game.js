@@ -28,7 +28,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=34";
+} from "./js/constants.js?v=35";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -48,7 +48,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, lerpBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=51";
+} from "./js/nes.js?v=52";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
@@ -588,7 +588,7 @@ const sky = addSky(camera);
 // Permanent berm under the road so the navy void never reads as bare ground
 const worldGround = new THREE.Mesh(
   new THREE.PlaneGeometry(90, 500),
-  new THREE.MeshBasicMaterial({ color: NES.forest })
+  new THREE.MeshBasicMaterial({ color: 0x1a3528 })
 );
 worldGround.rotation.x = -Math.PI / 2;
 worldGround.position.set(0, -0.04, 80);
@@ -771,6 +771,8 @@ let transitionTo = null;
 let transitioning = false;
 /** Closing lane indices for the active corridor (kept after queue drains). */
 let transitionCloseLanes = [];
+/** Delay destination HUD until exit tile is near (null | { label, shown }). */
+let pendingDestFlash = null;
 let menuTime = 0;
 let crossSpawnTimer = 0;
 
@@ -1411,11 +1413,37 @@ function beginBiomeTransition(toBiome) {
   clearAheadTrafficSoft();
   kickClosingLaneMerges(from, toBiome);
   if (hudTurn) hudTurn.classList.add("hidden");
-  if (hudLight) {
-    hudLight.textContent = `→ ${biomeLabel(toBiome)}`;
-    hudLight.style.color = "#ffec27";
-    hudLight.classList.remove("hidden");
-    setTimeout(() => hudLight.classList.add("hidden"), 1400);
+  // Flash when the exit tile is near — not 150 m early while road is still unchanged
+  pendingDestFlash = { label: biomeLabel(toBiome), shown: false };
+}
+
+/** Show `>> BIOME` once the corridor exit is within ~45 m. */
+function updatePendingDestFlash() {
+  if (!pendingDestFlash || pendingDestFlash.shown) return;
+  if (!transitioning) {
+    pendingDestFlash = null;
+    return;
+  }
+  let exit = null;
+  for (const s of activeSegments) {
+    if (s.userData.transitionPhase === "exit") {
+      exit = s;
+      break;
+    }
+  }
+  if (!exit) return;
+  const dz = exit.position.z - playerZ;
+  if (dz < 45 && dz > -8) {
+    pendingDestFlash.shown = true;
+    if (hudLight) {
+      // ASCII only — Press Start 2P has no ←/→ glyphs
+      hudLight.textContent = `>> ${pendingDestFlash.label}`;
+      hudLight.style.color = "#ffec27";
+      hudLight.classList.remove("hidden");
+      setTimeout(() => {
+        if (hudLight) hudLight.classList.add("hidden");
+      }, 1600);
+    }
   }
 }
 
@@ -1574,6 +1602,7 @@ function clearWorld() {
   transitionFrom = null;
   transitionTo = null;
   transitionCloseLanes = [];
+  pendingDestFlash = null;
   nearbyStation = null;
   endGasVisit({ resume: false, busted: false });
   hideStationFloat();
@@ -1763,7 +1792,7 @@ function updateStationFloat(seg) {
   }
   const side = seg.userData.gasSide < 0 ? -1 : 1;
   // Inverted steering: swipe left pulls right (into a right-side lot)
-  hudStationFloat.textContent = side > 0 ? "SWIPE ← TO ENTER" : "SWIPE → TO ENTER";
+  hudStationFloat.textContent = side > 0 ? "SWIPE << TO ENTER" : "SWIPE >> TO ENTER";
   hudStationFloat.classList.remove("hidden");
 }
 
@@ -2345,6 +2374,7 @@ function endRun(reason) {
   if (!alive) return;
   alive = false;
   running = false;
+  pendingDestFlash = null;
   intro = null;
   boarding = null;
   if (menuBoardingEl) menuBoardingEl.classList.add("hidden");
@@ -2691,6 +2721,7 @@ function resetRunState() {
   transitionFrom = null;
   transitionTo = null;
   transitionCloseLanes = [];
+  pendingDestFlash = null;
   sirenOpeningT = 0;
   sirenSmoothVol = 0;
 }
@@ -2801,6 +2832,7 @@ function prepareRunFromMenu() {
   transitionFrom = null;
   transitionTo = null;
   transitionCloseLanes = [];
+  pendingDestFlash = null;
   pursuit = null;
   sirenOpeningT = 0;
   sirenSmoothVol = 0;
@@ -3600,6 +3632,7 @@ function tick(now) {
 
     const { seg: playerSeg, layout, usable } = playerControlLayout();
     updateTransitionAtmosphere();
+    updatePendingDestFlash();
     adoptBiomeFromSegment(playerSeg);
     // Rebind lane index to physical X after layoutBiome flips — never retarget laneTargetX.
     syncPlayerLaneIndexIfAligned();
@@ -3696,7 +3729,8 @@ function tick(now) {
               timer: TURN_WINDOW,
             };
             if (hudTurn) {
-              hudTurn.textContent = `← ${biomeLabel(turnActive.left)}  ·  ${biomeLabel(turnActive.right)} →`;
+              // ASCII arrows — Press Start 2P lacks ←/→
+              hudTurn.textContent = `<< ${biomeLabel(turnActive.left)}  |  ${biomeLabel(turnActive.right)} >>`;
               hudTurn.classList.remove("hidden");
             }
           }

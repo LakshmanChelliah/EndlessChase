@@ -77,7 +77,8 @@ export function heatPressureMul(distance) {
   return HEAT_RISE_EASY_MUL + difficulty01(distance) * (1 - HEAT_RISE_EASY_MUL);
 }
 export const TURN_COOLDOWN_SEGS = 18;
-export const TURN_WINDOW = 1.25;
+/** Seconds the turn banner stays live — slightly forgiving on mobile swipes. */
+export const TURN_WINDOW = 1.75;
 export const TURN_YAW = (25 * Math.PI) / 180;
 export const MIN_SWIPE = 40;
 /** Max duration for a tap (boarding skip). Swipes have no time limit. */
@@ -178,6 +179,9 @@ export const NES = {
   forest: 0x008751,
 };
 
+/** Dark dirt shoulder between asphalt curb and grass / sidewalk (seam softener). */
+export const SHOULDER = 0x243028;
+
 /** Per-biome fog / sky / ground — keeps NES palette, differentiates stretches. */
 export const BIOME_ATMOS = {
   city: {
@@ -185,7 +189,8 @@ export const BIOME_ATMOS = {
     fogNear: 35,
     fogFar: 95,
     clear: 0x1d2b53,
-    ground: 0x008751,
+    // Muted park edge — bright NES.forest made city tiles look like lawns
+    ground: 0x1a3528,
     sky: ["#0f1730", "#1d2b53", "#3a4570", "#5a6588"],
     stars: "#fff1e8",
   },
