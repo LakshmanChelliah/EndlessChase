@@ -1150,7 +1150,8 @@ function applyIntersectionTurnPose(tr, yawU, dt) {
     (1 - Math.abs(Math.cos(turnYaw))) * 4.5;
   const camY = THREE.MathUtils.lerp(8.4, 7.5, yawAmt);
   if (tr.phase === "exit") {
-    const exitU = easeInOutCubic(Math.min(1, tr.exitT / tr.exitDuration));
+    const raw = Math.min(1, tr.exitT / tr.exitDuration);
+    const exitU = raw * raw * (3 - 2 * raw);
     const chase = gameplayCamPos(laneX, playerZ);
     camera.position.set(
       THREE.MathUtils.lerp(camX, chase.x, exitU),
@@ -1187,7 +1188,9 @@ function updateIntersectionTurn(dt) {
 
   if (tr.phase === "exit") {
     tr.exitT += dt;
-    const exitU = easeInOutCubic(Math.min(1, tr.exitT / tr.exitDuration));
+    // Mostly-linear unwind so the settle is visible (inOut felt like a snap)
+    const raw = Math.min(1, tr.exitT / tr.exitDuration);
+    const exitU = raw * raw * (3 - 2 * raw); // smoothstep
     turnYaw = THREE.MathUtils.lerp(tr.peakYaw, 0, exitU);
     turnYawVel = 0;
     applyIntersectionTurnPose(tr, 1 - exitU, dt);

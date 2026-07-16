@@ -262,8 +262,9 @@ export function makeBankLandmark(tex) {
  * would clip through a fixed dome (that read as a yellow wall).
  */
 export function addSky(camera) {
-  const w = 4;
-  const h = 32;
+  // Wider canvas — a 4px-wide gradient + LinearFilter smeared into a grey sky band
+  const w = 64;
+  const h = 128;
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -271,15 +272,13 @@ export function addSky(camera) {
   paintSkyCanvas(ctx, w, h, BIOME_ATMOS.city);
 
   const map = new THREE.CanvasTexture(canvas);
-  // Linear filter — NearestFilter on a low-poly sky sphere turned light
-  // gradient bands into floating grey/white rectangular facets.
   map.magFilter = THREE.LinearFilter;
   map.minFilter = THREE.LinearFilter;
   map.generateMipmaps = false;
   map.colorSpace = THREE.SRGBColorSpace;
   map.needsUpdate = true;
 
-  const skyGeo = new THREE.SphereGeometry(40, 32, 20);
+  const skyGeo = new THREE.SphereGeometry(40, 48, 24);
   const skyMat = new THREE.MeshBasicMaterial({
     map,
     side: THREE.BackSide,
@@ -307,10 +306,16 @@ function paintSkyCanvas(ctx, w, h, atmos) {
   g.addColorStop(1, stops[3]);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = atmos.stars || "#fff1e8";
-  for (const [x, y] of [[1, 2], [3, 5], [0, 8], [2, 11], [1, 14], [3, 17], [0, 20]]) {
+  // Tiny dim stars only — bright 1px stars on a tiny atlas bloomed into a grey band
+  ctx.fillStyle = atmos.stars || "#c8d0e0";
+  ctx.globalAlpha = 0.55;
+  for (const [x, y] of [
+    [8, 10], [22, 18], [40, 8], [55, 28], [12, 36], [33, 22], [48, 40],
+    [5, 50], [28, 44], [60, 14], [18, 60], [44, 55],
+  ]) {
     ctx.fillRect(x, y, 1, 1);
   }
+  ctx.globalAlpha = 1;
 }
 
 /**
@@ -725,8 +730,8 @@ function addCrossZebra(root, armW, x) {
  */
 function addCrossStreet(root, half, width, biome = "city", tex = null) {
   const fourLane = biome === "city";
-  const armLen = 42;
-  const armW = fourLane ? Math.max(12, width * 0.85) : Math.max(8, width * 0.75);
+  const armLen = 48;
+  const armW = fourLane ? Math.max(14, width * 0.95) : Math.max(9, width * 0.8);
   const armHalf = armW / 2;
   const rnd = () => Math.random();
 
