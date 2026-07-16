@@ -6,8 +6,8 @@
  * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=32";
-import { pickTurnBiomes } from "./worldgen.js?v=24";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor, PATH_STRIP_WIDTH } from "./constants.js?v=33";
+import { pickTurnBiomes } from "./worldgen.js?v=25";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -1323,4 +1323,124 @@ export function makeDustMote() {
   mesh.userData.hitHalfX = 0;
   mesh.userData.hitHalfZ = 0;
   return mesh;
+}
+
+function disposeObject3D(root) {
+  root.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+      else obj.material.dispose();
+    }
+  });
+}
+
+/** Remove Temple Run–style path strips and restore the continuous road. */
+export function clearPathVisuals(seg) {
+  const g = seg.userData.pathGroup;
+  if (g) {
+    seg.remove(g);
+    disposeObject3D(g);
+    seg.userData.pathGroup = null;
+  }
+  seg.userData.pathLanes = null;
+  seg.userData.pathVisual = false;
+  if (seg.userData.roadMesh) seg.userData.roadMesh.visible = true;
+  setTaperDecorVisible(seg, true);
+}
+
+/**
+ * Draw parallel elevated road strips for open lanes with a dark gap between them
+ * (Temple Run–style paths the player can swipe into).
+ *
+ * @param {THREE.Group} seg
+ * @param {number[]} openLanes lane indices that exist on this tile
+ * @param {{ count:number, width:number, xs:number[] }} layout
+ * @param {{ road: THREE.Texture }} tex
+ */
+export function applyPathVisuals(seg, openLanes, layout, tex) {
+  clearPathVisuals(seg);
+  if (!openLanes || !openLanes.length || !layout) return;
+
+  if (seg.userData.roadMesh) seg.userData.roadMesh.visible = false;
+  setTaperDecorVisible(seg, false);
+
+  const group = new THREE.Group();
+  group.userData.isPathGroup = true;
+
+  const span = Math.max(layout.width + 14, 22);
+  // Dark void / water under the bridges — makes missing lanes read as a fall hazard
+  const voidMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(span, SEG_LEN + 0.6),
+    basicColor(0x0a2030)
+  );
+  voidMesh.rotation.x = -Math.PI / 2;
+  voidMesh.position.y = 0.001;
+  voidMesh.renderOrder = -2;
+  group.add(voidMesh);
+
+  // Soft teal sheen so gaps feel like water/swamp rather than missing geometry
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(span * 0.92, SEG_LEN * 0.92),
+    basicColor(0x143848)
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = 0.004;
+  water.renderOrder = -1;
+  group.add(water);
+
+  const stripW = PATH_STRIP_WIDTH;
+  for (const li of openLanes) {
+    if (li < 0 || li >= layout.count) continue;
+    const x = layout.xs[li];
+
+    const roadMat = basic(tex.road);
+    roadMat.map = tex.road.clone();
+    roadMat.map.needsUpdate = true;
+    roadMat.map.wrapS = roadMat.map.wrapT = THREE.RepeatWrapping;
+    roadMat.map.repeat.set(stripW / 6, 2);
+    roadMat.map.magFilter = THREE.NearestFilter;
+    roadMat.map.minFilter = THREE.NearestFilter;
+
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(stripW, SEG_LEN), roadMat);
+    strip.rotation.x = -Math.PI / 2;
+    strip.position.set(x, 0.02, 0);
+    strip.userData.isPathStrip = true;
+    group.add(strip);
+
+    // Center dashed line so each strip reads as a driveable lane
+    for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += 4) {
+      const dash = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 1.3), basicColor(NES.white));
+      dash.position.set(x, 0.05, z);
+      group.add(dash);
+    }
+
+    // Low stone parapets on each edge (Temple Run bridge rails)
+    for (const side of [-1, 1]) {
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35, 0.45, SEG_LEN * 0.96),
+        basicColor(NES.curb)
+      );
+      rail.position.set(x + side * (stripW * 0.5 - 0.05), 0.22, 0);
+      group.add(rail);
+      // Decorative posts along the rail
+      for (let z = -SEG_LEN / 2 + 2; z < SEG_LEN / 2; z += 5) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.7, 0.28), basicColor(0x4a4a5c));
+        post.position.set(x + side * (stripW * 0.5 - 0.05), 0.45, z);
+        group.add(post);
+      }
+    }
+
+    // Support pillars under each strip for elevation read
+    for (const z of [-6, 0, 6]) {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.4, 1.1), basicColor(0x3a3a48));
+      pillar.position.set(x, -0.55, z);
+      group.add(pillar);
+    }
+  }
+
+  seg.add(group);
+  seg.userData.pathGroup = group;
+  seg.userData.pathLanes = openLanes.slice();
+  seg.userData.pathVisual = true;
 }

@@ -7,6 +7,7 @@
  * Flow: loadSave → preload vehicles → menu → startRun → rAF tick
  *   (steer / brake → advance world → traffic AI → collisions → HUD).
  * Biomes: city 4-lane (2 opposing), rural 2-way, highway 2 one-way.
+ * Paths: Temple Run–style parallel strips randomly appear/end; swipe or fall.
  * Debug: window.__endlessChase. Persist via save.js (localStorage).
  */
 import * as THREE from "three";
@@ -26,9 +27,10 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   TRAFFIC_TIMER_START,
+  PATH_HIT_HALF, PATH_FALL_GRACE,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=32";
+} from "./js/constants.js?v=33";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -47,12 +49,14 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=29";
+  applyPathVisuals, clearPathVisuals,
+} from "./js/nes.js?v=30";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=24";
+  evolvePathMask, pathCandidateLanes,
+} from "./js/worldgen.js?v=25";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -89,7 +93,7 @@ const HINTS_KEY = "EndlessChase.Hints.v1";
 const HOWTO_STEPS = [
   {
     title: "STEER",
-    body: "Swipe left/right or press A/D to change lanes. In the city, stay LEFT of the double yellow — the right lanes are oncoming.",
+    body: "Swipe left/right or press A/D to change lanes. Parallel paths appear and vanish — swipe onto a new path before yours ends, or you fall.",
     callout: "",
   },
   {
@@ -768,6 +772,12 @@ let transitionTo = null;
 let transitioning = false;
 /** Closing lane indices for the active corridor (kept after queue drains). */
 let transitionCloseLanes = [];
+/** Open Temple Run–style path lane indices (persists across straight spawns). */
+let pathOpenLanes = null;
+/** Segments until the next path open/close mutation. */
+let pathCooldown = 0;
+/** Time spent off a driveable path strip (fall → wreck). */
+let pathFallTimer = 0;
 let menuTime = 0;
 let crossSpawnTimer = 0;
 
@@ -868,6 +878,7 @@ function stampSegmentDefaults(seg) {
   seg.userData.transitionPhase = null;
   seg.userData.widthStart = layout.width;
   seg.userData.widthEnd = layout.width;
+  clearPathVisuals(seg);
 }
 
 function returnObstacle(o) {
@@ -1391,6 +1402,7 @@ function applyBiomeSwitch(biome) {
 
 function recycleSegment(seg) {
   clearMixBiomeOverlay(seg);
+  clearPathVisuals(seg);
   resetRoadTaper(seg);
   stampSegmentDefaults(seg);
   seg.visible = false;
@@ -1443,6 +1455,7 @@ function configureGasStationSide(seg) {
 function spawnTransitionStep(plan) {
   const key = poolKey(plan.biome, plan.kind || "");
   const seg = segmentPool[key].rent();
+  clearPathVisuals(seg);
   seg.userData.transitionPhase = plan.phase;
   seg.userData.usableLanes = (plan.usableLanes || []).slice();
   seg.userData.closedLaneXs = (plan.closedLaneXs || []).slice();
@@ -1474,6 +1487,9 @@ function spawnSegment() {
   // Seamless transition corridor — pooled tiles + taper metadata
   if (transitionQueue.length) {
     const step = transitionQueue.shift();
+    // Path topology pauses during biome corridors — reset to full candidates
+    pathOpenLanes = null;
+    pathCooldown = Math.max(pathCooldown, 4);
     spawnTransitionStep(step);
     // Keep transitionFrom / transitionCloseLanes until player adopts enter tile
     return;
@@ -1512,14 +1528,51 @@ function spawnSegment() {
   placeSegment(seg);
 
   const layout = layoutFor(biome);
+  // Special tiles keep a full continuous road; straight tiles evolve path masks
+  const special = kind === "I" || kind === "T" || kind === "G" || kind === "R";
+  if (special) {
+    pathOpenLanes = pathCandidateLanes(layout);
+    seg.userData.usableLanes = [...Array(layout.count).keys()];
+    clearPathVisuals(seg);
+  } else {
+    const path = evolvePathMask(layout, pathOpenLanes, spawnIndex - 1, rng, pathCooldown);
+    pathOpenLanes = path.open.slice();
+    pathCooldown = path.pathCooldown;
+    seg.userData.usableLanes = path.usableLanes.slice();
+    seg.userData.closedLaneXs = path.closedXs.slice();
+    if (path.pathVisual) {
+      applyPathVisuals(seg, path.open, layout, tex);
+      // Barricades where a path just ended so the drop reads early
+      if (path.ended.length) {
+        const endedXs = path.ended.map((i) => layout.xs[i]);
+        spawnTransitionObstacles(seg, endedXs);
+      }
+    } else {
+      clearPathVisuals(seg);
+    }
+  }
+
   const usable = usableLanesForSegment(seg);
-  if (rng() < 0.55 && kind !== "T") {
+  // Coin trails mark open paths (Temple Run style) — denser when a path appears
+  const pathLanes = (seg.userData.pathLanes && seg.userData.pathLanes.length)
+    ? seg.userData.pathLanes
+    : usable.filter((i) => layout.dirs[i] === 1);
+  const coinChance = seg.userData.pathVisual ? 0.72 : 0.55;
+  if (rng() < coinChance && kind !== "T" && pathLanes.length) {
     const coin = coinPool.rent();
-    const sameDir = [];
-    for (const i of usable) if (layout.dirs[i] === 1) sameDir.push(i);
-    const li = sameDir.length ? sameDir[(rng() * sameDir.length) | 0] : (usable[0] ?? layout.defaultLane);
+    const li = pathLanes[(rng() * pathLanes.length) | 0];
     coin.position.set(layout.xs[li], 1.0, seg.position.z);
     activeCoins.push(coin);
+    // Extra coins along newly opened / active split paths
+    if (seg.userData.pathVisual && rng() < 0.55) {
+      for (const laneIdx of pathLanes) {
+        if (laneIdx === li) continue;
+        if (rng() > 0.65) continue;
+        const extra = coinPool.rent();
+        extra.position.set(layout.xs[laneIdx], 1.0, seg.position.z + (rng() - 0.5) * 6);
+        activeCoins.push(extra);
+      }
+    }
   }
 }
 
@@ -2623,6 +2676,9 @@ function resetRunState() {
   transitionFrom = null;
   transitionTo = null;
   transitionCloseLanes = [];
+  pathOpenLanes = null;
+  pathCooldown = 0;
+  pathFallTimer = 0;
   sirenOpeningT = 0;
   sirenSmoothVol = 0;
 }
@@ -3565,6 +3621,27 @@ function tick(now) {
     player.rotation.set(laneRoll * 0.35, turnYaw, laneRoll);
     setBrakeLights(player, braking);
 
+    // Off-path fall: driving into a gap / ended parallel path → wreck
+    if (!gasVisit && playerSeg && playerSeg.userData.pathVisual) {
+      const onPath = usable.some(
+        (i) => i >= 0 && i < layout.count && Math.abs(laneX - layout.xs[i]) <= PATH_HIT_HALF
+      );
+      // Mid-swipe toward a valid path still counts as committed
+      const targetingPath = usable.some(
+        (i) => i >= 0 && i < layout.count && Math.abs(laneTargetX - layout.xs[i]) < 0.75
+      );
+      if (!onPath && !targetingPath) {
+        pathFallTimer += dt;
+        if (pathFallTimer >= PATH_FALL_GRACE) {
+          crash();
+        }
+      } else {
+        pathFallTimer = 0;
+      }
+    } else {
+      pathFallTimer = 0;
+    }
+
     if (hudLaneWarn) {
       // Use the commanded spring target, not physical mid-slide X.
       // The old !onCenter check treated every lane change as "closed" and
@@ -3575,6 +3652,11 @@ function tick(now) {
       const oncoming = targetingLane && layout.dirs[cmd] === -1;
       const closed = !targetingLane || !usable.includes(cmd);
       const warn = oncoming || closed;
+      if (hudLaneWarn) {
+        if (closed && playerSeg?.userData.pathVisual) hudLaneWarn.textContent = "PATH ENDS";
+        else if (oncoming) hudLaneWarn.textContent = "WRONG WAY";
+        else hudLaneWarn.textContent = "WRONG WAY";
+      }
       if (hudLaneWarn.classList.contains("hidden") && warn) {
         hudLaneWarn.classList.remove("hidden");
         // retrigger pop animation
@@ -4070,6 +4152,9 @@ window.__endlessChase = {
     trafficInterval: +trafficSpawnInterval(distance).toFixed(2),
     turnActive: !!turnActive,
     controlUsable: playerControlLayout().usable.slice(),
+    pathOpen: pathOpenLanes ? pathOpenLanes.slice() : null,
+    pathCooldown,
+    pathFallTimer: +pathFallTimer.toFixed(2),
     biome: activeBiome, heat, gas, braking, coins: save.coins, highScore: save.highScore | 0,
     nearbyStation: !!nearbyStation,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,

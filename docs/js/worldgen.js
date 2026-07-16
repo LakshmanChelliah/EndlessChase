@@ -4,8 +4,16 @@
  * Decisions hash off segment index (mulberry32 / hash2) so biomes, intersections,
  * and gas spacing stay varied without true chaos. Turn offers are city ↔ rural;
  * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
+ * Path masks evolve Temple Run–style parallel lanes that appear and end.
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=32";
+import {
+  BIOMES,
+  TRANSITIONS,
+  layoutFor,
+  PATH_INTRO_SEGS,
+  PATH_COOLDOWN_SEGS,
+  PATH_CHANGE_BASE,
+} from "./constants.js?v=33";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {
@@ -307,6 +315,172 @@ export function nearestUsableLane(layout, x, usableLanes, preferForward = true) 
 /** Lerp road width between layouts for transition visuals. */
 export function blendWidth(fromLayout, toLayout, t) {
   return fromLayout.width + (toLayout.width - fromLayout.width) * t;
+}
+
+/** Forward (+Z) lane indices for a layout. */
+export function forwardLaneIndices(layout) {
+  const out = [];
+  for (let i = 0; i < layout.count; i++) {
+    if (layout.dirs[i] === 1) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Lanes that can become Temple Run–style swipe paths.
+ * Prefer same-direction forward lanes; if only one exists (rural), both
+ * lanes are candidates so a parallel path can appear beside you.
+ */
+export function pathCandidateLanes(layout) {
+  const fwd = forwardLaneIndices(layout);
+  if (fwd.length >= 2) return fwd;
+  return [...Array(layout.count).keys()];
+}
+
+/** Oncoming lane indices (kept for traffic when path candidates are forward-only). */
+export function oncomingLaneIndices(layout) {
+  const out = [];
+  for (let i = 0; i < layout.count; i++) {
+    if (layout.dirs[i] === -1) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Evolve which parallel paths stay open for the next straight segment.
+ * Guarantees ≥1 open path and prefers keeping continuity with `prevOpen`.
+ *
+ * @param {ReturnType<typeof layoutFor>} layout
+ * @param {number[]|null} prevOpen previously open path-candidate indices
+ * @param {number} spawnIndex
+ * @param {() => number} rng
+ * @param {number} [pathCooldown=0] segments until another topology change
+ * @returns {{
+ *   open: number[],
+ *   usableLanes: number[],
+ *   closedXs: number[],
+ *   pathVisual: boolean,
+ *   pathCooldown: number,
+ *   appeared: number[],
+ *   ended: number[],
+ * }}
+ */
+export function evolvePathMask(layout, prevOpen, spawnIndex, rng, pathCooldown = 0) {
+  const candidates = pathCandidateLanes(layout);
+  const oncoming = oncomingLaneIndices(layout);
+  const usingOncomingAsPaths = candidates.some((i) => layout.dirs[i] === -1);
+
+  // Intro / fallback: every candidate open, full continuous road
+  if (spawnIndex < PATH_INTRO_SEGS || candidates.length < 2) {
+    const open = candidates.slice();
+    const usable = usingOncomingAsPaths
+      ? open.slice()
+      : [...new Set([...open, ...oncoming])];
+    return {
+      open,
+      usableLanes: usable,
+      closedXs: [],
+      pathVisual: false,
+      pathCooldown: Math.max(0, pathCooldown),
+      appeared: [],
+      ended: [],
+    };
+  }
+
+  let open = (prevOpen && prevOpen.length)
+    ? prevOpen.filter((i) => candidates.includes(i))
+    : candidates.slice();
+  if (!open.length) open = [candidates.includes(layout.defaultLane) ? layout.defaultLane : candidates[0]];
+
+  let nextCooldown = Math.max(0, pathCooldown);
+  let appeared = [];
+  let ended = [];
+
+  if (nextCooldown > 0) {
+    nextCooldown--;
+  } else {
+    // Event density ramps after intro (~0.28 → ~0.5)
+    const ramp = Math.min(1, Math.max(0, (spawnIndex - PATH_INTRO_SEGS) / 50));
+    const chance = PATH_CHANGE_BASE + 0.22 * ramp;
+    if (rng() < chance) {
+      const closed = candidates.filter((i) => !open.includes(i));
+      const roll = rng();
+
+      if (open.length >= 2 && roll < 0.45) {
+        // End a side path — keep at least one (prefer keeping default / center-ish)
+        const preferKeep = open.includes(layout.defaultLane)
+          ? layout.defaultLane
+          : open[(open.length / 2) | 0];
+        const closable = open.filter((i) => i !== preferKeep);
+        const victim = closable.length
+          ? closable[(rng() * closable.length) | 0]
+          : open[(rng() * open.length) | 0];
+        open = open.filter((i) => i !== victim);
+        ended = [victim];
+      } else if (closed.length && roll < 0.85) {
+        // A new parallel path appears beside an existing one
+        // Prefer candidates adjacent (by index) to an open path
+        const scored = closed.map((i) => {
+          let near = 0;
+          for (const o of open) near += Math.abs(o - i) === 1 ? 2 : Math.abs(o - i) === 2 ? 1 : 0;
+          return { i, near };
+        });
+        scored.sort((a, b) => b.near - a.near || a.i - b.i);
+        const pick = scored[0].i;
+        open = [...open, pick].sort((a, b) => a - b);
+        appeared = [pick];
+      } else if (closed.length) {
+        // Jump to dual/triple when possible
+        const add = closed[(rng() * closed.length) | 0];
+        open = [...open, add].sort((a, b) => a - b);
+        appeared = [add];
+      } else if (open.length >= 2) {
+        const victim = open[(rng() * open.length) | 0];
+        // Never strand: if closing would empty, skip
+        if (open.length > 1) {
+          open = open.filter((i) => i !== victim);
+          ended = [victim];
+        }
+      }
+      nextCooldown = PATH_COOLDOWN_SEGS + ((rng() * 3) | 0);
+    }
+  }
+
+  // Hard guarantee
+  if (!open.length) {
+    open = [candidates.includes(layout.defaultLane) ? layout.defaultLane : candidates[0]];
+  }
+
+  const closedXs = candidates
+    .filter((i) => !open.includes(i))
+    .map((i) => layout.xs[i]);
+
+  // Split visual when any candidate is missing, or when open paths are non-contiguous
+  let pathVisual = open.length < candidates.length;
+  if (!pathVisual && open.length >= 2) {
+    for (let i = 1; i < open.length; i++) {
+      if (open[i] - open[i - 1] > 1) {
+        pathVisual = true;
+        break;
+      }
+    }
+  }
+  // Dual+ paths always read as parallel strips (Temple Run bridges)
+  if (open.length >= 2) pathVisual = true;
+
+  const usableLanes = pathVisual || usingOncomingAsPaths
+    ? open.slice()
+    : [...new Set([...open, ...oncoming])];
+
+  return {
+    open,
+    usableLanes,
+    closedXs,
+    pathVisual,
+    pathCooldown: nextCooldown,
+    appeared,
+    ended,
+  };
 }
 
 export { BIOMES };
