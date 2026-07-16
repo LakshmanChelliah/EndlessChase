@@ -28,7 +28,7 @@ import {
   TRAFFIC_TIMER_START,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=32";
+} from "./js/constants.js?v=33";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -45,14 +45,14 @@ import { Pool } from "./js/pool.js?v=22";
 import {
   createTextures, addSky, makeCoin, makeSegment, updateLightVisual, pulseLightGlow,
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
-  applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, makeDustMote,
-  makeBankLandmark,
-} from "./js/nes.js?v=29";
+  clearMixBiomeOverlay, applyBiomeAtmosphere, lerpBiomeAtmosphere, makeDustMote,
+  makeBankLandmark, decorateTransitionTile,
+} from "./js/nes.js?v=30";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=24";
+} from "./js/worldgen.js?v=25";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -865,9 +865,16 @@ function stampSegmentDefaults(seg) {
   seg.userData.usableLanes = [...Array(layout.count).keys()];
   seg.userData.adoptBiome = false;
   seg.userData.closedLaneXs = [];
+  seg.userData.newlyClosedXs = [];
+  seg.userData.goreXs = [];
   seg.userData.transitionPhase = null;
   seg.userData.widthStart = layout.width;
   seg.userData.widthEnd = layout.width;
+  seg.userData.atmosT = 0;
+  seg.userData.sceneryBlend = 0;
+  seg.userData.markStyle = null;
+  seg.userData.fromBiome = null;
+  seg.userData.toBiome = null;
 }
 
 function returnObstacle(o) {
@@ -876,25 +883,36 @@ function returnObstacle(o) {
   else conePool.return(o);
 }
 
-function spawnTransitionObstacles(seg, closedLaneXs) {
+function spawnTransitionObstacles(seg, closedLaneXs, newlyClosedXs = []) {
   if (!closedLaneXs || !closedLaneXs.length) return;
   const zBase = seg.position.z;
+  const newly = new Set(newlyClosedXs || []);
   for (const x of closedLaneXs) {
-    // Barricade near approach edge of the tile
-    const bar = barricadePool.rent();
-    bar.position.set(x, 0, zBase - SEG_LEN * 0.28);
-    bar.rotation.y = 0;
-    activeObstacles.push(bar);
-    // Cone row along the closed lane
-    for (let i = 0; i < 4; i++) {
+    const isNew = newly.has(x) || [...newly].some((nx) => Math.abs(nx - x) < 0.05);
+    // Barricade near approach edge / gore tip — denser story on newly closed lanes
+    if (isNew || Math.random() > 0.35) {
+      const bar = barricadePool.rent();
+      bar.position.set(x, 0, zBase - SEG_LEN * 0.42);
+      bar.rotation.y = 0;
+      activeObstacles.push(bar);
+    }
+    // Cone row: denser on newly closed, lighter continuity on already-closed
+    const coneCount = isNew ? 5 : 2;
+    const coneStep = isNew ? 2.8 : 4.5;
+    for (let i = 0; i < coneCount; i++) {
       const cone = conePool.rent();
-      cone.position.set(x + (i % 2 === 0 ? 0 : 0.15), 0, zBase - SEG_LEN * 0.15 + i * 3.2);
+      cone.position.set(
+        x + (i % 2 === 0 ? 0 : 0.15),
+        0,
+        zBase - SEG_LEN * 0.35 + i * coneStep
+      );
       cone.rotation.y = 0;
       cone.userData.wobblePhase = Math.random() * Math.PI * 2;
       activeObstacles.push(cone);
     }
     // Sparse dust motes so closed lanes feel hazardous
-    for (let d = 0; d < 2; d++) {
+    const dustCount = isNew ? 2 : 1;
+    for (let d = 0; d < dustCount; d++) {
       const dust = dustPool.rent();
       dust.position.set(
         x + (Math.random() - 0.5) * 1.2,
@@ -910,7 +928,23 @@ function spawnTransitionObstacles(seg, closedLaneXs) {
 function adoptBiomeFromSegment(seg) {
   if (!seg || !seg.userData.adoptBiome) return;
   const next = seg.userData.biome;
-  if (!next || next === activeBiome) return;
+  if (!next || next === activeBiome) {
+    // Still finish corridor bookkeeping when already matching (e.g. mid-lerp)
+    if (
+      next &&
+      next === activeBiome &&
+      !transitionQueue.length &&
+      transitioning &&
+      transitionTo === next
+    ) {
+      transitioning = false;
+      transitionFrom = null;
+      transitionTo = null;
+      transitionCloseLanes = [];
+      applyBiomeAtmosphere(scene, sky, worldGround, activeBiome, renderer);
+    }
+    return;
+  }
   activeBiome = next;
   applyBiomeAtmosphere(scene, sky, worldGround, activeBiome, renderer);
   // Do not auto-merge the player — only sync lane index if already on a valid center
@@ -921,6 +955,22 @@ function adoptBiomeFromSegment(seg) {
     transitionTo = null;
     transitionCloseLanes = [];
   }
+}
+
+/** Soft fog/sky blend while the player drives through a transition corridor. */
+function updateTransitionAtmosphere() {
+  if (!transitioning || !transitionFrom || !transitionTo) return;
+  if (activeBiome === transitionTo) return;
+  const seg = getSegmentAt(playerZ);
+  let t = 0.5;
+  if (seg?.userData?.atmosT != null) {
+    t = seg.userData.atmosT;
+  } else if (seg?.userData?.transitionPhase === "enter" || seg?.userData?.adoptBiome) {
+    t = 0.95;
+  } else if (seg?.userData?.transitionPhase === "exit") {
+    t = 0.08;
+  }
+  lerpBiomeAtmosphere(scene, sky, worldGround, transitionFrom, transitionTo, t, renderer);
 }
 
 /**
@@ -1393,27 +1443,37 @@ function spawnTransitionStep(plan) {
   seg.userData.transitionPhase = plan.phase;
   seg.userData.usableLanes = (plan.usableLanes || []).slice();
   seg.userData.closedLaneXs = (plan.closedLaneXs || []).slice();
+  seg.userData.newlyClosedXs = (plan.newlyClosedXs || []).slice();
+  seg.userData.goreXs = (plan.goreXs || []).slice();
   seg.userData.widthStart = plan.widthStart;
   seg.userData.widthEnd = plan.widthEnd;
   seg.userData.layoutBiome = plan.layoutBiome || plan.biome;
   seg.userData.adoptBiome = !!plan.adopt;
+  seg.userData.atmosT = plan.atmosT ?? 0;
+  seg.userData.sceneryBlend = plan.sceneryBlend ?? 0;
+  seg.userData.markStyle = plan.markStyle || null;
+  seg.userData.fromBiome = plan.fromBiome;
+  seg.userData.toBiome = plan.toBiome;
   // Do NOT flip activeBiome here — adoption is player-position based
   placeSegment(seg);
 
-  if (
+  const needsTaper =
     plan.widthStart != null &&
     plan.widthEnd != null &&
-    (plan.phase === "taper" || Math.abs(plan.widthStart - plan.widthEnd) > 0.01)
-  ) {
+    (plan.phase === "taper" || Math.abs(plan.widthStart - plan.widthEnd) > 0.01);
+  if (needsTaper) {
     applyRoadTaper(seg, plan.widthStart, plan.widthEnd, plan.markT);
+  } else if (plan.phase === "exit" || plan.phase === "taper") {
+    // Flat-width corridor (e.g. rural↔highway): still hide baked marks for custom paint
+    for (const child of seg.children) {
+      if (child.userData?.isLaneMark) child.visible = false;
+    }
   }
-  if (plan.mixBiome) {
-    applyMixBiomeOverlay(seg, plan.mixBiome, tex);
-  } else {
-    clearMixBiomeOverlay(seg);
-  }
+
+  decorateTransitionTile(seg, plan, tex);
+
   if (plan.closedLaneXs && plan.closedLaneXs.length) {
-    spawnTransitionObstacles(seg, plan.closedLaneXs);
+    spawnTransitionObstacles(seg, plan.closedLaneXs, plan.newlyClosedXs || []);
   }
 }
 
@@ -3482,6 +3542,7 @@ function tick(now) {
     if (heat >= 85 && Math.random() < 0.22) triggerShake(0.04, 0.06);
 
     const { seg: playerSeg, layout, usable } = playerControlLayout();
+    updateTransitionAtmosphere();
     adoptBiomeFromSegment(playerSeg);
     // Rebind lane index to physical X after layoutBiome flips — never retarget laneTargetX.
     syncPlayerLaneIndexIfAligned();
