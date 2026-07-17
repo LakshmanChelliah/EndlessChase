@@ -14,7 +14,8 @@ import {
   ROADSIDE_INTERACT_KEY,
   ROADSIDE_ATM_BONUS,
   ROADSIDE_STORE_BONUS,
-} from "./constants.js?v=37";
+  ROADSIDE_PUZZLE_STEPS,
+} from "./constants.js?v=38";
 
 /** @typedef {"atm"|"store"} RoadsideKind */
 
@@ -26,6 +27,21 @@ export const ROADSIDE_KINDS = Object.freeze(["atm", "store"]);
  */
 export function rollRoadsideKind(rng = Math.random) {
   return rng() < 0.55 ? "atm" : "store";
+}
+
+/**
+ * Build a random PIN / grab sequence for the optional mini-game.
+ * @param {number} [steps]
+ * @returns {Array<"L"|"C"|"R">}
+ */
+export function rollAtmPinSequence(steps = ROADSIDE_PUZZLE_STEPS) {
+  const pads = ["L", "C", "R"];
+  const out = [];
+  const n = Math.max(1, steps | 0);
+  for (let i = 0; i < n; i++) {
+    out.push(pads[(Math.random() * pads.length) | 0]);
+  }
+  return out;
 }
 
 /**

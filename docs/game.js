@@ -28,22 +28,16 @@ import {
   GAS_COP_Z_FAR, GAS_COP_Z_NEAR,
   SIREN_ONSET, SIREN_VOL_NEAR, SIREN_VOL_ONSET, SIREN_OPENING, SIREN_OPENING_FADE,
   TRAFFIC_TIMER_START,
-  MID_RUN_CHOICE_SECONDS, MID_RUN_PUZZLE_SECONDS, MID_RUN_PUZZLE_STEPS,
-  MID_RUN_BONUS_COINS, MID_RUN_SPEED_BOOST_MUL, MID_RUN_SPEED_BOOST_DURATION,
-  MID_RUN_POLICE_DISTANCE_START, MID_RUN_EVENT,
   ROADSIDE_COOLDOWN_SEGS, ROADSIDE_INTERACT_RANGE, ROADSIDE_PUZZLE_SECONDS, ROADSIDE_PUZZLE_STEPS,
   ROADSIDE_SPEED_BOOST_MUL, ROADSIDE_SPEED_BOOST_DURATION, ROADSIDE_INTERACT_KEY,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=37";
-import {
-  createMidRunTracker, applyCrimeFailPoliceClose, heatFloorFromPoliceDistance, rollAtmPinSequence,
-} from "./js/midRunOpportunity.js?v=1";
+} from "./js/constants.js?v=38";
 import {
   findNearbyRoadside, isInsideRoadsideZone, requiredLaneForRoadside,
   roadsidePromptText, roadsideBonusCoins, roadsidePuzzleTitle,
-  swipeTowardRoadside, isRoadsideInteractKey, rollRoadsideKind,
-} from "./js/roadsideInteract.js?v=1";
+  swipeTowardRoadside, isRoadsideInteractKey, rollRoadsideKind, rollAtmPinSequence,
+} from "./js/roadsideInteract.js?v=2";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -98,7 +92,7 @@ const panels = {
   upgrades: document.getElementById("panel-upgrades"),
   pump: document.getElementById("panel-pump"),
   howto: document.getElementById("panel-howto"),
-  midrun: document.getElementById("panel-midrun"),
+  minigame: document.getElementById("panel-minigame"),
 };
 const menuMissions = document.getElementById("menu-missions");
 const hudMission = document.getElementById("hud-mission");
@@ -196,17 +190,13 @@ const upSpeedPips = document.getElementById("up-speed-pips");
 const upAccelPips = document.getElementById("up-accel-pips");
 const upHandlingPips = document.getElementById("up-handling-pips");
 const upBrakesPips = document.getElementById("up-brakes-pips");
-const midrunChoiceEl = document.getElementById("midrun-choice");
-const midrunPuzzleEl = document.getElementById("midrun-puzzle");
-const midrunTimerEl = document.getElementById("midrun-timer");
-const midrunPuzzleTimerEl = document.getElementById("midrun-puzzle-timer");
-const midrunPinProgress = document.getElementById("midrun-pin-progress");
-const btnMidrunSmash = document.getElementById("btn-midrun-smash");
-const btnMidrunIgnore = document.getElementById("btn-midrun-ignore");
-const midrunPads = {
-  L: document.getElementById("btn-midrun-pad-L"),
-  C: document.getElementById("btn-midrun-pad-C"),
-  R: document.getElementById("btn-midrun-pad-R"),
+const minigameTitleEl = document.getElementById("minigame-title");
+const minigameTimerEl = document.getElementById("minigame-timer");
+const minigamePinProgress = document.getElementById("minigame-pin-progress");
+const minigamePads = {
+  L: document.getElementById("btn-minigame-pad-L"),
+  C: document.getElementById("btn-minigame-pad-C"),
+  R: document.getElementById("btn-minigame-pad-R"),
 };
 
 /** Garage browse highlight (may differ from equipped selectedCar while shopping). */
@@ -401,8 +391,8 @@ function noteMissionStat(key, delta = 1) {
 function showPanel(name) {
   for (const k of Object.keys(panels)) {
     if (!panels[k]) continue;
-    // Pump / mid-run overlays sit on top of HUD — don't force-hide via this helper
-    if (k === "pump" || k === "midrun") continue;
+    // Pump / mini-game overlays sit on top of HUD — don't force-hide via this helper
+    if (k === "pump" || k === "minigame") continue;
     const el = panels[k];
     const show = k === name;
     if (show) {
@@ -541,215 +531,72 @@ function showPumpPanel(show) {
   }
 }
 
-function showMidRunPanel(show) {
-  if (!panels.midrun) return;
+function showMinigamePanel(show) {
+  if (!panels.minigame) return;
   if (show) {
-    panels.midrun.classList.remove("hidden");
-    panels.midrun.classList.remove("panel-enter");
-    void panels.midrun.offsetWidth;
-    panels.midrun.classList.add("panel-enter");
+    panels.minigame.classList.remove("hidden");
+    panels.minigame.classList.remove("panel-enter");
+    void panels.minigame.offsetWidth;
+    panels.minigame.classList.add("panel-enter");
   } else {
-    panels.midrun.classList.add("hidden");
-    panels.midrun.classList.remove("panel-enter");
+    panels.minigame.classList.add("hidden");
+    panels.minigame.classList.remove("panel-enter");
   }
 }
 
-/** True while choice/puzzle overlay owns lane input. */
-function midRunActive() {
-  return !!midRun;
-}
-
-function syncMidRunTimerLabel(el, seconds) {
+function syncMinigameTimerLabel(el, seconds) {
   if (!el) return;
   const t = Math.max(0, seconds);
   el.textContent = t.toFixed(1);
   el.classList.toggle("urgent", t <= 1);
 }
 
-function renderMidRunPinProgress() {
-  if (!midrunPinProgress || !midRun?.pin) return;
-  midrunPinProgress.innerHTML = "";
-  for (let i = 0; i < midRun.pin.length; i++) {
+function renderMinigamePinProgress() {
+  if (!minigamePinProgress) return;
+  minigamePinProgress.innerHTML = "";
+  if (!roadsideVisit?.pin) return;
+  for (let i = 0; i < roadsideVisit.pin.length; i++) {
     const dot = document.createElement("span");
-    dot.className = "midrun-pin-dot";
-    if (i < (midRun.pinIndex | 0)) dot.classList.add("on");
-    midrunPinProgress.appendChild(dot);
+    dot.className = "minigame-pin-dot";
+    if (i < (roadsideVisit.pinIndex | 0)) dot.classList.add("on");
+    minigamePinProgress.appendChild(dot);
   }
 }
 
-function syncMidRunPadHighlight() {
-  const idx = midRun?.pinIndex | 0;
-  const next = midRun?.pin?.[idx];
-  for (const key of Object.keys(midrunPads)) {
-    const btn = midrunPads[key];
+function syncMinigamePadHighlight() {
+  const idx = roadsideVisit?.pinIndex | 0;
+  const next = roadsideVisit?.pin?.[idx];
+  for (const key of Object.keys(minigamePads)) {
+    const btn = minigamePads[key];
     if (!btn) continue;
     btn.classList.remove("lit", "done");
   }
-  if (!midRun?.pin) {
-    renderMidRunPinProgress();
+  if (!roadsideVisit?.pin) {
+    renderMinigamePinProgress();
     return;
   }
   for (let i = 0; i < idx; i++) {
-    midrunPads[midRun.pin[i]]?.classList.add("done");
+    minigamePads[roadsideVisit.pin[i]]?.classList.add("done");
   }
-  if (next && midrunPads[next]) midrunPads[next].classList.add("lit");
-  renderMidRunPinProgress();
+  if (next && minigamePads[next]) minigamePads[next].classList.add("lit");
+  renderMinigamePinProgress();
 }
 
-function beginMidRunOpportunity() {
-  if (midRun) return;
-  midRun = { phase: "choice", timer: MID_RUN_CHOICE_SECONDS };
-  if (midrunChoiceEl) midrunChoiceEl.classList.remove("hidden");
-  if (midrunPuzzleEl) midrunPuzzleEl.classList.add("hidden");
-  syncMidRunTimerLabel(midrunTimerEl, midRun.timer);
-  showMidRunPanel(true);
-  playSfx("nearMiss");
-  triggerShake(0.1, 0.12);
-}
-
-function clearMidRunUi() {
-  showMidRunPanel(false);
-  if (midrunChoiceEl) midrunChoiceEl.classList.remove("hidden");
-  if (midrunPuzzleEl) midrunPuzzleEl.classList.add("hidden");
-  for (const key of Object.keys(midrunPads)) {
-    midrunPads[key]?.classList.remove("lit", "done");
+function clearMinigameUi() {
+  showMinigamePanel(false);
+  for (const key of Object.keys(minigamePads)) {
+    minigamePads[key]?.classList.remove("lit", "done");
   }
-  if (midrunPinProgress) midrunPinProgress.innerHTML = "";
+  if (minigamePinProgress) minigamePinProgress.innerHTML = "";
 }
 
-/** Resume normal lane controls after Ignore / timeout / puzzle resolve. */
-function endMidRunOpportunity() {
-  midRun = null;
-  clearMidRunUi();
-  midRunTracker.setListening(true);
-}
-
-function ignoreMidRunOpportunity() {
-  if (!midRun || midRun.phase !== "choice") return;
-  endMidRunOpportunity();
-}
-
-/** Smash ATM → quick PIN puzzle while the road keeps scrolling. */
-function smashAtmChoice() {
-  if (!midRun || midRun.phase !== "choice") return;
-  const pin = rollAtmPinSequence(MID_RUN_PUZZLE_STEPS);
-  midRun = { phase: "puzzle", timer: MID_RUN_PUZZLE_SECONDS, pin, pinIndex: 0 };
-  if (midrunChoiceEl) midrunChoiceEl.classList.add("hidden");
-  if (midrunPuzzleEl) midrunPuzzleEl.classList.remove("hidden");
-  syncMidRunTimerLabel(midrunPuzzleTimerEl, midRun.timer);
-  syncMidRunPadHighlight();
-  triggerFlash("boost");
-}
-
-/**
- * Complete mid-run crime: fail → cops close (policeDistance × 0.5);
- * success → 500 coins + brief Speed Boost.
- * @param {"success"|"fail"} outcome
- */
-function completeMidRunCrime(outcome) {
-  if (!midRun) return;
-  if (outcome === "success") {
-    runCoins += MID_RUN_BONUS_COINS;
-    save.coins += MID_RUN_BONUS_COINS;
-    writeSave(save);
-    // Wallet gets the full bonus; mission track counts a single pickup so one smash
-    // cannot cascade twenty coin-tier clears in one frame.
-    noteMissionStat("coins", 1);
-    applySpeedBoost(MID_RUN_SPEED_BOOST_MUL, MID_RUN_SPEED_BOOST_DURATION);
-    noteMissionStat("boosts", 1);
-    if (hudBoost) {
-      hudBoost.textContent = "SPEED BOOST";
-      hudBoost.classList.remove("brake-mode", "hidden");
-    }
-    playSfx("boost");
-    playSfx("coin");
-    triggerFlash("boost");
-    triggerShake(0.22, 0.2);
-    setSpeedlines(true);
-  } else {
-    policeDistance = applyCrimeFailPoliceClose(policeDistance);
-    heat = Math.min(100, Math.max(heat, heatFloorFromPoliceDistance(policeDistance)));
-    updateHeatUI();
-    snapChaseCopsToPoliceDistance();
-    playSfx("gasCritical");
-    triggerFlash("bust");
-    triggerShake(0.28, 0.24);
-    if (heat >= 100 && !bustPending) spawnPursuit();
-  }
-  endMidRunOpportunity();
-}
-
-function onMidRunPad(pad) {
-  if (roadsideVisit) {
-    onRoadsidePad(pad);
-    return;
-  }
-  if (!midRun || midRun.phase !== "puzzle") return;
-  const want = midRun.pin[midRun.pinIndex];
-  if (pad !== want) {
-    completeMidRunCrime("fail");
-    return;
-  }
-  midRun.pinIndex += 1;
-  syncMidRunPadHighlight();
-  playSfx("nearMiss");
-  if (midRun.pinIndex >= midRun.pin.length) {
-    completeMidRunCrime("success");
-  }
-}
-
-function updateMidRunOpportunity(dt) {
-  if (!midRun || !alive) return;
-  midRun.timer -= dt;
-  if (midRun.phase === "choice") {
-    syncMidRunTimerLabel(midrunTimerEl, midRun.timer);
-    if (midRun.timer <= 0) ignoreMidRunOpportunity();
-  } else if (midRun.phase === "puzzle") {
-    syncMidRunTimerLabel(midrunPuzzleTimerEl, midRun.timer);
-    if (midRun.timer <= 0) completeMidRunCrime("fail");
-  }
-}
-
-/**
- * Pull opening-chase / pursuit police meshes closer when policeDistance drops.
- * Maps gap 100→~34m behind, gap 50→~17m, etc.
- */
-function snapChaseCopsToPoliceDistance() {
-  const behind = 8 + (policeDistance / MID_RUN_POLICE_DISTANCE_START) * 26;
-  const layout = currentLayout();
-  for (const car of activeTraffic) {
-    if (!car.userData.police && !car.userData.pursuit && !car.userData.openingChase) continue;
-    if (car.userData.gasThreat) continue;
-    const tLane = Math.min(Math.max(0, car.userData.lane ?? lane), layout.count - 1);
-    car.position.z = playerZ - behind;
-    car.position.x = layout.xs[tLane];
-    car.userData.speed = Math.max(car.userData.speed || 0, speed * 0.98);
-  }
-}
-
-if (btnMidrunSmash) {
-  btnMidrunSmash.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (roadsideVisit) return;
-    smashAtmChoice();
-  });
-}
-if (btnMidrunIgnore) {
-  btnMidrunIgnore.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (roadsideVisit) return;
-    ignoreMidRunOpportunity();
-  });
-}
-for (const key of Object.keys(midrunPads)) {
-  const btn = midrunPads[key];
+for (const key of Object.keys(minigamePads)) {
+  const btn = minigamePads[key];
   if (!btn) continue;
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    onMidRunPad(key);
+    onRoadsidePad(key);
   });
 }
 
@@ -987,24 +834,6 @@ let trafficTimer = 0;
 let braking = false;
 let brakeTimer = 0;
 let heat = 0;
-/**
- * Police gap behind the player (higher = farther). Mid-run crime fail halves this
- * so the chase sits right on the player's tail; synced into the COPS heat bar.
- */
-let policeDistance = MID_RUN_POLICE_DISTANCE_START;
-/**
- * Mid-run ATM opportunity FSM.
- * @type {null | {
- *   phase: "choice"|"puzzle",
- *   timer: number,
- *   pin?: Array<"L"|"C"|"R">,
- *   pinIndex?: number,
- * }}
- */
-let midRun = null;
-const midRunTracker = createMidRunTracker({
-  onOpportunity: () => beginMidRunOpportunity(),
-});
 let gas = 50;
 let slowTimer = 0;
 let turnCooldown = 4;
@@ -1783,12 +1612,14 @@ function configureGasStationSide(seg) {
 }
 
 /** Rebuild ATM / store visuals on a random curb side each spawn. */
-function configureInteractSite(seg, kindOverride = null) {
+function configureInteractSite(seg, kindOverride = null, sideOverride = null) {
   if (seg.userData.interactGroup) {
     seg.remove(seg.userData.interactGroup);
     seg.userData.interactGroup = null;
   }
-  const side = Math.random() < 0.5 ? -1 : 1;
+  const side = sideOverride === -1 || sideOverride === 1
+    ? sideOverride
+    : (Math.random() < 0.5 ? -1 : 1);
   const kind = kindOverride || rollRoadsideKind();
   const half = (seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
   seg.userData.interactSide = side;
@@ -2103,7 +1934,7 @@ function hideInteractFloat() {
  * Presence never starts the mini-game; F / curb swipe opts in.
  */
 function updateInteractFloat(seg) {
-  if (!hudInteractFloat || !seg || gasVisit || roadsideVisit || midRun || seg.userData.interactResolved) {
+  if (!hudInteractFloat || !seg || gasVisit || roadsideVisit || seg.userData.interactResolved) {
     hideInteractFloat();
     return;
   }
@@ -2125,10 +1956,10 @@ function updateInteractFloat(seg) {
 
 /**
  * Opt-in to the roadside mini-game. Pauses forward driving and opens the PIN /
- * quick-grab puzzle UI (reuses mid-run puzzle chrome with a site-specific title).
+ * quick-grab puzzle UI with a site-specific title.
  */
 function beginRoadsideVisit(seg) {
-  if (!seg || !running || !alive || gasVisit || roadsideVisit || midRun) return false;
+  if (!seg || !running || !alive || gasVisit || roadsideVisit) return false;
   if (seg.userData.interactResolved) return false;
   const layout = layoutForSegment(seg);
   if (!isInsideRoadsideZone(seg, playerZ, lane, layout.count, ROADSIDE_INTERACT_RANGE)) return false;
@@ -2150,17 +1981,10 @@ function beginRoadsideVisit(seg) {
     pinIndex: 0,
   };
 
-  // Reuse mid-run puzzle panel chrome with site title
-  if (midrunChoiceEl) midrunChoiceEl.classList.add("hidden");
-  if (midrunPuzzleEl) midrunPuzzleEl.classList.remove("hidden");
-  const title = midrunPuzzleEl?.querySelector(".midrun-title");
-  if (title) title.textContent = roadsidePuzzleTitle(kind);
-  syncMidRunTimerLabel(midrunPuzzleTimerEl, roadsideVisit.timer);
-  // Temporarily mirror pin state into midRun-shaped highlight helpers
-  midRun = { phase: "puzzle", timer: roadsideVisit.timer, pin, pinIndex: 0 };
-  syncMidRunPadHighlight();
-  midRun = null;
-  showMidRunPanel(true);
+  if (minigameTitleEl) minigameTitleEl.textContent = roadsidePuzzleTitle(kind);
+  syncMinigameTimerLabel(minigameTimerEl, roadsideVisit.timer);
+  syncMinigamePadHighlight();
+  showMinigamePanel(true);
   playSfx("nearMiss");
   triggerShake(0.1, 0.12);
   return true;
@@ -2172,14 +1996,14 @@ function tryBeginRoadsideVisit(seg) {
 
 /** Keyboard / explicit interact while inside the optional zone. */
 function tryRoadsideInteractKey() {
-  if (!running || !alive || gasVisit || roadsideVisit || midRun) return false;
+  if (!running || !alive || gasVisit || roadsideVisit) return false;
   const seg = nearbyInteract || findNearbyRoadside(activeSegments, playerZ);
   if (!seg) return false;
   return tryBeginRoadsideVisit(seg);
 }
 
 function trySwipeEnterRoadside(dir) {
-  if (!running || !alive || gasVisit || roadsideVisit || midRun) return false;
+  if (!running || !alive || gasVisit || roadsideVisit) return false;
   if (dir !== "left" && dir !== "right") return false;
   const seg = nearbyInteract || findNearbyRoadside(activeSegments, playerZ);
   if (!seg) return false;
@@ -2190,18 +2014,6 @@ function trySwipeEnterRoadside(dir) {
   return tryBeginRoadsideVisit(seg);
 }
 
-function syncRoadsidePadHighlight() {
-  if (!roadsideVisit) return;
-  midRun = {
-    phase: "puzzle",
-    timer: roadsideVisit.timer,
-    pin: roadsideVisit.pin,
-    pinIndex: roadsideVisit.pinIndex,
-  };
-  syncMidRunPadHighlight();
-  midRun = null;
-}
-
 function onRoadsidePad(pad) {
   if (!roadsideVisit || roadsideVisit.phase !== "puzzle") return;
   const want = roadsideVisit.pin[roadsideVisit.pinIndex];
@@ -2210,7 +2022,7 @@ function onRoadsidePad(pad) {
     return;
   }
   roadsideVisit.pinIndex += 1;
-  syncRoadsidePadHighlight();
+  syncMinigamePadHighlight();
   playSfx("nearMiss");
   if (roadsideVisit.pinIndex >= roadsideVisit.pin.length) {
     completeRoadsideVisit("success");
@@ -2248,10 +2060,8 @@ function completeRoadsideVisit(outcome) {
 
 function endRoadsideVisit() {
   roadsideVisit = null;
-  clearMidRunUi();
-  // Restore default puzzle title for mid-run ATM modal
-  const title = midrunPuzzleEl?.querySelector(".midrun-title");
-  if (title) title.textContent = "CRACK PIN";
+  clearMinigameUi();
+  if (minigameTitleEl) minigameTitleEl.textContent = "CRACK PIN";
   braking = false;
   keysBrake = false;
 }
@@ -2259,7 +2069,7 @@ function endRoadsideVisit() {
 function updateRoadsideVisit(dt) {
   if (!roadsideVisit || !alive) return;
   roadsideVisit.timer -= dt;
-  syncMidRunTimerLabel(midrunPuzzleTimerEl, roadsideVisit.timer);
+  syncMinigameTimerLabel(minigameTimerEl, roadsideVisit.timer);
   if (roadsideVisit.timer <= 0) completeRoadsideVisit("fail");
 }
 
@@ -2867,12 +2677,10 @@ function endRun(reason) {
   }
   gasVisit = null;
   showPumpPanel(false);
-  midRun = null;
   roadsideVisit = null;
   nearbyInteract = null;
   hideInteractFloat();
-  clearMidRunUi();
-  midRunTracker.reset();
+  clearMinigameUi();
   hideMergeBtn();
   nearbyStation = null;
   hideStationFloat();
@@ -3221,14 +3029,7 @@ function resetRunState() {
   braking = false;
   brakeTimer = 0;
   heat = 0;
-  /**
-   * Police gap behind the player (higher = farther). Mid-run crime fail halves this
-   * so the chase sits right on the player's tail; synced into the COPS heat bar.
-   */
-  policeDistance = MID_RUN_POLICE_DISTANCE_START;
-  midRun = null;
-  midRunTracker.reset();
-  clearMidRunUi();
+  clearMinigameUi();
   gas = randomStartGas();
   slowTimer = 0;
   turnCooldown = 10;
@@ -3241,7 +3042,7 @@ function resetRunState() {
   gasVisit = null;
   roadsideVisit = null;
   hideInteractFloat();
-  clearMidRunUi();
+  clearMinigameUi();
   gasHintTimer = 0;
   turnYaw = 0;
   turnYawVel = 0;
@@ -3279,7 +3080,7 @@ function startRun(opts = {}) {
 
     showPanel("hud");
     showPumpPanel(false);
-    showMidRunPanel(false);
+    showMinigamePanel(false);
     hudCoins.textContent = `$${save.coins}`;
     if (hudTurn) hudTurn.classList.add("hidden");
     hideStationFloat();
@@ -3344,10 +3145,7 @@ function prepareRunFromMenu() {
   braking = false;
   brakeTimer = 0;
   heat = 0;
-  policeDistance = MID_RUN_POLICE_DISTANCE_START;
-  midRun = null;
-  midRunTracker.reset();
-  clearMidRunUi();
+  clearMinigameUi();
   gas = randomStartGas();
   slowTimer = 0;
   turnCooldown = 10;
@@ -3360,7 +3158,7 @@ function prepareRunFromMenu() {
   gasVisit = null;
   roadsideVisit = null;
   hideInteractFloat();
-  clearMidRunUi();
+  clearMinigameUi();
   gasHintTimer = 0;
   turnYaw = 0;
   turnYawVel = 0;
@@ -3416,13 +3214,13 @@ function prepareRunFromMenu() {
   if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
   if (hudGasWarn) hudGasWarn.classList.add("hidden");
   showPumpPanel(false);
-  showMidRunPanel(false);
+  showMinigamePanel(false);
 }
 
 function setBoardingUI(on) {
   if (on) {
     for (const k of Object.keys(panels)) {
-      if (!panels[k] || k === "pump" || k === "midrun") continue;
+      if (!panels[k] || k === "pump" || k === "minigame") continue;
       panels[k].classList.add("hidden");
       panels[k].classList.remove("panel-enter");
     }
@@ -3732,8 +3530,6 @@ function onSwipe(dir) {
     return;
   }
   pendingSwipe = null;
-  // Mid-run ATM choice/puzzle: freeze lane changes; road still scrolls in tick()
-  if (midRunActive() && (dir === "left" || dir === "right")) return;
   if (turnActive && (dir === "left" || dir === "right")) {
     const biome = dir === "left" ? turnActive.left : turnActive.right;
     turnYawVel = dir === "left" ? TURN_YAW * 4 : -TURN_YAW * 4;
@@ -3913,23 +3709,6 @@ window.addEventListener("keydown", (e) => {
     if (key === "a" || key === "ArrowLeft") onRoadsidePad("L");
     else if (key === "d" || key === "ArrowRight") onRoadsidePad("R");
     else if (key === "w" || key === "ArrowUp" || key === " " || key === "Enter" || key === "f") onRoadsidePad("C");
-    return;
-  }
-  if (midRun?.phase === "choice") {
-    if (key === " " || key === "Enter" || key === "f") {
-      e.preventDefault();
-      smashAtmChoice();
-    } else if (key === "Escape" || key === "s" || key === "ArrowDown") {
-      e.preventDefault();
-      ignoreMidRunOpportunity();
-    }
-    return;
-  }
-  if (midRun?.phase === "puzzle") {
-    e.preventDefault();
-    if (key === "a" || key === "ArrowLeft") onMidRunPad("L");
-    else if (key === "d" || key === "ArrowRight") onMidRunPad("R");
-    else if (key === "w" || key === "ArrowUp" || key === " " || key === "Enter" || key === "f") onMidRunPad("C");
     return;
   }
   if (gasVisit?.phase === "pumping") {
@@ -4194,10 +3973,6 @@ function tick(now) {
     }
     playerZ += speed * dt;
     distance = playerZ;
-
-    // Mid-run ATM opportunity: distance gate → OnMidRunOpportunity (lanes locked in UI)
-    if (!midRun && !bustPending && !boarding && !intro) midRunTracker.update(distance);
-    updateMidRunOpportunity(dt);
 
     // Drain gas while moving; boost burns more, brake burns less
     if (speed > 0.5 && gas > 0) {
@@ -4788,7 +4563,7 @@ window.__endlessChase = {
     boostMul: +boostMul.toFixed(2),
     turnActive: !!turnActive,
     controlUsable: playerControlLayout().usable.slice(),
-    biome: activeBiome, heat, policeDistance: +policeDistance.toFixed(1), gas, braking, coins: save.coins, highScore: save.highScore | 0,
+    biome: activeBiome, heat, gas, braking, coins: save.coins, highScore: save.highScore | 0,
     nearbyStation: !!nearbyStation,
     nearbyInteract: nearbyInteract ? {
       kind: nearbyInteract.userData.interactKind || "atm",
@@ -4801,13 +4576,6 @@ window.__endlessChase = {
       timer: +roadsideVisit.timer.toFixed(2),
       pinIndex: roadsideVisit.pinIndex | 0,
     } : null,
-    midRun: midRun ? {
-      phase: midRun.phase,
-      timer: +midRun.timer.toFixed(2),
-      pinIndex: midRun.pinIndex | 0,
-      pinLen: midRun.pin ? midRun.pin.length : 0,
-    } : null,
-    midRunNextThreshold: +midRunTracker.getNextThreshold().toFixed(1),
     transitioning, transitionQueue: transitionQueue.length,
     policeBar: +heat.toFixed(1),
     sirenOpeningT: +sirenOpeningT.toFixed(2),
@@ -5013,22 +4781,10 @@ window.__endlessChase = {
   debugSpawnRoadside: (kind = "atm", side = 1) => {
     let seg = activeSegments.find((s) => !s.userData.gasStation && !s.userData.intersection && !s.userData.turnOffer && s.position.z > playerZ + 4);
     if (!seg) return { ok: false, reason: "no-segment" };
-    if (seg.userData.interactGroup) {
-      seg.remove(seg.userData.interactGroup);
-      seg.userData.interactGroup = null;
-    }
-    seg.userData.interactSite = true;
-    const half = (seg.userData.baseWidth || layoutForSegment(seg).width) / 2;
     const s = side < 0 ? -1 : 1;
     const k = kind === "store" ? "store" : "atm";
-    configureInteractSite(seg, k);
-    seg.userData.interactSide = s;
-    // Rebuild with forced side
-    if (seg.userData.interactGroup) {
-      seg.remove(seg.userData.interactGroup);
-    }
-    seg.userData.interactGroup = addRoadsideInteractVisuals(seg, half, seg.userData.biome, k, s);
-    seg.userData.interactResolved = false;
+    seg.userData.interactSite = true;
+    configureInteractSite(seg, k, s);
     nearbyInteract = seg;
     const layout = layoutForSegment(seg);
     lane = requiredLaneForRoadside(seg, layout.count);
@@ -5062,38 +4818,6 @@ window.__endlessChase = {
     registerNearMiss(dummy);
     return {
       ok: true,
-      boostTimer: +boostTimer.toFixed(2),
-      boostMul: +boostMul.toFixed(2),
-    };
-  },
-  /** Test helper: fire OnMidRunOpportunity immediately (skips distance gate). */
-  debugTriggerMidRun: () => {
-    if (!running || !alive) return { ok: false, reason: "not-running" };
-    if (gasVisit) return { ok: false, reason: "at-pump" };
-    if (midRun) return { ok: false, reason: "already-open", phase: midRun.phase };
-    midRunTracker.setListening(false);
-    try {
-      window.dispatchEvent(new CustomEvent(MID_RUN_EVENT, {
-        detail: { distance, nextThreshold: midRunTracker.getNextThreshold(), event: MID_RUN_EVENT, debug: true },
-      }));
-    } catch { /* ignore */ }
-    beginMidRunOpportunity();
-    return {
-      ok: !!midRun,
-      phase: midRun?.phase || null,
-      policeDistance: +policeDistance.toFixed(1),
-      event: MID_RUN_EVENT,
-    };
-  },
-  /** Test helper: resolve open mid-run crime as success or fail. */
-  debugResolveMidRun: (outcome = "success") => {
-    if (!midRun) return { ok: false, reason: "no-midrun" };
-    completeMidRunCrime(outcome === "fail" ? "fail" : "success");
-    return {
-      ok: true,
-      policeDistance: +policeDistance.toFixed(1),
-      heat: +heat.toFixed(1),
-      coins: save.coins,
       boostTimer: +boostTimer.toFixed(2),
       boostMul: +boostMul.toFixed(2),
     };
