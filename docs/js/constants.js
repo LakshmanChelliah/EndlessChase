@@ -302,3 +302,29 @@ export function gasPoliceWindow(biome, heat) {
   const heatFactor = 1 - Math.min(1, heat / 100) * 0.48;
   return Math.max(1.55, base * heatFactor);
 }
+
+/**
+ * Mid-run ATM opportunity — distance gate, choice overlay, quick PIN puzzle.
+ * Event name matches Unity RiskReward.MidRunOpportunity.OnMidRunOpportunity.
+ */
+/** First opportunity rolls a threshold at or above this distance (meters) */
+export const MID_RUN_MIN_DISTANCE = 300;
+/** Random extra meters added when rolling the next threshold */
+export const MID_RUN_THRESHOLD_SPREAD = 220;
+/** Minimum meters between opportunities (overlap guard) */
+export const MID_RUN_COOLDOWN_METERS = 450;
+/** Choice overlay countdown (Smash ATM / Ignore) */
+export const MID_RUN_CHOICE_SECONDS = 3;
+/** Quick PIN puzzle time limit */
+export const MID_RUN_PUZZLE_SECONDS = 4;
+/** How many PIN pads the player must hit in order */
+export const MID_RUN_PUZZLE_STEPS = 3;
+/** Success payout */
+export const MID_RUN_BONUS_COINS = 500;
+/** Brief Speed Boost on ATM success */
+export const MID_RUN_SPEED_BOOST_MUL = 1.45;
+export const MID_RUN_SPEED_BOOST_DURATION = 3.25;
+/** Starting police gap (higher = farther); fail halves this */
+export const MID_RUN_POLICE_DISTANCE_START = 100;
+/** DOM / window CustomEvent name */
+export const MID_RUN_EVENT = "OnMidRunOpportunity";
