@@ -56,6 +56,22 @@ if (!howtoTitle || !/STEER/i.test(howtoTitle)) throw new Error("howto missing st
 await page.click("#btn-howto-skip");
 await page.waitForSelector("#panel-menu:not(.hidden)", { timeout: 3000 });
 
+// Menu easter egg: 5 taps on the BANK sign → 99999 coins
+const bankEgg = await page.evaluate(async () => {
+  const api = window.__endlessChase;
+  if (!api?.debugTapBankSign) return { ok: false, reason: "missing-debugTapBankSign" };
+  let last = null;
+  for (let i = 0; i < 5; i++) {
+    last = api.debugTapBankSign();
+    if (!last.ok) return { ok: false, reason: "tap-miss", i, last };
+    // Keep taps inside the easter-egg window without racing the rAF loop
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  const coins = api.getSave().coins;
+  return { ok: coins === 99999, coins, last };
+});
+if (!bankEgg.ok) throw new Error("bank sign easter egg failed: " + JSON.stringify(bankEgg));
+
 await page.click("#btn-play");
 // Boarding cue shows before HUD; allow skip via state or wait for HUD
 await page.waitForFunction(() => {

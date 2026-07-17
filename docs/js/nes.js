@@ -190,12 +190,16 @@ export function makeBankLandmark(tex) {
     ]
   );
   marquee.position.set(2.9, 3.55, 0);
+  marquee.name = "bankSignMarquee";
+  marquee.userData.bankSign = true;
   root.add(marquee);
 
   // Flat neon outline plane slightly in front for extra punch
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 1.05), signMat);
   sign.position.set(3.1, 3.55, 0);
   sign.rotation.y = Math.PI / 2;
+  sign.name = "bankSignFace";
+  sign.userData.bankSign = true;
   root.add(sign);
 
   // Gold "$" crest above the door — instant bank read
@@ -223,6 +227,8 @@ export function makeBankLandmark(tex) {
   );
   dollar.position.set(3.05, 2.85, 0);
   dollar.rotation.y = Math.PI / 2;
+  dollar.name = "bankSignDollar";
+  dollar.userData.bankSign = true;
   root.add(dollar);
 
   // Pediment bar under the marquee
