@@ -6,8 +6,8 @@
  * Invariants: NearestFilter + no mipmaps; segment length = SEG_LEN.
  */
 import * as THREE from "three";
-import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=32";
-import { pickTurnBiomes } from "./worldgen.js?v=24";
+import { ASSET, SEG_LEN, NES, BIOME_ATMOS, layoutFor } from "./constants.js?v=37";
+import { pickTurnBiomes } from "./worldgen.js?v=26";
 
 export function createTextures(loader = new THREE.TextureLoader()) {
   function loadTex(file, { repeatX = 1, repeatY = 1 } = {}) {
@@ -1211,6 +1211,148 @@ export function addGasStationVisuals(root, half, biome, side = 1) {
 }
 
 /**
+ * Subtle curb-side glow strip — signals an optional interact site.
+ * Setup: a thin unlit mesh named `interactGlow` (yellow/orange). Pulse alpha /
+ * brightness each frame via pulseInteractGlow — same idea as an emission flicker
+ * or a glowing sprite boundary, without needing a custom shader.
+ */
+function addInteractGlowStrip(parent, x, y, z, height = 2.4) {
+  const glow = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, height, 0.18),
+    new THREE.MeshBasicMaterial({
+      color: NES.yellow,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+    }),
+  );
+  glow.name = "interactGlow";
+  glow.position.set(x, y, z);
+  glow.userData.baseOpacity = 0.75;
+  parent.add(glow);
+  // Soft halo plate behind the strip
+  const halo = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, height * 0.85, 0.08),
+    new THREE.MeshBasicMaterial({
+      color: NES.orange,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    }),
+  );
+  halo.name = "interactGlowHalo";
+  halo.position.set(x, y, z - 0.12);
+  halo.userData.baseOpacity = 0.35;
+  parent.add(halo);
+  return glow;
+}
+
+/**
+ * Roadside ATM kiosk — optional mini-game site (never auto-starts).
+ * @param {1|-1} side
+ */
+export function addAtmVisuals(root, half, biome, side = 1) {
+  const group = new THREE.Group();
+  group.name = "atmSite";
+  group.userData.interactKind = "atm";
+  group.userData.interactSide = side;
+  const padX = half + (biome === "city" ? 4.8 : 4.2);
+
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 4.5), basicColor(0x3a3d48));
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.set(side * padX, 0.03, 0);
+  group.add(pad);
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.2, 1.0), basicColor(NES.navy));
+  body.position.set(side * padX, 1.1, 0);
+  group.add(body);
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.08), basicColor(NES.green));
+  screen.position.set(side * padX - side * 0.55, 1.45, 0.15);
+  group.add(screen);
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.08), basicColor(NES.black));
+  slot.position.set(side * padX - side * 0.55, 0.85, 0.15);
+  group.add(slot);
+
+  // Glow on the curb-facing edge of the ATM
+  addInteractGlowStrip(group, side * (half + 1.05), 1.3, 0, 2.6);
+
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.45, 0.12), basicColor(NES.yellow));
+  sign.position.set(side * padX, 2.45, 0);
+  group.add(sign);
+
+  root.add(group);
+  return group;
+}
+
+/**
+ * Convenience store facade — optional mini-game site.
+ * @param {1|-1} side
+ */
+export function addStoreVisuals(root, half, biome, side = 1) {
+  const group = new THREE.Group();
+  group.name = "storeSite";
+  group.userData.interactKind = "store";
+  group.userData.interactSide = side;
+  const padX = half + (biome === "city" ? 5.6 : 4.8);
+
+  const lot = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 8), basicColor(0x3a3d48));
+  lot.rotation.x = -Math.PI / 2;
+  lot.position.set(side * padX, 0.03, 0);
+  group.add(lot);
+
+  const building = new THREE.Mesh(new THREE.BoxGeometry(4.2, 3.2, 5.5), basicColor(NES.navy));
+  building.position.set(side * padX + side * 0.4, 1.6, 0);
+  group.add(building);
+  const awning = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.25, 1.2), basicColor(NES.red));
+  awning.position.set(side * padX - side * 0.9, 2.55, 0);
+  group.add(awning);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.0, 0.12), basicColor(0x4a90c8));
+  door.position.set(side * padX - side * 1.55, 1.0, 0.4);
+  group.add(door);
+  const window = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 0.1), basicColor(NES.yellow));
+  window.position.set(side * padX - side * 1.55, 1.6, -1.2);
+  group.add(window);
+
+  // Doorway glow — interactive cue on the curb side
+  addInteractGlowStrip(group, side * (half + 1.1), 1.2, 0.4, 2.2);
+
+  const board = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.7, 0.15), basicColor(NES.orange));
+  board.position.set(side * padX - side * 0.2, 3.4, 0);
+  group.add(board);
+
+  root.add(group);
+  return group;
+}
+
+/**
+ * @param {"atm"|"store"} kind
+ * @param {1|-1} side
+ */
+export function addRoadsideInteractVisuals(root, half, biome, kind, side = 1) {
+  return kind === "store"
+    ? addStoreVisuals(root, half, biome, side)
+    : addAtmVisuals(root, half, biome, side);
+}
+
+/**
+ * Pulse the yellow curb glow so optional sites read like a soft emission flicker.
+ * No custom shader required — MeshBasicMaterial opacity + color step.
+ */
+export function pulseInteractGlow(seg, timeSec) {
+  const group = seg.userData.interactGroup;
+  if (!group || seg.userData.interactResolved) return;
+  const pulse = 0.55 + 0.45 * Math.abs(Math.sin(timeSec * 4.2));
+  group.traverse((obj) => {
+    if (!obj.material || !obj.userData?.baseOpacity) return;
+    if (obj.name !== "interactGlow" && obj.name !== "interactGlowHalo") return;
+    obj.material.opacity = obj.userData.baseOpacity * pulse;
+    if (obj.name === "interactGlow") {
+      obj.material.color.setHex(pulse > 0.85 ? NES.white : NES.yellow);
+    }
+  });
+}
+
+/**
  * Flicker only the neon “GAS” text (color + glow opacity).
  */
 export function pulseGasSignFlicker(seg, timeSec) {
@@ -1253,7 +1395,7 @@ export function pulseGasSignFlicker(seg, timeSec) {
 /**
  * @param {object} tex texture atlas
  * @param {string} biome
- * @param {{intersection?:boolean,turnOffer?:boolean,onRamp?:boolean,gasStation?:boolean,distance?:number,widthOverride?:number,mixBiome?:string|null,seed?:number,transition?:boolean}} opts
+ * @param {{intersection?:boolean,turnOffer?:boolean,onRamp?:boolean,gasStation?:boolean,interactSite?:boolean,distance?:number,widthOverride?:number,mixBiome?:string|null,seed?:number,transition?:boolean}} opts
  */
 export function makeSegment(tex, biome, opts = {}) {
   const {
@@ -1261,6 +1403,7 @@ export function makeSegment(tex, biome, opts = {}) {
     turnOffer = false,
     onRamp = false,
     gasStation = false,
+    interactSite = false,
     gasSide: gasSideOpt = null,
     distance = 0,
     widthOverride = null,
@@ -1323,7 +1466,7 @@ export function makeSegment(tex, biome, opts = {}) {
         grass.rotation.x = -Math.PI / 2;
         grass.position.set(side * bermCenter, 0.02, zc);
         root.add(grass);
-        if (gasStation || patchLen < 3) continue;
+        if (gasStation || interactSite || patchLen < 3) continue;
         const pad = new THREE.Mesh(new THREE.PlaneGeometry(5, Math.min(5.5, patchLen - 0.5)), basicColor(0x4a5a38));
         pad.rotation.x = -Math.PI / 2;
         const houseX = side * (bermCenter + 0.5);
@@ -1357,7 +1500,7 @@ export function makeSegment(tex, biome, opts = {}) {
     }
   } else if (propBiome === "highway") {
     for (const side of [-1, 1]) {
-      if (gasStation) continue;
+      if (gasStation || interactSite) continue;
       for (const zc of patchCenters) {
         const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, patchLen), basicColor(0xc2c3c7));
         rail.position.set(side * (half + 0.5), 0.4, zc);
@@ -1404,7 +1547,7 @@ export function makeSegment(tex, biome, opts = {}) {
         walk.rotation.x = -Math.PI / 2;
         walk.position.set(side * walkCenter, 0.015, zc);
         root.add(walk);
-        if (gasStation || patchLen < 3.5) continue;
+        if (gasStation || interactSite || patchLen < 3.5) continue;
         // Pack 2–3 random facade variants along each curb (left & right)
         const slots = patchLen >= 14 ? 3 : patchLen >= 8 ? 2 : 1;
         const slotSpan = patchLen / slots;
@@ -1514,6 +1657,11 @@ export function makeSegment(tex, biome, opts = {}) {
     onRamp,
     gasStation,
     gasSide,
+    interactSite: !!interactSite,
+    interactKind: null,
+    interactSide: 1,
+    interactGroup: null,
+    interactResolved: false,
     transition,
     lightGroup,
     gasGroup,
