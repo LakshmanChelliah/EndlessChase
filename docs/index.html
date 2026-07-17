@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=31" />
+  <link rel="stylesheet" href="styles.css?v=32" />
 </head>
 <body>
   <div id="game-root">
@@ -127,6 +127,31 @@
         </div>
       </section>
 
+      <section id="panel-midrun" class="panel midrun-panel hidden" aria-modal="true" role="dialog" aria-labelledby="midrun-title">
+        <div class="midrun-shell" id="midrun-shell">
+          <div id="midrun-choice" class="midrun-choice">
+            <h2 id="midrun-title" class="midrun-title">ATM AHEAD</h2>
+            <p id="midrun-timer" class="midrun-timer" aria-live="polite">3.0</p>
+            <p class="midrun-hint">LANES LOCKED · ROAD KEEPS MOVING</p>
+            <div class="midrun-actions">
+              <button type="button" id="btn-midrun-smash" class="btn primary midrun-smash">Smash ATM</button>
+              <button type="button" id="btn-midrun-ignore" class="btn ghost midrun-ignore">Ignore</button>
+            </div>
+          </div>
+          <div id="midrun-puzzle" class="midrun-puzzle hidden">
+            <h2 class="midrun-title">CRACK PIN</h2>
+            <p id="midrun-puzzle-timer" class="midrun-timer" aria-live="polite">4.0</p>
+            <p id="midrun-puzzle-hint" class="midrun-hint">HIT THE FLASHING KEYS</p>
+            <div id="midrun-pin-row" class="midrun-pin-row" role="group" aria-label="ATM PIN pads">
+              <button type="button" id="btn-midrun-pad-L" class="btn midrun-pad" data-pad="L">←</button>
+              <button type="button" id="btn-midrun-pad-C" class="btn midrun-pad primary" data-pad="C">◆</button>
+              <button type="button" id="btn-midrun-pad-R" class="btn midrun-pad" data-pad="R">→</button>
+            </div>
+            <div id="midrun-pin-progress" class="midrun-pin-progress" aria-hidden="true"></div>
+          </div>
+        </div>
+      </section>
+
       <section id="panel-gameover" class="panel hidden">
         <h2 id="go-title">Busted!</h2>
         <p id="go-score">0 m</p>
@@ -186,6 +211,6 @@
     }
   }
   </script>
-  <script type="module" src="game.js?v=87"></script>
+  <script type="module" src="game.js?v=88"></script>
 </body>
 </html>
