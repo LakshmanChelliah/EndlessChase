@@ -643,7 +643,9 @@ function completeMidRunCrime(outcome) {
     runCoins += MID_RUN_BONUS_COINS;
     save.coins += MID_RUN_BONUS_COINS;
     writeSave(save);
-    noteMissionStat("coins", MID_RUN_BONUS_COINS);
+    // Wallet gets the full bonus; mission track counts a single pickup so one smash
+    // cannot cascade twenty coin-tier clears in one frame.
+    noteMissionStat("coins", 1);
     applySpeedBoost(MID_RUN_SPEED_BOOST_MUL, MID_RUN_SPEED_BOOST_DURATION);
     noteMissionStat("boosts", 1);
     if (hudBoost) {
