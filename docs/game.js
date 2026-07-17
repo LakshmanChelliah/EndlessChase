@@ -50,7 +50,7 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, lerpBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=51";
+} from "./js/nes.js?v=52";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
@@ -704,6 +704,16 @@ let intro = null;
 let boarding = null;
 /** @type {THREE.Group | null} */
 let bankLandmark = null;
+/** Menu easter egg: tap BANK sign this many times for a cash dump. */
+const BANK_SIGN_TAP_GOAL = 5;
+const BANK_SIGN_TAP_WINDOW_MS = 2200;
+const BANK_SIGN_EGG_COINS = 99999;
+let bankSignTaps = 0;
+let bankSignLastTapAt = 0;
+/** Seconds of bright sign flash after a successful egg grant (or per-tap nudge). */
+let bankSignFlash = 0;
+const _bankRaycaster = new THREE.Raycaster();
+const _bankPointerNdc = new THREE.Vector2();
 /** @type {THREE.Object3D[]} */
 let menuCrew = [];
 /** @type {THREE.Object3D[]} */
@@ -2498,6 +2508,52 @@ function spawnBankLandmark() {
   bankLandmark = makeBankLandmark(tex);
   bankLandmark.position.set(BANK_POS.x, 0, BANK_POS.z);
   scene.add(bankLandmark);
+  bankSignTaps = 0;
+  bankSignLastTapAt = 0;
+  bankSignFlash = 0;
+}
+
+function clientToCanvasNdc(clientX, clientY, out) {
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width || 1;
+  const h = rect.height || 1;
+  out.x = ((clientX - rect.left) / w) * 2 - 1;
+  out.y = -((clientY - rect.top) / h) * 2 + 1;
+  return out;
+}
+
+/** True when the pointer hits the BANK marquee / $ crest on the title street. */
+function hitBankSign(clientX, clientY) {
+  if (!bankLandmark || activePanelName !== "menu" || boarding || running) return false;
+  clientToCanvasNdc(clientX, clientY, _bankPointerNdc);
+  _bankRaycaster.setFromCamera(_bankPointerNdc, camera);
+  const hits = _bankRaycaster.intersectObject(bankLandmark, true);
+  for (const hit of hits) {
+    let obj = hit.object;
+    while (obj) {
+      if (obj.userData?.bankSign) return true;
+      obj = obj.parent;
+    }
+  }
+  return false;
+}
+
+/** Menu easter egg — 5 taps on the BANK sign dumps 99999 coins into the save. */
+function tryBankSignEasterEgg(clientX, clientY) {
+  if (!hitBankSign(clientX, clientY)) return false;
+  const now = performance.now();
+  if (now - bankSignLastTapAt > BANK_SIGN_TAP_WINDOW_MS) bankSignTaps = 0;
+  bankSignLastTapAt = now;
+  bankSignTaps += 1;
+  bankSignFlash = Math.max(bankSignFlash, 0.18);
+  playSfx(bankSignTaps >= BANK_SIGN_TAP_GOAL ? "coin" : "uiBlip");
+  if (bankSignTaps < BANK_SIGN_TAP_GOAL) return true;
+  bankSignTaps = 0;
+  save.coins = BANK_SIGN_EGG_COINS;
+  writeSave(save);
+  refreshCoinUI();
+  bankSignFlash = 1.2;
+  return true;
 }
 
 function bankDoorWorld() {
@@ -2573,7 +2629,12 @@ function updateBankAlarm(t, hot = false) {
     alarm.material.color.setHex(on ? NES.red : 0x0033ff);
   }
   if (signMat) {
-    signMat.opacity = hot ? (on ? 1 : 0.3) : (Math.sin(t * 3.2) > -0.2 ? 1 : 0.45);
+    if (bankSignFlash > 0) {
+      // Easter-egg / tap feedback — hold the marquee bright yellow
+      signMat.opacity = 0.55 + 0.45 * Math.abs(Math.sin(t * 28));
+    } else {
+      signMat.opacity = hot ? (on ? 1 : 0.3) : (Math.sin(t * 3.2) > -0.2 ? 1 : 0.45);
+    }
     signMat.transparent = true;
   }
   if (spill?.material) {
@@ -3244,9 +3305,10 @@ function pointerUp(x, y, id = 0) {
   const dy = y - start.y;
   const dt = performance.now() - start.t;
   const dist = Math.hypot(dx, dy);
-  // Tap (not swipe) — skip boarding only (gas stations use swipe-to-enter)
+  // Tap (not swipe) — skip boarding, or menu BANK-sign easter egg
   if (dist < MIN_SWIPE) {
     if (dt < TAP_MAX_MS && boarding) skipBoarding();
+    else if (dt < TAP_MAX_MS && activePanelName === "menu") tryBankSignEasterEgg(x, y);
     return;
   }
   // Swipe completed on release (threshold not hit during move, e.g. very fast flick)
@@ -4089,6 +4151,7 @@ function tick(now) {
     const driftZ = Math.sin(menuTime * 0.22) * 0.18;
     camera.position.set(_menuCamPos.x + driftX, _menuCamPos.y + driftY, _menuCamPos.z + driftZ);
     setCameraLook(_menuCamLook.x + driftX * 0.4, _menuCamLook.y, _menuCamLook.z + driftZ * 0.15);
+    if (bankSignFlash > 0) bankSignFlash = Math.max(0, bankSignFlash - dt);
     updateBankAlarm(menuTime, false);
     // Crew fidget outside the doors; loot bag twitches
     for (let i = 0; i < menuCrew.length; i++) {
@@ -4436,5 +4499,29 @@ window.__endlessChase = {
     gas = Math.max(0, Math.min(100, Number(pct) || 0));
     updateGasUI();
     return { gas, critical: gas < GAS_COLOR_LOW };
+  },
+  /**
+   * Test helper: project the BANK marquee to screen and register one easter-egg tap.
+   * Call 5× on the title menu to grant 99999 coins.
+   */
+  debugTapBankSign: () => {
+    if (!bankLandmark || activePanelName !== "menu" || boarding || running) {
+      return { ok: false, reason: "not-on-menu", taps: bankSignTaps, coins: save.coins };
+    }
+    const world = new THREE.Vector3(3.1, 3.55, 0);
+    bankLandmark.localToWorld(world);
+    world.project(camera);
+    const rect = canvas.getBoundingClientRect();
+    const x = (world.x * 0.5 + 0.5) * rect.width + rect.left;
+    const y = (-world.y * 0.5 + 0.5) * rect.height + rect.top;
+    const hit = tryBankSignEasterEgg(x, y);
+    return {
+      ok: hit,
+      taps: bankSignTaps,
+      coins: save.coins,
+      flash: +bankSignFlash.toFixed(2),
+      x: +x.toFixed(1),
+      y: +y.toFixed(1),
+    };
   },
 };
