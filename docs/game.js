@@ -4736,6 +4736,11 @@ window.__endlessChase = {
     if (gasVisit) return { ok: false, reason: "at-pump" };
     if (midRun) return { ok: false, reason: "already-open", phase: midRun.phase };
     midRunTracker.setListening(false);
+    try {
+      window.dispatchEvent(new CustomEvent(MID_RUN_EVENT, {
+        detail: { distance, nextThreshold: midRunTracker.getNextThreshold(), event: MID_RUN_EVENT, debug: true },
+      }));
+    } catch { /* ignore */ }
     beginMidRunOpportunity();
     return {
       ok: !!midRun,
