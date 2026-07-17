@@ -4515,6 +4515,13 @@ window.__endlessChase = {
     const x = (world.x * 0.5 + 0.5) * rect.width + rect.left;
     const y = (-world.y * 0.5 + 0.5) * rect.height + rect.top;
     const hit = tryBankSignEasterEgg(x, y);
-    return { ok: hit, taps: bankSignTaps, coins: save.coins, flash: +bankSignFlash.toFixed(2) };
+    return {
+      ok: hit,
+      taps: bankSignTaps,
+      coins: save.coins,
+      flash: +bankSignFlash.toFixed(2),
+      x: +x.toFixed(1),
+      y: +y.toFixed(1),
+    };
   },
 };
