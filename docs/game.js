@@ -588,10 +588,7 @@ function syncMidRunPadHighlight() {
 }
 
 function beginMidRunOpportunity() {
-  if (!running || !alive || gasVisit || midRun || boarding || intro) {
-    midRunTracker.setListening(true);
-    return;
-  }
+  if (midRun) return;
   midRun = { phase: "choice", timer: MID_RUN_CHOICE_SECONDS };
   if (midrunChoiceEl) midrunChoiceEl.classList.remove("hidden");
   if (midrunPuzzleEl) midrunPuzzleEl.classList.add("hidden");
@@ -3938,7 +3935,7 @@ function tick(now) {
     distance = playerZ;
 
     // Mid-run ATM opportunity: distance gate → OnMidRunOpportunity (lanes locked in UI)
-    if (!midRun && !bustPending) midRunTracker.update(distance);
+    if (!midRun && !bustPending && !boarding && !intro) midRunTracker.update(distance);
     updateMidRunOpportunity(dt);
 
     // Drain gas while moving; boost burns more, brake burns less
