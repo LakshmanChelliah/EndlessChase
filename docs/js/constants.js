@@ -287,6 +287,7 @@ export function poolKey(biome, kind) {
   if (kind === "T") return biome + "T";
   if (kind === "R") return biome + "R";
   if (kind === "G") return biome + "G";
+  if (kind === "M") return biome + "M";
   return biome;
 }
 
@@ -328,3 +329,24 @@ export const MID_RUN_SPEED_BOOST_DURATION = 3.25;
 export const MID_RUN_POLICE_DISTANCE_START = 100;
 /** DOM / window CustomEvent name */
 export const MID_RUN_EVENT = "OnMidRunOpportunity";
+
+/**
+ * Optional roadside mini-game sites (ATM / convenience store).
+ * Entering the zone only shows a prompt — never auto-starts.
+ */
+/** Segments between roadside interact sites */
+export const ROADSIDE_COOLDOWN_SEGS = 22;
+/** Scan ahead for an interact site (meters) */
+export const ROADSIDE_HUD_AHEAD = 26;
+/** Must be this close (and in curb lane) to use the site */
+export const ROADSIDE_INTERACT_RANGE = 14;
+/** Keyboard interact key (also accept Enter) */
+export const ROADSIDE_INTERACT_KEY = "f";
+/** Quick mini-game timer */
+export const ROADSIDE_PUZZLE_SECONDS = 4;
+export const ROADSIDE_PUZZLE_STEPS = 3;
+/** Success payouts */
+export const ROADSIDE_ATM_BONUS = 350;
+export const ROADSIDE_STORE_BONUS = 200;
+export const ROADSIDE_SPEED_BOOST_MUL = 1.3;
+export const ROADSIDE_SPEED_BOOST_DURATION = 2.4;

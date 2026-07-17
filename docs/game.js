@@ -31,12 +31,19 @@ import {
   MID_RUN_CHOICE_SECONDS, MID_RUN_PUZZLE_SECONDS, MID_RUN_PUZZLE_STEPS,
   MID_RUN_BONUS_COINS, MID_RUN_SPEED_BOOST_MUL, MID_RUN_SPEED_BOOST_DURATION,
   MID_RUN_POLICE_DISTANCE_START, MID_RUN_EVENT,
+  ROADSIDE_COOLDOWN_SEGS, ROADSIDE_INTERACT_RANGE, ROADSIDE_PUZZLE_SECONDS, ROADSIDE_PUZZLE_STEPS,
+  ROADSIDE_SPEED_BOOST_MUL, ROADSIDE_SPEED_BOOST_DURATION, ROADSIDE_INTERACT_KEY,
   difficulty01, trafficSpawnInterval, trafficOncomingChance, heatGraceFor, heatPressureMul,
   layoutFor, biomeLabel, poolKey,
-} from "./js/constants.js?v=36";
+} from "./js/constants.js?v=37";
 import {
   createMidRunTracker, applyCrimeFailPoliceClose, heatFloorFromPoliceDistance, rollAtmPinSequence,
 } from "./js/midRunOpportunity.js?v=1";
+import {
+  findNearbyRoadside, isInsideRoadsideZone, requiredLaneForRoadside,
+  roadsidePromptText, roadsideBonusCoins, roadsidePuzzleTitle,
+  swipeTowardRoadside, isRoadsideInteractKey, rollRoadsideKind,
+} from "./js/roadsideInteract.js?v=1";
 import {
   loadSave, writeSave, trySetHighScore, topSpeedFactor, accelFactor, handlingFactor, brakesFactor, costFor, tryUpgrade,
   tryBuyCar, selectCar, isUnlocked,
@@ -56,12 +63,13 @@ import {
   makeCone, makeBarricade, applyRoadTaper, resetRoadTaper, addGasStationVisuals,
   applyMixBiomeOverlay, clearMixBiomeOverlay, applyBiomeAtmosphere, lerpBiomeAtmosphere, makeDustMote,
   makeBankLandmark,
-} from "./js/nes.js?v=52";
+  addRoadsideInteractVisuals, pulseInteractGlow,
+} from "./js/nes.js?v=53";
 import { makeCrewMember, crewSeatWorld, animateCrew, makeLootBag } from "./js/crew.js?v=5";
 import {
   mulberry32, hash2, pickTurnBiomes, decideSegment, buildTransitionPlan,
   nearestUsableLane, getTransitionDef,
-} from "./js/worldgen.js?v=25";
+} from "./js/worldgen.js?v=26";
 import {
   unlockSirenAudio, resumeSirenAudio, startSiren, stopSiren, setSirenVolume,
   sirenLevelFromProximity, getSirenDebug,
@@ -153,6 +161,7 @@ const hudGasFill = document.getElementById("hud-gas-fill");
 const hudGasHint = document.getElementById("hud-gas-hint");
 const hudGasWarn = document.getElementById("hud-gas-warn");
 const hudStationFloat = document.getElementById("hud-station-float");
+const hudInteractFloat = document.getElementById("hud-interact-float");
 const hudMergeBtn = document.getElementById("hud-merge-btn");
 const hudTurn = document.getElementById("hud-turn");
 const hudLaneWarn = document.getElementById("hud-lane-warn");
@@ -671,6 +680,10 @@ function completeMidRunCrime(outcome) {
 }
 
 function onMidRunPad(pad) {
+  if (roadsideVisit) {
+    onRoadsidePad(pad);
+    return;
+  }
   if (!midRun || midRun.phase !== "puzzle") return;
   const want = midRun.pin[midRun.pinIndex];
   if (pad !== want) {
@@ -718,6 +731,7 @@ if (btnMidrunSmash) {
   btnMidrunSmash.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (roadsideVisit) return;
     smashAtmChoice();
   });
 }
@@ -725,6 +739,7 @@ if (btnMidrunIgnore) {
   btnMidrunIgnore.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (roadsideVisit) return;
     ignoreMidRunOpportunity();
   });
 }
@@ -995,9 +1010,24 @@ let slowTimer = 0;
 let turnCooldown = 4;
 let intersectionCooldown = 2;
 let gasCooldown = 12;
+let interactCooldown = 14;
 let turnActive = null;
 /** @type {null | { seg: object }} */
 let nearbyStation = null;
+/** @type {null | { seg: object }} */
+let nearbyInteract = null;
+/**
+ * Optional roadside mini-game visit (ATM / store). Movement paused; puzzle UI open.
+ * @type {null | {
+ *   kind: "atm"|"store",
+ *   seg: object,
+ *   phase: "puzzle",
+ *   timer: number,
+ *   pin: Array<"L"|"C"|"R">,
+ *   pinIndex: number,
+ * }}
+ */
+let roadsideVisit = null;
 /**
  * Gas visit state machine: pullIn → pumping → waitClear → pullOut (or bust).
  * @type {null | {
@@ -1069,6 +1099,7 @@ function segFactory(biome, kind) {
   if (kind === "T") opts.turnOffer = true;
   if (kind === "R") opts.onRamp = true;
   if (kind === "G") opts.gasStation = true;
+  if (kind === "M") opts.interactSite = true;
   const s = makeSegment(tex, biome, opts);
   scene.add(s);
   return s;
@@ -1080,16 +1111,19 @@ const segmentPool = {
   cityT: new Pool(() => segFactory("city", "T"), 1),
   cityR: new Pool(() => segFactory("city", "R"), 1),
   cityG: new Pool(() => segFactory("city", "G"), 1),
+  cityM: new Pool(() => segFactory("city", "M"), 1),
   rural: new Pool(() => segFactory("rural", ""), 3),
   ruralI: new Pool(() => segFactory("rural", "I"), 2),
   ruralT: new Pool(() => segFactory("rural", "T"), 1),
   ruralR: new Pool(() => segFactory("rural", "R"), 1),
   ruralG: new Pool(() => segFactory("rural", "G"), 1),
+  ruralM: new Pool(() => segFactory("rural", "M"), 1),
   highway: new Pool(() => segFactory("highway", ""), 3),
   highwayI: new Pool(() => segFactory("highway", "I"), 1),
   highwayT: new Pool(() => segFactory("highway", "T"), 1),
   highwayR: new Pool(() => segFactory("highway", "R"), 1),
   highwayG: new Pool(() => segFactory("highway", "G"), 1),
+  highwayM: new Pool(() => segFactory("highway", "M"), 1),
 };
 
 const coinPool = new Pool(() => { const c = makeCoin(tex); scene.add(c); return c; }, 10);
@@ -1705,6 +1739,7 @@ function recycleSegment(seg) {
   else if (seg.userData.onRamp) key = poolKey(b, "R");
   else if (seg.userData.intersection) key = poolKey(b, "I");
   else if (seg.userData.gasStation) key = poolKey(b, "G");
+  else if (seg.userData.interactSite) key = poolKey(b, "M");
   if (!segmentPool[key]) key = b;
   segmentPool[key].return(seg);
 }
@@ -1722,9 +1757,11 @@ function placeSegment(seg) {
   seg.userData.lightTimer = LIGHT_GREEN * (0.4 + Math.random() * 0.6);
   seg.userData.turnResolved = false;
   seg.userData.gasResolved = false;
+  seg.userData.interactResolved = false;
   if (seg.userData.lightGroup) updateLightVisual(seg);
   if (seg.userData.gantryGroup) seg.userData.gantryGroup.visible = false;
   if (seg.userData.gasStation) configureGasStationSide(seg);
+  if (seg.userData.interactSite) configureInteractSite(seg);
   seg.visible = true;
   seg.position.set(0, 0, nextSpawnZ + SEG_LEN / 2);
   configureGantry(seg);
@@ -1743,6 +1780,21 @@ function configureGasStationSide(seg) {
   const half = (seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
   seg.userData.gasSide = side;
   seg.userData.gasGroup = addGasStationVisuals(seg, half, seg.userData.biome, side);
+}
+
+/** Rebuild ATM / store visuals on a random curb side each spawn. */
+function configureInteractSite(seg, kindOverride = null) {
+  if (seg.userData.interactGroup) {
+    seg.remove(seg.userData.interactGroup);
+    seg.userData.interactGroup = null;
+  }
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const kind = kindOverride || rollRoadsideKind();
+  const half = (seg.userData.baseWidth || layoutFor(seg.userData.biome).width) / 2;
+  seg.userData.interactSide = side;
+  seg.userData.interactKind = kind;
+  seg.userData.interactResolved = false;
+  seg.userData.interactGroup = addRoadsideInteractVisuals(seg, half, seg.userData.biome, kind, side);
 }
 
 function spawnTransitionStep(plan) {
@@ -1788,7 +1840,7 @@ function spawnSegment() {
   const biome = activeBiome;
   const rng = mulberry32(hash2(spawnIndex, worldSeed ^ 0x9e3779b9));
   const decided = decideSegment(
-    biome, spawnIndex, turnCooldown, rng, intersectionCooldown, gasCooldown
+    biome, spawnIndex, turnCooldown, rng, intersectionCooldown, gasCooldown, interactCooldown
   );
   let kind = decided.kind;
 
@@ -1804,6 +1856,10 @@ function spawnSegment() {
   else if (gasCooldown > 0) gasCooldown--;
   // Keep stations away from turns/lights
   if ((kind === "T" || kind === "I") && gasCooldown < 3) gasCooldown = 3;
+
+  if (kind === "M") interactCooldown = ROADSIDE_COOLDOWN_SEGS;
+  else if (interactCooldown > 0) interactCooldown--;
+  if ((kind === "T" || kind === "I" || kind === "G") && interactCooldown < 3) interactCooldown = 3;
 
   const key = poolKey(biome, kind);
   const seg = segmentPool[key].rent();
@@ -2036,6 +2092,175 @@ function updateStationFloat(seg) {
   // Inverted steering: swipe left pulls right (into a right-side lot)
   hudStationFloat.textContent = side > 0 ? "SWIPE ← TO ENTER" : "SWIPE → TO ENTER";
   hudStationFloat.classList.remove("hidden");
+}
+
+function hideInteractFloat() {
+  if (hudInteractFloat) hudInteractFloat.classList.add("hidden");
+}
+
+/**
+ * Optional ATM/store prompt — shown only while inside the curb zone.
+ * Presence never starts the mini-game; F / curb swipe opts in.
+ */
+function updateInteractFloat(seg) {
+  if (!hudInteractFloat || !seg || gasVisit || roadsideVisit || midRun || seg.userData.interactResolved) {
+    hideInteractFloat();
+    return;
+  }
+  const layout = layoutForSegment(seg);
+  if (!isInsideRoadsideZone(seg, playerZ, lane, layout.count, ROADSIDE_INTERACT_RANGE)) {
+    hideInteractFloat();
+    return;
+  }
+  const side = seg.userData.interactSide < 0 ? -1 : 1;
+  const kind = seg.userData.interactKind === "store" ? "store" : "atm";
+  // Prefer swipe copy on coarse pointers; keyboard copy otherwise
+  const mobile = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  hudInteractFloat.textContent = roadsidePromptText(kind, side, {
+    keyLabel: ROADSIDE_INTERACT_KEY,
+    mobile,
+  });
+  hudInteractFloat.classList.remove("hidden");
+}
+
+/**
+ * Opt-in to the roadside mini-game. Pauses forward driving and opens the PIN /
+ * quick-grab puzzle UI (reuses mid-run puzzle chrome with a site-specific title).
+ */
+function beginRoadsideVisit(seg) {
+  if (!seg || !running || !alive || gasVisit || roadsideVisit || midRun) return false;
+  if (seg.userData.interactResolved) return false;
+  const layout = layoutForSegment(seg);
+  if (!isInsideRoadsideZone(seg, playerZ, lane, layout.count, ROADSIDE_INTERACT_RANGE)) return false;
+
+  const kind = seg.userData.interactKind === "store" ? "store" : "atm";
+  seg.userData.interactResolved = true;
+  nearbyInteract = null;
+  hideInteractFloat();
+  braking = true;
+  speed = 0;
+
+  const pin = rollAtmPinSequence(ROADSIDE_PUZZLE_STEPS);
+  roadsideVisit = {
+    kind,
+    seg,
+    phase: "puzzle",
+    timer: ROADSIDE_PUZZLE_SECONDS,
+    pin,
+    pinIndex: 0,
+  };
+
+  // Reuse mid-run puzzle panel chrome with site title
+  if (midrunChoiceEl) midrunChoiceEl.classList.add("hidden");
+  if (midrunPuzzleEl) midrunPuzzleEl.classList.remove("hidden");
+  const title = midrunPuzzleEl?.querySelector(".midrun-title");
+  if (title) title.textContent = roadsidePuzzleTitle(kind);
+  syncMidRunTimerLabel(midrunPuzzleTimerEl, roadsideVisit.timer);
+  // Temporarily mirror pin state into midRun-shaped highlight helpers
+  midRun = { phase: "puzzle", timer: roadsideVisit.timer, pin, pinIndex: 0 };
+  syncMidRunPadHighlight();
+  midRun = null;
+  showMidRunPanel(true);
+  playSfx("nearMiss");
+  triggerShake(0.1, 0.12);
+  return true;
+}
+
+function tryBeginRoadsideVisit(seg) {
+  return beginRoadsideVisit(seg || nearbyInteract);
+}
+
+/** Keyboard / explicit interact while inside the optional zone. */
+function tryRoadsideInteractKey() {
+  if (!running || !alive || gasVisit || roadsideVisit || midRun) return false;
+  const seg = nearbyInteract || findNearbyRoadside(activeSegments, playerZ);
+  if (!seg) return false;
+  return tryBeginRoadsideVisit(seg);
+}
+
+function trySwipeEnterRoadside(dir) {
+  if (!running || !alive || gasVisit || roadsideVisit || midRun) return false;
+  if (dir !== "left" && dir !== "right") return false;
+  const seg = nearbyInteract || findNearbyRoadside(activeSegments, playerZ);
+  if (!seg) return false;
+  const layout = layoutForSegment(seg);
+  if (!isInsideRoadsideZone(seg, playerZ, lane, layout.count, ROADSIDE_INTERACT_RANGE)) return false;
+  const side = seg.userData.interactSide < 0 ? -1 : 1;
+  if (!swipeTowardRoadside(dir, side)) return false;
+  return tryBeginRoadsideVisit(seg);
+}
+
+function syncRoadsidePadHighlight() {
+  if (!roadsideVisit) return;
+  midRun = {
+    phase: "puzzle",
+    timer: roadsideVisit.timer,
+    pin: roadsideVisit.pin,
+    pinIndex: roadsideVisit.pinIndex,
+  };
+  syncMidRunPadHighlight();
+  midRun = null;
+}
+
+function onRoadsidePad(pad) {
+  if (!roadsideVisit || roadsideVisit.phase !== "puzzle") return;
+  const want = roadsideVisit.pin[roadsideVisit.pinIndex];
+  if (pad !== want) {
+    completeRoadsideVisit("fail");
+    return;
+  }
+  roadsideVisit.pinIndex += 1;
+  syncRoadsidePadHighlight();
+  playSfx("nearMiss");
+  if (roadsideVisit.pinIndex >= roadsideVisit.pin.length) {
+    completeRoadsideVisit("success");
+  }
+}
+
+function completeRoadsideVisit(outcome) {
+  if (!roadsideVisit) return;
+  const kind = roadsideVisit.kind;
+  if (outcome === "success") {
+    const bonus = roadsideBonusCoins(kind);
+    runCoins += bonus;
+    save.coins += bonus;
+    writeSave(save);
+    noteMissionStat("coins", 1);
+    applySpeedBoost(ROADSIDE_SPEED_BOOST_MUL, ROADSIDE_SPEED_BOOST_DURATION);
+    if (hudBoost) {
+      hudBoost.textContent = "SPEED BOOST";
+      hudBoost.classList.remove("brake-mode", "hidden");
+    }
+    playSfx("boost");
+    playSfx("coin");
+    triggerFlash("boost");
+    triggerShake(0.18, 0.16);
+    setSpeedlines(true);
+  } else {
+    heat = Math.min(100, heat + 18 * heatPressureMul(distance));
+    updateHeatUI();
+    playSfx("gasCritical");
+    triggerFlash("bust");
+    triggerShake(0.2, 0.18);
+  }
+  endRoadsideVisit();
+}
+
+function endRoadsideVisit() {
+  roadsideVisit = null;
+  clearMidRunUi();
+  // Restore default puzzle title for mid-run ATM modal
+  const title = midrunPuzzleEl?.querySelector(".midrun-title");
+  if (title) title.textContent = "CRACK PIN";
+  braking = false;
+  keysBrake = false;
+}
+
+function updateRoadsideVisit(dt) {
+  if (!roadsideVisit || !alive) return;
+  roadsideVisit.timer -= dt;
+  syncMidRunTimerLabel(midrunPuzzleTimerEl, roadsideVisit.timer);
+  if (roadsideVisit.timer <= 0) completeRoadsideVisit("fail");
 }
 
 function findInteractableStation() {
@@ -2398,7 +2623,7 @@ function tryBeginGasVisit(seg) {
  * Returns true when the gesture was consumed (enter or blocked).
  */
 function trySwipeEnterGas(dir) {
-  if (!running || !alive || gasVisit) return false;
+  if (!running || !alive || gasVisit || roadsideVisit) return false;
   if (dir !== "left" && dir !== "right") return false;
   const seg = nearbyStation || findInteractableStation();
   if (!seg) return false;
@@ -2643,6 +2868,9 @@ function endRun(reason) {
   gasVisit = null;
   showPumpPanel(false);
   midRun = null;
+  roadsideVisit = null;
+  nearbyInteract = null;
+  hideInteractFloat();
   clearMidRunUi();
   midRunTracker.reset();
   hideMergeBtn();
@@ -3006,9 +3234,14 @@ function resetRunState() {
   turnCooldown = 10;
   intersectionCooldown = 6;
   gasCooldown = 18;
+  interactCooldown = 20;
   turnActive = null;
   nearbyStation = null;
+  nearbyInteract = null;
   gasVisit = null;
+  roadsideVisit = null;
+  hideInteractFloat();
+  clearMidRunUi();
   gasHintTimer = 0;
   turnYaw = 0;
   turnYawVel = 0;
@@ -3050,6 +3283,7 @@ function startRun(opts = {}) {
     hudCoins.textContent = `$${save.coins}`;
     if (hudTurn) hudTurn.classList.add("hidden");
     hideStationFloat();
+    hideInteractFloat();
     hideGasHint();
     if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
     if (hudGasWarn) hudGasWarn.classList.add("hidden");
@@ -3119,9 +3353,14 @@ function prepareRunFromMenu() {
   turnCooldown = 10;
   intersectionCooldown = 6;
   gasCooldown = 18;
+  interactCooldown = 20;
   turnActive = null;
   nearbyStation = null;
+  nearbyInteract = null;
   gasVisit = null;
+  roadsideVisit = null;
+  hideInteractFloat();
+  clearMidRunUi();
   gasHintTimer = 0;
   turnYaw = 0;
   turnYawVel = 0;
@@ -3172,6 +3411,7 @@ function prepareRunFromMenu() {
   camFovTarget = 72;
   if (hudTurn) hudTurn.classList.add("hidden");
   hideStationFloat();
+  hideInteractFloat();
   hideGasHint();
   if (hudLaneWarn) hudLaneWarn.classList.add("hidden");
   if (hudGasWarn) hudGasWarn.classList.add("hidden");
@@ -3480,7 +3720,7 @@ function updateIntro(dt) {
 }
 
 function onSwipe(dir) {
-  if (!alive || gasVisit) return;
+  if (!alive || gasVisit || roadsideVisit) return;
   if (!running) {
     // Boarding: any gesture skips to curb pull-out
     if (boarding) {
@@ -3506,6 +3746,8 @@ function onSwipe(dir) {
   const { layout, usable } = playerControlLayout();
   // Inverted side-to-side: swipe left → move right lane, swipe right → move left
   if (dir === "left" || dir === "right") {
+    // Optional ATM/store curb swipe (does not auto-start on zone enter)
+    if (trySwipeEnterRoadside(dir)) return;
     // Curb-lane swipe toward a station pulls in (replaces tap-to-enter)
     if (trySwipeEnterGas(dir)) return;
     const delta = dir === "left" ? 1 : -1;
@@ -3666,6 +3908,13 @@ function gameKey(e) {
 
 window.addEventListener("keydown", (e) => {
   const key = gameKey(e);
+  if (roadsideVisit?.phase === "puzzle") {
+    e.preventDefault();
+    if (key === "a" || key === "ArrowLeft") onRoadsidePad("L");
+    else if (key === "d" || key === "ArrowRight") onRoadsidePad("R");
+    else if (key === "w" || key === "ArrowUp" || key === " " || key === "Enter" || key === "f") onRoadsidePad("C");
+    return;
+  }
   if (midRun?.phase === "choice") {
     if (key === " " || key === "Enter" || key === "f") {
       e.preventDefault();
@@ -3705,6 +3954,11 @@ window.addEventListener("keydown", (e) => {
       e.preventDefault();
       skipBoarding();
     }
+    return;
+  }
+  // Optional roadside interact — F / Enter while inside the curb zone
+  if (isRoadsideInteractKey(key) && tryRoadsideInteractKey()) {
+    e.preventDefault();
     return;
   }
   // Ignore OS key-repeat so held A/D does not skip lanes
@@ -3911,10 +4165,15 @@ function tick(now) {
     if (gasHintTimer <= 0) hideGasHint();
   }
 
+  const atRoadside = !!(roadsideVisit && alive);
   const atPump = !!(gasVisit && alive);
-  const driving = !!(running && alive && !gasVisit);
+  const driving = !!(running && alive && !gasVisit && !roadsideVisit);
 
-  if (atPump) {
+  if (atRoadside) {
+    updateRoadsideVisit(dt);
+    setBrakeLights(player, true);
+    player.position.set(laneX, 0, playerZ);
+  } else if (atPump) {
     updateGasVisit(dt);
     setBrakeLights(player, false);
   } else if (driving) {
@@ -4084,6 +4343,18 @@ function tick(now) {
           if (nearbyStation === seg) {
             nearbyStation = null;
             hideStationFloat();
+          }
+        }
+      }
+
+      if (seg.userData.interactSite && !seg.userData.interactResolved && !roadsideVisit) {
+        pulseInteractGlow(seg, now / 1000);
+        const aheadDz = seg.position.z - playerZ;
+        if (aheadDz < -2) {
+          seg.userData.interactResolved = true;
+          if (nearbyInteract === seg) {
+            nearbyInteract = null;
+            hideInteractFloat();
           }
         }
       }
@@ -4392,13 +4663,19 @@ function tick(now) {
       hudBoost.classList.toggle("hidden", boostTimer <= 0 || !!gasVisit);
     }
 
-    if (!gasVisit) {
+    if (!gasVisit && !roadsideVisit) {
       const station = findInteractableStation();
       nearbyStation = station || null;
       if (nearbyStation) updateStationFloat(nearbyStation);
       else hideStationFloat();
+
+      const site = findNearbyRoadside(activeSegments, playerZ);
+      nearbyInteract = site || null;
+      if (nearbyInteract) updateInteractFloat(nearbyInteract);
+      else hideInteractFloat();
     } else {
       hideStationFloat();
+      hideInteractFloat();
     }
   } else if (boarding) {
     updateBoarding(dt);
@@ -4513,7 +4790,17 @@ window.__endlessChase = {
     controlUsable: playerControlLayout().usable.slice(),
     biome: activeBiome, heat, policeDistance: +policeDistance.toFixed(1), gas, braking, coins: save.coins, highScore: save.highScore | 0,
     nearbyStation: !!nearbyStation,
+    nearbyInteract: nearbyInteract ? {
+      kind: nearbyInteract.userData.interactKind || "atm",
+      side: nearbyInteract.userData.interactSide < 0 ? -1 : 1,
+      resolved: !!nearbyInteract.userData.interactResolved,
+    } : null,
     gasVisit: gasVisit ? { phase: gasVisit.phase, holding: gasVisit.holding, requiredLane: gasVisit.requiredLane } : null,
+    roadsideVisit: roadsideVisit ? {
+      kind: roadsideVisit.kind,
+      timer: +roadsideVisit.timer.toFixed(2),
+      pinIndex: roadsideVisit.pinIndex | 0,
+    } : null,
     midRun: midRun ? {
       phase: midRun.phase,
       timer: +midRun.timer.toFixed(2),
@@ -4721,6 +5008,53 @@ window.__endlessChase = {
       timer: seg.userData.lightTimer,
       z: +seg.position.z.toFixed(1),
     };
+  },
+  /** Test helper: force a roadside ATM/store site ahead and optionally enter it. */
+  debugSpawnRoadside: (kind = "atm", side = 1) => {
+    let seg = activeSegments.find((s) => !s.userData.gasStation && !s.userData.intersection && !s.userData.turnOffer && s.position.z > playerZ + 4);
+    if (!seg) return { ok: false, reason: "no-segment" };
+    if (seg.userData.interactGroup) {
+      seg.remove(seg.userData.interactGroup);
+      seg.userData.interactGroup = null;
+    }
+    seg.userData.interactSite = true;
+    const half = (seg.userData.baseWidth || layoutForSegment(seg).width) / 2;
+    const s = side < 0 ? -1 : 1;
+    const k = kind === "store" ? "store" : "atm";
+    configureInteractSite(seg, k);
+    seg.userData.interactSide = s;
+    // Rebuild with forced side
+    if (seg.userData.interactGroup) {
+      seg.remove(seg.userData.interactGroup);
+    }
+    seg.userData.interactGroup = addRoadsideInteractVisuals(seg, half, seg.userData.biome, k, s);
+    seg.userData.interactResolved = false;
+    nearbyInteract = seg;
+    const layout = layoutForSegment(seg);
+    lane = requiredLaneForRoadside(seg, layout.count);
+    laneTargetX = layout.xs[lane];
+    laneX = laneTargetX;
+    playerZ = seg.position.z;
+    distance = playerZ;
+    updateInteractFloat(seg);
+    return {
+      ok: true,
+      kind: k,
+      side: s,
+      z: +seg.position.z.toFixed(1),
+      requiredLane: lane,
+    };
+  },
+  debugEnterRoadside: () => {
+    const seg = nearbyInteract || findNearbyRoadside(activeSegments, playerZ);
+    if (!seg) return { ok: false, reason: "no-site" };
+    const ok = tryBeginRoadsideVisit(seg);
+    return { ok, kind: roadsideVisit?.kind || null };
+  },
+  debugResolveRoadside: (outcome = "success") => {
+    if (!roadsideVisit) return { ok: false, reason: "no-visit" };
+    completeRoadsideVisit(outcome === "fail" ? "fail" : "success");
+    return { ok: true, coins: save.coins, boostTimer: +boostTimer.toFixed(2) };
   },
   /** Test helper: force a near-miss boost as if traffic was grazed. */
   debugNearMissBoost: () => {

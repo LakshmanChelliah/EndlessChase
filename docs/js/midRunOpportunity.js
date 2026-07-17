@@ -14,7 +14,7 @@ import {
   MID_RUN_COOLDOWN_METERS,
   MID_RUN_EVENT,
   MID_RUN_POLICE_DISTANCE_START,
-} from "./constants.js?v=36";
+} from "./constants.js?v=37";
 
 /** @param {number} minFloor */
 function rollThreshold(minFloor) {

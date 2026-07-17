@@ -5,7 +5,7 @@
  * and gas spacing stay varied without true chaos. Turn offers are city ↔ rural;
  * highway waits on a proper on-ramp flow. Transition plans taper usable lanes.
  */
-import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=32";
+import { BIOMES, TRANSITIONS, layoutFor } from "./constants.js?v=37";
 
 /** Mulberry32 — tiny deterministic PRNG */
 export function mulberry32(seed) {
@@ -41,9 +41,10 @@ export function pickTurnBiomes(from, _distance = 0, _rng = Math.random) {
 
 /**
  * Decide what kind of segment to spawn for a given index.
- * Returns { kind: ""|"I"|"T"|"R"|"G", reason }
+ * Returns { kind: ""|"I"|"T"|"R"|"G"|"M", reason }
  * @param {number} [intersectionCooldown=0] remaining segments before another light may spawn
  * @param {number} [gasCooldown=0] remaining segments before another gas station may spawn
+ * @param {number} [interactCooldown=0] remaining segments before another ATM/store site
  */
 export function decideSegment(
   biome,
@@ -51,7 +52,8 @@ export function decideSegment(
   turnCooldown,
   rng,
   intersectionCooldown = 0,
-  gasCooldown = 0
+  gasCooldown = 0,
+  interactCooldown = 0
 ) {
   // Quiet opening stretch (~160 m) so new runs teach steering before events
   if (spawnIndex < 8) return { kind: "", reason: "intro" };
@@ -66,6 +68,12 @@ export function decideSegment(
     if (rng() < gChance * eventMul) return { kind: "G", reason: "gas" };
   }
 
+  // Optional ATM / convenience store — never auto-starts; curb opt-in only
+  if (interactCooldown <= 0 && spawnIndex > 18) {
+    const mChance = biome === "city" ? 0.11 : biome === "rural" ? 0.08 : 0.05;
+    if (rng() < mChance * eventMul) return { kind: "M", reason: "interact" };
+  }
+
   // Turn offers — less frequent so each biome stretch feels substantial
   if (turnCooldown <= 0 && spawnIndex > 16) {
     const base = biome === "highway" ? 0.12 : 0.16;
@@ -78,7 +86,7 @@ export function decideSegment(
   const iChance = biome === "city" ? 0.14 : biome === "rural" ? 0.1 : 0.05;
   if (spawnIndex > 8 && rng() < iChance * eventMul) return { kind: "I", reason: "light" };
 
-  return { kind: "", reason: "straight" };
+  return { kind: "", reason: "plain" };
 }
 
 /** @param {string} from @param {string} to */
